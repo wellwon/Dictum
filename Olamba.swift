@@ -30,11 +30,17 @@ class HistoryManager: ObservableObject {
         }
     }
 
-    func getHistoryItems(limit: Int = 10, searchQuery: String = "") -> [HistoryItem] {
-        let items = searchQuery.isEmpty
-            ? Array(history.prefix(limit))
-            : history.filter { $0.text.lowercased().contains(searchQuery.lowercased()) }
-        return items
+    func getHistoryItems(limit: Int = 50, searchQuery: String = "") -> [HistoryItem] {
+        if searchQuery.isEmpty {
+            return Array(history.prefix(limit))
+        } else {
+            let filtered = history.filter { $0.text.lowercased().contains(searchQuery.lowercased()) }
+            return Array(filtered.prefix(limit))
+        }
+    }
+
+    func getHistoryCount() -> Int {
+        return history.count
     }
 
     private func loadHistory() {
@@ -90,6 +96,59 @@ struct HistoryItem: Codable, Identifiable, Equatable {
     }
 }
 
+// MARK: - Hotkey Configuration
+struct HotkeyConfig: Codable, Equatable {
+    var keyCode: UInt16
+    var modifiers: UInt32  // Carbon modifiers
+
+    // Отображаемое имя клавиши
+    var keyName: String {
+        switch keyCode {
+        case 10: return "§"
+        case 50: return "`"
+        case 49: return "Space"
+        case 36: return "Return"
+        case 53: return "Esc"
+        default:
+            if let char = keyCodeToChar(keyCode) {
+                return String(char).uppercased()
+            }
+            return "Key \(keyCode)"
+        }
+    }
+
+    var modifierNames: String {
+        var names: [String] = []
+        if modifiers & UInt32(cmdKey) != 0 { names.append("⌘") }
+        if modifiers & UInt32(shiftKey) != 0 { names.append("⇧") }
+        if modifiers & UInt32(optionKey) != 0 { names.append("⌥") }
+        if modifiers & UInt32(controlKey) != 0 { names.append("⌃") }
+        return names.joined()
+    }
+
+    var displayString: String {
+        if modifiers == 0 {
+            return keyName
+        }
+        return modifierNames + keyName
+    }
+
+    private func keyCodeToChar(_ code: UInt16) -> Character? {
+        let keyMap: [UInt16: Character] = [
+            0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X",
+            8: "C", 9: "V", 11: "B", 12: "Q", 13: "W", 14: "E", 15: "R",
+            16: "Y", 17: "T", 18: "1", 19: "2", 20: "3", 21: "4", 22: "6",
+            23: "5", 24: "=", 25: "9", 26: "7", 27: "-", 28: "8", 29: "0",
+            30: "]", 31: "O", 32: "U", 33: "[", 34: "I", 35: "P", 37: "L",
+            38: "J", 39: "'", 40: "K", 41: ";", 42: "\\", 43: ",", 44: "/",
+            45: "N", 46: "M", 47: "."
+        ]
+        return keyMap[code]
+    }
+
+    static let defaultToggle = HotkeyConfig(keyCode: 10, modifiers: 0) // § без модификаторов
+}
+
 // MARK: - Settings Manager
 class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
@@ -106,12 +165,29 @@ class SettingsManager: ObservableObject {
     @Published var preferredLanguage: String {
         didSet { UserDefaults.standard.set(preferredLanguage, forKey: "settings.preferredLanguage") }
     }
+    @Published var toggleHotkey: HotkeyConfig {
+        didSet { saveHotkey() }
+    }
 
     init() {
         self.hotkeyEnabled = UserDefaults.standard.object(forKey: "settings.hotkeyEnabled") as? Bool ?? true
         self.soundEnabled = UserDefaults.standard.object(forKey: "settings.soundEnabled") as? Bool ?? true
         self.backendAPIURL = UserDefaults.standard.string(forKey: "settings.backendAPIURL") ?? "http://localhost:8000"
         self.preferredLanguage = UserDefaults.standard.string(forKey: "settings.preferredLanguage") ?? "ru"
+
+        // Загружаем хоткей
+        if let data = UserDefaults.standard.data(forKey: "settings.toggleHotkey"),
+           let hotkey = try? JSONDecoder().decode(HotkeyConfig.self, from: data) {
+            self.toggleHotkey = hotkey
+        } else {
+            self.toggleHotkey = HotkeyConfig.defaultToggle
+        }
+    }
+
+    private func saveHotkey() {
+        if let data = try? JSONEncoder().encode(toggleHotkey) {
+            UserDefaults.standard.set(data, forKey: "settings.toggleHotkey")
+        }
     }
 }
 
@@ -119,14 +195,40 @@ class SettingsManager: ObservableObject {
 class SoundManager {
     static let shared = SoundManager()
 
+    // Предзагруженные звуки для мгновенного воспроизведения
+    private var openSound: NSSound?
+    private var closeSound: NSSound?
+    private var copySound: NSSound?
+
+    init() {
+        // Загружаем звуки заранее - более басовитые
+        openSound = NSSound(named: "Basso")      // Глубокий басовый звук
+        closeSound = NSSound(named: "Funk")      // Funkу звук для закрытия
+        copySound = NSSound(named: "Hero")       // Героический звук для отправки
+
+        // Устанавливаем громкость
+        openSound?.volume = 0.4
+        closeSound?.volume = 0.3
+        copySound?.volume = 0.5
+    }
+
     func playOpenSound() {
         guard SettingsManager.shared.soundEnabled else { return }
-        NSSound(named: "Pop")?.play()
+        // Останавливаем если играет, чтобы можно было повторно воспроизвести
+        openSound?.stop()
+        openSound?.play()
+    }
+
+    func playCloseSound() {
+        guard SettingsManager.shared.soundEnabled else { return }
+        closeSound?.stop()
+        closeSound?.play()
     }
 
     func playCopySound() {
         guard SettingsManager.shared.soundEnabled else { return }
-        NSSound(named: "Tink")?.play()
+        copySound?.stop()
+        copySound?.play()
     }
 }
 
@@ -311,6 +413,12 @@ struct InputModalView: View {
     @State private var showHistory: Bool = false
     @State private var searchQuery: String = ""
     @State private var historyItems: [HistoryItem] = []
+    @State private var textEditorHeight: CGFloat = 40
+
+    // Максимум 30 строк (~600px), минимум 40px
+    private let lineHeight: CGFloat = 20
+    private let maxLines: Int = 30
+    private var maxTextHeight: CGFloat { CGFloat(maxLines) * lineHeight }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -327,16 +435,23 @@ struct InputModalView: View {
                 }
 
                 VStack(spacing: 0) {
-                    // Поле ввода
+                    // Поле ввода с динамической высотой
                     ZStack(alignment: .topLeading) {
-                        CustomTextEditor(text: $inputText, onSubmit: submitText)
-                            .font(.system(size: 16, weight: .regular))
-                            .frame(minHeight: 40, maxHeight: 400)
-                            .padding(.leading, 20)
-                            .padding(.trailing, 20)
-                            .padding(.top, 18)
-                            .padding(.bottom, 12)
-                            .background(Color.clear)
+                        CustomTextEditor(
+                            text: $inputText,
+                            onSubmit: submitText,
+                            onHeightChange: { height in
+                                // Ограничиваем высоту до 30 строк
+                                textEditorHeight = min(max(40, height), maxTextHeight)
+                            }
+                        )
+                        .font(.system(size: 16, weight: .regular))
+                        .frame(height: textEditorHeight)
+                        .padding(.leading, 20)
+                        .padding(.trailing, 20)
+                        .padding(.top, 18)
+                        .padding(.bottom, 12)
+                        .background(Color.clear)
 
                         if inputText.isEmpty {
                             Text("Введите текст...")
@@ -503,9 +618,10 @@ struct InputModalView: View {
         .shadow(color: .black.opacity(0.65), radius: 27, x: 0, y: 24)
         .frame(width: 680)
         .onAppear {
-            inputText = ""
-            showHistory = false
-            searchQuery = ""
+            resetView()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .resetInputView)) { _ in
+            resetView()
         }
         .onChange(of: audioManager.transcriptionResult) { newValue in
             if let transcription = newValue {
@@ -520,12 +636,20 @@ struct InputModalView: View {
         }
     }
 
+    private func resetView() {
+        inputText = ""
+        showHistory = false
+        searchQuery = ""
+        historyItems = []
+        textEditorHeight = 40
+    }
+
     private func loadHistory(searchQuery: String) {
         guard let manager = HistoryManager.shared else {
             historyItems = []
             return
         }
-        historyItems = manager.getHistoryItems(limit: 10, searchQuery: searchQuery)
+        historyItems = manager.getHistoryItems(limit: 50, searchQuery: searchQuery)
     }
 
     private func submitText() {
@@ -604,7 +728,7 @@ struct HistoryListView: View {
             .padding(.top, 10)
             .padding(.bottom, 5)
 
-            // Результаты
+            // Результаты (10 видимых строк, прокрутка до 50)
             if items.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: searchQuery.isEmpty ? "clock" : "magnifyingglass")
@@ -614,10 +738,10 @@ struct HistoryListView: View {
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
                 }
-                .padding(40)
+                .frame(height: 120)
             } else {
                 ScrollView {
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         ForEach(items) { item in
                             HistoryRowView(item: item, onTap: {
                                 onSelect(item)
@@ -625,7 +749,7 @@ struct HistoryListView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 300)
+                .frame(height: min(CGFloat(items.count) * 44, 10 * 44)) // max 10 строк видно
                 .padding(.bottom, 8)
             }
         }
@@ -706,6 +830,7 @@ struct VoiceOverlayView: View {
 struct CustomTextEditor: NSViewRepresentable {
     @Binding var text: String
     var onSubmit: () -> Void
+    var onHeightChange: ((CGFloat) -> Void)?
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
@@ -721,9 +846,14 @@ struct CustomTextEditor: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.textContainerInset = NSSize(width: 0, height: 0)
         textView.textContainer?.lineFragmentPadding = 0
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.textContainer?.widthTracksTextView = true
 
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
 
         return scrollView
     }
@@ -732,8 +862,13 @@ struct CustomTextEditor: NSViewRepresentable {
         let textView = nsView.documentView as! NSTextView
         if textView.string != text {
             textView.string = text
+            // Пересчитываем высоту при изменении текста извне
+            DispatchQueue.main.async {
+                context.coordinator.updateHeight(textView)
+            }
         }
         context.coordinator.onSubmit = onSubmit
+        context.coordinator.onHeightChange = onHeightChange
     }
 
     func makeCoordinator() -> Coordinator {
@@ -743,30 +878,31 @@ struct CustomTextEditor: NSViewRepresentable {
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: CustomTextEditor
         var onSubmit: () -> Void
+        var onHeightChange: ((CGFloat) -> Void)?
 
         init(_ parent: CustomTextEditor) {
             self.parent = parent
             self.onSubmit = parent.onSubmit
+            self.onHeightChange = parent.onHeightChange
+        }
+
+        func updateHeight(_ textView: NSTextView) {
+            guard let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer else { return }
+
+            layoutManager.ensureLayout(for: textContainer)
+            let usedRect = layoutManager.usedRect(for: textContainer)
+            let newHeight = max(40, usedRect.height + 10) // +10 для padding
+
+            onHeightChange?(newHeight)
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             DispatchQueue.main.async {
                 self.parent.text = textView.string
+                self.updateHeight(textView)
             }
-        }
-
-        // Перехватываем ввод символов § и ` для хоткея
-        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
-            guard let str = replacementString else { return true }
-
-            // Проверяем § или ` - это хоткеи для закрытия
-            if str == "§" || str == "`" {
-                NSApp.keyWindow?.close()
-                return false
-            }
-
-            return true
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -927,6 +1063,64 @@ class LaunchAtLoginManager {
 extension Notification.Name {
     static let openSettings = Notification.Name("openSettings")
     static let toggleWindow = Notification.Name("toggleWindow")
+    static let resetInputView = Notification.Name("resetInputView")
+    static let hotkeyChanged = Notification.Name("hotkeyChanged")
+}
+
+// MARK: - Hotkey Recorder View
+struct HotkeyRecorderView: NSViewRepresentable {
+    @Binding var hotkey: HotkeyConfig
+    @Binding var isRecording: Bool
+
+    func makeNSView(context: Context) -> HotkeyRecorderNSView {
+        let view = HotkeyRecorderNSView()
+        view.onHotkeyRecorded = { keyCode, modifiers in
+            DispatchQueue.main.async {
+                self.hotkey = HotkeyConfig(keyCode: keyCode, modifiers: modifiers)
+                self.isRecording = false
+            }
+        }
+        view.onCancel = {
+            DispatchQueue.main.async {
+                self.isRecording = false
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: HotkeyRecorderNSView, context: Context) {
+        nsView.isRecording = isRecording
+    }
+}
+
+class HotkeyRecorderNSView: NSView {
+    var isRecording = false
+    var onHotkeyRecorded: ((UInt16, UInt32) -> Void)?
+    var onCancel: (() -> Void)?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        guard isRecording else {
+            super.keyDown(with: event)
+            return
+        }
+
+        // Esc отменяет запись
+        if event.keyCode == 53 {
+            onCancel?()
+            return
+        }
+
+        // Конвертируем NSEvent модификаторы в Carbon модификаторы
+        var carbonMods: UInt32 = 0
+        if event.modifierFlags.contains(.command) { carbonMods |= UInt32(cmdKey) }
+        if event.modifierFlags.contains(.shift) { carbonMods |= UInt32(shiftKey) }
+        if event.modifierFlags.contains(.option) { carbonMods |= UInt32(optionKey) }
+        if event.modifierFlags.contains(.control) { carbonMods |= UInt32(controlKey) }
+
+        onHotkeyRecorded?(event.keyCode, carbonMods)
+    }
 }
 
 // MARK: - Settings View
@@ -934,6 +1128,8 @@ struct SettingsView: View {
     @State private var launchAtLogin: Bool = LaunchAtLoginManager.shared.isEnabled
     @State private var soundEnabled: Bool = SettingsManager.shared.soundEnabled
     @State private var hasAccessibility: Bool = AccessibilityHelper.checkAccessibility()
+    @State private var currentHotkey: HotkeyConfig = SettingsManager.shared.toggleHotkey
+    @State private var isRecordingHotkey: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1017,14 +1213,72 @@ struct SettingsView: View {
 
                     // Секция: Горячие клавиши
                     SettingsSection(title: "ГОРЯЧИЕ КЛАВИШИ") {
-                        VStack(spacing: 12) {
-                            HotkeyRow(action: "Открыть/закрыть окно", keys: ["§", "или", "`"], note: "(в любом месте)")
-                            HotkeyRow(action: "Глобальный хоткей", keys: ["⌘", "+", "§"], note: hasAccessibility ? "✓" : "⚠️")
-                            HotkeyRow(action: "Скопировать и закрыть", keys: ["Enter"], note: nil)
-                            HotkeyRow(action: "Новая строка", keys: ["⇧", "+", "Enter"], note: nil)
-                            HotkeyRow(action: "Закрыть без копирования", keys: ["Esc"], note: nil)
+                        VStack(spacing: 16) {
+                            // Настраиваемый хоткей
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Открыть/закрыть окно")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(.white)
+                                    Text("Нажмите для записи нового хоткея")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.gray)
+                                }
+
+                                Spacer()
+
+                                Button(action: {
+                                    isRecordingHotkey = true
+                                }) {
+                                    ZStack {
+                                        if isRecordingHotkey {
+                                            HotkeyRecorderView(hotkey: $currentHotkey, isRecording: $isRecordingHotkey)
+                                                .frame(width: 120, height: 28)
+                                        }
+
+                                        Text(isRecordingHotkey ? "Нажмите клавишу..." : currentHotkey.displayString)
+                                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                            .foregroundColor(isRecordingHotkey ? .orange : .white)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 6)
+                                            .background(isRecordingHotkey ? Color.orange.opacity(0.2) : Color.white.opacity(0.15))
+                                            .cornerRadius(6)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 6)
+                                                    .stroke(isRecordingHotkey ? Color.orange : Color.clear, lineWidth: 1)
+                                            )
+                                    }
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .onChange(of: currentHotkey) { newValue in
+                                    SettingsManager.shared.toggleHotkey = newValue
+                                    // Уведомляем о необходимости перерегистрации хоткеев
+                                    NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
+                                }
+                            }
+
+                            Divider().background(Color.white.opacity(0.1))
+
+                            // Остальные хоткеи (только отображение)
+                            HotkeyDisplayRow(action: "Скопировать и закрыть", keys: "Enter")
+                            HotkeyDisplayRow(action: "Новая строка", keys: "⇧ + Enter")
+                            HotkeyDisplayRow(action: "Закрыть без копирования", keys: "Esc")
                         }
                         .padding(.vertical, 8)
+                    }
+
+                    // Кнопка сброса
+                    SettingsSection(title: "") {
+                        Button(action: {
+                            currentHotkey = HotkeyConfig.defaultToggle
+                            SettingsManager.shared.toggleHotkey = HotkeyConfig.defaultToggle
+                            NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
+                        }) {
+                            Text("Сбросить хоткей по умолчанию (§)")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray)
+                        }
+                        .buttonStyle(PlainButtonStyle())
                     }
                 }
             }
@@ -1048,11 +1302,35 @@ struct SettingsView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .frame(width: 450, height: 500)
+        .frame(width: 450, height: 550)
         .background(
             VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
                 .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.9))
         )
+    }
+}
+
+// MARK: - Hotkey Display Row
+struct HotkeyDisplayRow: View {
+    let action: String
+    let keys: String
+
+    var body: some View {
+        HStack {
+            Text(action)
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.7))
+
+            Spacer()
+
+            Text(keys)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.5))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.white.opacity(0.08))
+                .cornerRadius(4)
+        }
     }
 }
 
@@ -1156,7 +1434,7 @@ struct HotkeyRow: View {
 }
 
 // MARK: - App Delegate
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var statusItem: NSStatusItem?
     var window: NSWindow?
     var settingsWindow: NSWindow?
@@ -1182,6 +1460,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Notifications
         NotificationCenter.default.addObserver(self, selector: #selector(openSettings), name: .openSettings, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(hotkeyDidChange), name: .hotkeyChanged, object: nil)
 
         // Показываем окно при первом запуске
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -1189,6 +1468,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         NSLog("✅ Инициализация завершена")
+    }
+
+    @objc func hotkeyDidChange() {
+        // Перерегистрируем хоткеи с новыми настройками
+        unregisterHotKeys()
+        setupHotKeys()
+        NSLog("🔄 Хоткеи перерегистрированы")
+    }
+
+    func unregisterHotKeys() {
+        // Убираем старые Carbon хоткеи
+        for ref in hotKeyRefs {
+            UnregisterEventHotKey(ref)
+        }
+        hotKeyRefs.removeAll()
+
+        // Убираем мониторы
+        if let monitor = localEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            localEventMonitor = nil
+        }
+        if let monitor = globalEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalEventMonitor = nil
+        }
     }
 
     func setupMenuBar() {
@@ -1226,6 +1530,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hasAccess = AccessibilityHelper.checkAccessibility()
         NSLog("🔐 Accessibility: \(hasAccess)")
 
+        let hotkey = SettingsManager.shared.toggleHotkey
+        NSLog("⌨️ Настроенный хоткей: keyCode=\(hotkey.keyCode), mods=\(hotkey.modifiers)")
+
         // Carbon API для глобальных хоткеев
         var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(
@@ -1241,33 +1548,72 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             nil
         )
 
-        // Регистрируем несколько комбинаций
-        registerCarbonHotKey(keyCode: UInt32(kVK_ANSI_Grave), modifiers: UInt32(cmdKey), id: 1)
-        registerCarbonHotKey(keyCode: UInt32(kVK_ISO_Section), modifiers: UInt32(cmdKey), id: 2)
-        registerCarbonHotKey(keyCode: UInt32(kVK_ANSI_Grave), modifiers: UInt32(cmdKey | shiftKey), id: 3)
-        registerCarbonHotKey(keyCode: UInt32(kVK_ISO_Section), modifiers: UInt32(cmdKey | shiftKey), id: 4)
+        // Регистрируем настроенный хоткей с модификаторами (если есть)
+        if hotkey.modifiers != 0 {
+            registerCarbonHotKey(keyCode: UInt32(hotkey.keyCode), modifiers: hotkey.modifiers, id: 1)
+        }
 
-        // Локальный монитор (когда окно активно) - для § и ` без модификаторов
+        // Также регистрируем дефолтные комбинации для удобства
+        registerCarbonHotKey(keyCode: UInt32(kVK_ANSI_Grave), modifiers: UInt32(cmdKey), id: 2)
+        registerCarbonHotKey(keyCode: UInt32(kVK_ISO_Section), modifiers: UInt32(cmdKey), id: 3)
+        registerCarbonHotKey(keyCode: UInt32(kVK_ANSI_Grave), modifiers: UInt32(cmdKey | shiftKey), id: 4)
+        registerCarbonHotKey(keyCode: UInt32(kVK_ISO_Section), modifiers: UInt32(cmdKey | shiftKey), id: 5)
+
+        // Локальный монитор (когда окно активно)
+        // Перехватываем настроенный хоткей ДО того как символ попадёт в текстовое поле
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 10 || event.keyCode == 50 { // § и `
-                if event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
-                    // Без модификаторов - закрыть окно
-                    self?.toggleWindow()
-                    return nil
-                }
+            let eventKeyCode = event.keyCode
+            let hotkeyKeyCode = SettingsManager.shared.toggleHotkey.keyCode
+            let hotkeyMods = SettingsManager.shared.toggleHotkey.modifiers
+
+            // Проверяем модификаторы
+            var eventCarbonMods: UInt32 = 0
+            if event.modifierFlags.contains(.command) { eventCarbonMods |= UInt32(cmdKey) }
+            if event.modifierFlags.contains(.shift) { eventCarbonMods |= UInt32(shiftKey) }
+            if event.modifierFlags.contains(.option) { eventCarbonMods |= UInt32(optionKey) }
+            if event.modifierFlags.contains(.control) { eventCarbonMods |= UInt32(controlKey) }
+
+            // Проверяем совпадение с настроенным хоткеем
+            if eventKeyCode == hotkeyKeyCode && eventCarbonMods == hotkeyMods {
+                self?.hideWindow()
+                return nil
             }
+
+            // Также проверяем § и ` без модификаторов (дефолт)
+            if (eventKeyCode == 10 || eventKeyCode == 50) && eventCarbonMods == 0 {
+                self?.hideWindow()
+                return nil
+            }
+
             return event
         }
 
         // Глобальный монитор (требует Accessibility)
         if hasAccess {
             globalEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                // § (keyCode 10) или ` (keyCode 50) без модификаторов
-                if event.keyCode == 10 || event.keyCode == 50 {
-                    if event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
-                        DispatchQueue.main.async {
-                            self?.toggleWindow()
-                        }
+                let eventKeyCode = event.keyCode
+                let hotkeyKeyCode = SettingsManager.shared.toggleHotkey.keyCode
+                let hotkeyMods = SettingsManager.shared.toggleHotkey.modifiers
+
+                // Проверяем модификаторы
+                var eventCarbonMods: UInt32 = 0
+                if event.modifierFlags.contains(.command) { eventCarbonMods |= UInt32(cmdKey) }
+                if event.modifierFlags.contains(.shift) { eventCarbonMods |= UInt32(shiftKey) }
+                if event.modifierFlags.contains(.option) { eventCarbonMods |= UInt32(optionKey) }
+                if event.modifierFlags.contains(.control) { eventCarbonMods |= UInt32(controlKey) }
+
+                // Проверяем совпадение с настроенным хоткеем
+                if eventKeyCode == hotkeyKeyCode && eventCarbonMods == hotkeyMods {
+                    DispatchQueue.main.async {
+                        self?.toggleWindow()
+                    }
+                    return
+                }
+
+                // Также проверяем § и ` без модификаторов (дефолт)
+                if (eventKeyCode == 10 || eventKeyCode == 50) && eventCarbonMods == 0 {
+                    DispatchQueue.main.async {
+                        self?.toggleWindow()
                     }
                 }
             }
@@ -1361,14 +1707,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let window = window else { return }
 
         if window.isVisible {
-            window.close()
+            hideWindow()
         } else {
             showWindow()
         }
     }
 
+    func hideWindow() {
+        guard let window = window else { return }
+        SoundManager.shared.playCloseSound()
+        window.close()
+    }
+
     @objc func showWindow() {
         guard let window = window else { return }
+
+        // Сбрасываем состояние View (история закрыта, текст пустой)
+        NotificationCenter.default.post(name: .resetInputView, object: nil)
 
         // Центрируем на активном экране
         centerWindowOnActiveScreen()
@@ -1405,34 +1760,75 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func openSettings() {
+        // Если настройки уже открыты - закрываем и показываем основное окно
+        if let sw = settingsWindow, sw.isVisible {
+            sw.close()
+            showWindow()
+            return
+        }
+
+        // Скрываем основное окно
+        window?.orderOut(nil)
+
         if settingsWindow == nil {
             let settingsView = SettingsView()
 
-            let window = NSWindow(
+            let sw = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 450, height: 500),
                 styleMask: [.titled, .closable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
 
-            window.title = "Настройки Olamba"
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            window.backgroundColor = .clear
-            window.isOpaque = false
-            window.center()
+            sw.title = "Настройки Olamba"
+            sw.titlebarAppearsTransparent = true
+            sw.titleVisibility = .hidden
+            sw.backgroundColor = .clear
+            sw.isOpaque = false
+            sw.delegate = self
 
             let hostingView = NSHostingView(rootView: settingsView)
             hostingView.wantsLayer = true
             hostingView.layer?.cornerRadius = 12
             hostingView.layer?.masksToBounds = true
-            window.contentView = hostingView
+            sw.contentView = hostingView
 
-            settingsWindow = window
+            settingsWindow = sw
         }
 
-        NSApp.activate(ignoringOtherApps: true)
-        settingsWindow?.makeKeyAndOrderFront(nil)
+        // Позиционируем настройки на том же экране, где был курсор
+        if let sw = settingsWindow {
+            let mouseLocation = NSEvent.mouseLocation
+            var targetScreen: NSScreen? = nil
+
+            for screen in NSScreen.screens {
+                if screen.frame.contains(mouseLocation) {
+                    targetScreen = screen
+                    break
+                }
+            }
+
+            let screen = targetScreen ?? NSScreen.main ?? NSScreen.screens.first
+            if let screen = screen {
+                let screenFrame = screen.visibleFrame
+                let windowFrame = sw.frame
+                let x = screenFrame.origin.x + (screenFrame.width - windowFrame.width) / 2
+                let y = screenFrame.origin.y + (screenFrame.height - windowFrame.height) / 2
+                sw.setFrameOrigin(NSPoint(x: x, y: y))
+            }
+
+            NSApp.activate(ignoringOtherApps: true)
+            sw.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    // MARK: - NSWindowDelegate
+    func windowWillClose(_ notification: Notification) {
+        // Если закрылись настройки - показываем основное окно
+        if let closedWindow = notification.object as? NSWindow,
+           closedWindow == settingsWindow {
+            showWindow()
+        }
     }
 
     @objc func quitApp() {
