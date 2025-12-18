@@ -198,23 +198,26 @@ class SoundManager {
     // Предзагруженные звуки для мгновенного воспроизведения
     private var openSound: NSSound?
     private var closeSound: NSSound?
-    private var copySound: NSSound?
 
     init() {
-        // Загружаем звуки заранее - более басовитые
-        openSound = NSSound(named: "Basso")      // Глубокий басовый звук
-        closeSound = NSSound(named: "Funk")      // Funkу звук для закрытия
-        copySound = NSSound(named: "Hero")       // Героический звук для отправки
+        // Загружаем кастомные звуки из бандла приложения
+        if let openURL = Bundle.main.url(forResource: "open", withExtension: "wav") {
+            openSound = NSSound(contentsOf: openURL, byReference: false)
+            openSound?.volume = 0.7
+        } else {
+            NSLog("⚠️ Не найден звук open.wav в бандле")
+        }
 
-        // Устанавливаем громкость
-        openSound?.volume = 0.4
-        closeSound?.volume = 0.3
-        copySound?.volume = 0.5
+        if let closeURL = Bundle.main.url(forResource: "close", withExtension: "wav") {
+            closeSound = NSSound(contentsOf: closeURL, byReference: false)
+            closeSound?.volume = 0.6
+        } else {
+            NSLog("⚠️ Не найден звук close.wav в бандле")
+        }
     }
 
     func playOpenSound() {
         guard SettingsManager.shared.soundEnabled else { return }
-        // Останавливаем если играет, чтобы можно было повторно воспроизвести
         openSound?.stop()
         openSound?.play()
     }
@@ -226,9 +229,8 @@ class SoundManager {
     }
 
     func playCopySound() {
-        guard SettingsManager.shared.soundEnabled else { return }
-        copySound?.stop()
-        copySound?.play()
+        // Используем тот же звук что и для закрытия
+        playCloseSound()
     }
 }
 

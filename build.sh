@@ -28,6 +28,12 @@ fi
 cp Info.plist "$APP_NAME.app/Contents/"
 cp AppIcon.icns "$APP_NAME.app/Contents/Resources/"
 
+# Копируем звуки
+if [ -d "sound" ]; then
+    echo "🔊 Копируем звуковые файлы..."
+    cp sound/*.wav "$APP_NAME.app/Contents/Resources/" 2>/dev/null || true
+fi
+
 # Создаём PkgInfo
 echo "APPL????" > "$APP_NAME.app/Contents/PkgInfo"
 
