@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>Olamba</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.olamba.app</string>
+	<key>CFBundleName</key>
+	<string>Olamba</string>
+	<key>CFBundleDisplayName</key>
+	<string>Olamba</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Olamba использует глобальные горячие клавиши для открытия окна быстрых заметок.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Olamba нужен доступ к микрофону для записи голосовых заметок и транскрибации речи.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>
