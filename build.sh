@@ -4,7 +4,7 @@ set -e
 
 APP_NAME="Olamba"
 BUNDLE_ID="com.olamba.app"
-VERSION="1.0"
+VERSION="1.7"
 
 echo "🔨 Сборка $APP_NAME.app..."
 echo ""
@@ -45,6 +45,7 @@ swiftc -o "$APP_NAME.app/Contents/MacOS/$APP_NAME" \
     -framework AppKit \
     -framework Carbon \
     -framework AVFoundation \
+    -framework Security \
     -target arm64-apple-macosx13.0 \
     -O \
     Olamba.swift
