@@ -3334,6 +3334,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var localEventMonitor: Any?
     var globalEventMonitor: Any?
     var previousApp: NSRunningApplication?  // Предыдущее активное приложение для авто-вставки
+    var screenshotNotificationWindow: NSWindow?  // Окно уведомления о скриншоте
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSLog("🚀 Olamba запущен")
@@ -3465,6 +3466,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func showScreenshotNotification() {
+        // Закрываем предыдущее уведомление если оно еще видимо
+        if let existingWindow = screenshotNotificationWindow {
+            existingWindow.orderOut(nil)
+            existingWindow.close()
+            screenshotNotificationWindow = nil
+        }
+
         // Создаём временное floating уведомление
         let notification = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 220, height: 50),
@@ -3492,10 +3500,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         notification.orderFrontRegardless()
 
-        // Автоматически скрываем через 2 секунды
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            notification.orderOut(nil)
-            notification.close()
+        // Сохраняем ссылку на окно
+        screenshotNotificationWindow = notification
+
+        // Автоматически скрываем через 2 секунды с weak self для предотвращения retain cycle
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            // Проверяем что это все еще то же окно (может быть заменено новым)
+            if let currentWindow = self?.screenshotNotificationWindow, currentWindow === notification {
+                currentWindow.orderOut(nil)
+                currentWindow.close()
+                self?.screenshotNotificationWindow = nil
+            }
         }
     }
 
@@ -4007,6 +4022,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         if let monitor = globalEventMonitor {
             NSEvent.removeMonitor(monitor)
+        }
+
+        // Закрываем screenshot notification window если открыто
+        if let notificationWindow = screenshotNotificationWindow {
+            notificationWindow.orderOut(nil)
+            notificationWindow.close()
+            screenshotNotificationWindow = nil
         }
 
         NSApplication.shared.terminate(nil)
