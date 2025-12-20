@@ -318,6 +318,11 @@ class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(promptCH, forKey: "com.olamba.prompt.ch") }
     }
 
+    // ASR провайдер: локальная модель или Deepgram
+    @Published var asrProviderType: ASRProviderType {
+        didSet { UserDefaults.standard.set(asrProviderType.rawValue, forKey: "settings.asrProviderType") }
+    }
+
     init() {
         self.hotkeyEnabled = UserDefaults.standard.object(forKey: "settings.hotkeyEnabled") as? Bool ?? true
         self.soundEnabled = UserDefaults.standard.object(forKey: "settings.soundEnabled") as? Bool ?? true
@@ -373,6 +378,14 @@ class SettingsManager: ObservableObject {
         // Settings window state
         self.settingsWindowWasOpen = UserDefaults.standard.bool(forKey: "settings.windowWasOpen")
         self.lastSettingsTab = UserDefaults.standard.string(forKey: "settings.lastTab") ?? "general"
+
+        // ASR провайдер: по умолчанию локальная модель (работает офлайн)
+        if let rawValue = UserDefaults.standard.string(forKey: "settings.asrProviderType"),
+           let providerType = ASRProviderType(rawValue: rawValue) {
+            self.asrProviderType = providerType
+        } else {
+            self.asrProviderType = .local  // По умолчанию локальная модель
+        }
     }
 
     private func saveHotkey() {
@@ -719,6 +732,411 @@ class AccessibilityHelper {
     }
 }
 
+// MARK: - Local ASR Provider (Sherpa-onnx T-ONE)
+class SherpaASRProvider: ObservableObject {
+    @Published var isRecording = false
+    @Published var transcriptionResult: String?
+    @Published var interimText: String = ""
+    @Published var errorMessage: String?
+    @Published var audioLevel: Float = 0.0
+
+    private var audioEngine: AVAudioEngine?
+    private var recognizer: SherpaOnnxRecognizer?
+    private var finalTranscript: String = ""
+
+    // Round 2 Fix 1: NSLock для защиты finalTranscript от data race
+    private let transcriptLock = NSLock()
+
+    // Round 2 Fix 2-3: Семафор вместо isProcessing для предотвращения параллельных decode
+    private let decodingSemaphore = DispatchSemaphore(value: 1)
+
+    // Fix 1: DispatchSourceTimer вместо Timer (без retain cycle)
+    private var decodeTimer: DispatchSourceTimer?
+
+    // Fix 3: Serial queue для thread-safe доступа к recognizer
+    private let recognizerQueue = DispatchQueue(label: "com.olamba.recognizer")
+
+    // Fix 4: Кешированный AVAudioConverter
+    private var audioConverter: AVAudioConverter?
+    private var outputFormat: AVAudioFormat?
+
+    // Round 2 Fix 8: Pre-allocated buffer для audio thread
+    private var resampledBuffer: AVAudioPCMBuffer?
+
+    // Round 3 Fix: Pre-allocated samples array (избегаем allocation на audio thread)
+    private var samplesArray: [Float] = []
+
+    init() {
+        setupRecognizer()
+    }
+
+    // Fix 7: Cleanup при уничтожении объекта
+    deinit {
+        decodeTimer?.cancel()
+        decodeTimer = nil
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine = nil
+        audioConverter = nil
+        resampledBuffer = nil
+        recognizer = nil
+        NSLog("🗑️ SherpaASRProvider освобождён")
+    }
+
+    private func setupRecognizer() {
+        // Путь к модели в Resources
+        guard let resourcePath = Bundle.main.resourcePath else {
+            NSLog("❌ Не найден resourcePath")
+            return
+        }
+
+        let modelDir = "\(resourcePath)/models/sherpa-onnx-streaming-t-one-russian-2025-09-08"
+        let modelPath = "\(modelDir)/model.onnx"
+        let tokensPath = "\(modelDir)/tokens.txt"
+
+        // Проверяем наличие файлов
+        guard FileManager.default.fileExists(atPath: modelPath),
+              FileManager.default.fileExists(atPath: tokensPath) else {
+            NSLog("❌ Файлы модели не найдены: \(modelDir)")
+            return
+        }
+
+        NSLog("🧠 Инициализация T-ONE модели...")
+
+        // Конфигурация T-ONE модели
+        let toneCtcConfig = sherpaOnnxOnlineToneCtcModelConfig(model: modelPath)
+
+        // 2 потока оптимально для Apple Silicon (efficiency cores)
+        // Больше потоков не даёт прироста для streaming ASR
+        let modelConfig = sherpaOnnxOnlineModelConfig(
+            tokens: tokensPath,
+            numThreads: 2,
+            toneCtc: toneCtcConfig
+        )
+
+        // T-ONE работает с 8kHz аудио
+        let featConfig = sherpaOnnxFeatureConfig(sampleRate: 8000, featureDim: 80)
+
+        // Оптимизированные параметры endpoint detection для быстрого ввода:
+        // - rule1: тишина БЕЗ речи → endpoint (уменьшено с 2.4 до 1.5s)
+        // - rule2: тишина ПОСЛЕ речи → endpoint (уменьшено с 1.2 до 0.6s для быстрой реакции)
+        // - rule3: макс длина высказывания (60s достаточно)
+        var config = sherpaOnnxOnlineRecognizerConfig(
+            featConfig: featConfig,
+            modelConfig: modelConfig,
+            enableEndpoint: true,
+            rule1MinTrailingSilence: 1.5,
+            rule2MinTrailingSilence: 0.6,
+            rule3MinUtteranceLength: 60
+        )
+
+        recognizer = SherpaOnnxRecognizer(config: &config)
+        NSLog("✅ T-ONE модель инициализирована")
+    }
+
+    func startRecording() async {
+        // Fix 2: Guard против двойного вызова
+        guard !isRecording else {
+            NSLog("⚠️ Локальная запись уже идёт")
+            return
+        }
+
+        guard recognizer != nil else {
+            await MainActor.run {
+                errorMessage = "Локальная модель не инициализирована"
+            }
+            return
+        }
+
+        // Проверить микрофон
+        let hasPermission = await requestMicrophonePermission()
+        guard hasPermission else {
+            await MainActor.run {
+                errorMessage = "Нет доступа к микрофону"
+            }
+            return
+        }
+
+        // Round 2 Fix 1: Защита finalTranscript локом
+        transcriptLock.withLock {
+            finalTranscript = ""
+        }
+
+        // Round 2 Fix 9: Async вместо sync (не блокирует main thread)
+        recognizerQueue.async { [weak self] in
+            self?.recognizer?.reset()
+        }
+
+        await MainActor.run {
+            interimText = ""
+            transcriptionResult = nil
+            isRecording = true
+            audioLevel = 0.0
+        }
+
+        // Уменьшить громкость
+        VolumeManager.shared.saveAndReduceVolume(targetVolume: 15)
+
+        // Fix 6: Создаём engine локально, присваиваем только после успешного start
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+
+        // Round 2 Fix 10: Валидация inputFormat
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+            await MainActor.run {
+                errorMessage = "Неверный формат входного аудио"
+                isRecording = false
+            }
+            return
+        }
+
+        // Fix 4: Кешируем outputFormat и converter
+        guard let outFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 8000, channels: 1, interleaved: false) else {
+            await MainActor.run {
+                errorMessage = "Ошибка формата аудио"
+                isRecording = false
+            }
+            return
+        }
+        self.outputFormat = outFmt
+
+        // Fix 4: Создаём converter один раз
+        guard let converter = AVAudioConverter(from: inputFormat, to: outFmt) else {
+            await MainActor.run {
+                errorMessage = "Ошибка создания аудио-конвертера"
+                isRecording = false
+            }
+            return
+        }
+        self.audioConverter = converter
+
+        // Round 2 Fix 8: Pre-allocated buffer (200ms capacity)
+        let maxOutputFrames = AVAudioFrameCount(outFmt.sampleRate * 0.2)
+        self.resampledBuffer = AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: maxOutputFrames)
+
+        // Round 3 Fix: Pre-allocate samples array
+        self.samplesArray = [Float](repeating: 0, count: Int(maxOutputFrames))
+
+        engine.prepare()
+
+        // Буфер 100ms для отзывчивого UI (audioLevel визуализация)
+        let bufferSizeForInput = AVAudioFrameCount(inputFormat.sampleRate * 0.1)
+        inputNode.installTap(onBus: 0, bufferSize: bufferSizeForInput, format: inputFormat) { [weak self] buffer, _ in
+            self?.processAudioBuffer(buffer)
+        }
+
+        do {
+            try engine.start()
+            // Fix 6: Присваиваем ТОЛЬКО после успешного start
+            self.audioEngine = engine
+            NSLog("🎤 Локальный ASR запущен (T-ONE)")
+
+            // Fix 1: Используем DispatchSourceTimer вместо Timer (без retain cycle)
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(deadline: .now(), repeating: .milliseconds(100))
+            timer.setEventHandler { [weak self] in
+                self?.decodeAudio()
+            }
+            timer.resume()
+            self.decodeTimer = timer
+
+        } catch {
+            // Fix 6: При ошибке освобождаем ресурсы
+            inputNode.removeTap(onBus: 0)
+            self.audioConverter = nil
+            self.outputFormat = nil
+
+            await MainActor.run {
+                errorMessage = "Ошибка запуска: \(error.localizedDescription)"
+                isRecording = false
+            }
+        }
+    }
+
+    private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
+        // Рассчитать уровень громкости
+        if let channelData = buffer.floatChannelData {
+            let frameLength = Int(buffer.frameLength)
+            var sum: Float = 0.0
+            for i in 0..<frameLength {
+                let sample = channelData[0][i]
+                sum += sample * sample
+            }
+            let rms = sqrt(sum / Float(max(1, frameLength)))
+            let level = min(1.0, rms * 8.0)
+
+            DispatchQueue.main.async { [weak self] in
+                self?.audioLevel = level
+            }
+        }
+
+        // Fix 4: Используем кешированный converter
+        guard let converter = audioConverter,
+              let outFmt = outputFormat,
+              let outputBuffer = resampledBuffer else {
+            return
+        }
+
+        // Round 2 Fix 11: Валидация sampleRate
+        guard buffer.format.sampleRate > 0 else { return }
+
+        let ratio = outFmt.sampleRate / Double(buffer.format.sampleRate)
+        let outputFrameCount = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
+
+        // Round 2 Fix 8: Используем pre-allocated buffer
+        guard outputFrameCount <= outputBuffer.frameCapacity else {
+            NSLog("⚠️ Buffer overflow: need \(outputFrameCount), have \(outputBuffer.frameCapacity)")
+            return
+        }
+        outputBuffer.frameLength = outputFrameCount
+
+        var conversionError: NSError?
+        var hasData = true
+
+        converter.convert(to: outputBuffer, error: &conversionError) { _, outStatus in
+            if hasData {
+                outStatus.pointee = .haveData
+                hasData = false
+                return buffer
+            }
+            outStatus.pointee = .noDataNow
+            return nil
+        }
+
+        // Fix 5: Error handling для конвертации
+        if let error = conversionError {
+            NSLog("❌ Audio conversion error: \(error.localizedDescription)")
+            return
+        }
+
+        // Fix 3: Thread-safe отправка сэмплов в recognizer
+        if let channelData = outputBuffer.floatChannelData {
+            let samples = Array(UnsafeBufferPointer(start: channelData[0], count: Int(outputBuffer.frameLength)))
+            recognizerQueue.async { [weak self] in
+                self?.recognizer?.acceptWaveform(samples: samples, sampleRate: 8000)
+            }
+        }
+    }
+
+    private func decodeAudio() {
+        // Round 2 Fix 2-3: Семафор вместо isProcessing (предотвращает параллельные decode)
+        guard decodingSemaphore.wait(timeout: .now()) == .success else { return }
+
+        recognizerQueue.async { [weak self] in
+            defer { self?.decodingSemaphore.signal() }
+
+            guard let self = self, let recognizer = self.recognizer else { return }
+
+            // Round 2 Fix 7: Max iterations для предотвращения зависания
+            var iterations = 0
+            while recognizer.isReady() && iterations < 1000 {
+                recognizer.decode()
+                iterations += 1
+            }
+
+            // Получить результат
+            let result = recognizer.getResult()
+            let text = result.text
+
+            // Проверить endpoint (конец фразы)
+            let isEndpoint = recognizer.isEndpoint()
+            if isEndpoint && !text.isEmpty {
+                // Round 2 Fix 1: Защита finalTranscript локом
+                self.transcriptLock.withLock {
+                    self.finalTranscript += (self.finalTranscript.isEmpty ? "" : " ") + text
+                }
+                NSLog("📝 Final (local): \(text)")
+                recognizer.reset()
+            }
+
+            // Обновить UI на main thread
+            DispatchQueue.main.async { [weak self] in
+                if !text.isEmpty {
+                    self?.interimText = isEndpoint ? "" : text
+                }
+            }
+        }
+    }
+
+    func stopRecordingAndTranscribe() async {
+        // Fix 1: Остановить DispatchSourceTimer
+        decodeTimer?.cancel()
+        decodeTimer = nil
+
+        // Round 2 Fix 4-5: Ждём завершения pending decodeAudio через семафор
+        // Используем detached Task для изоляции от async контекста
+        await Task.detached { [decodingSemaphore] in
+            decodingSemaphore.wait()
+            decodingSemaphore.signal()
+        }.value
+
+        // Остановить аудио
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine = nil
+
+        // Round 2 Fix 6: Reset converter перед очисткой
+        audioConverter?.reset()
+        audioConverter = nil
+        outputFormat = nil
+        resampledBuffer = nil
+
+        // Fix 3: Финальное декодирование через serial queue
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            recognizerQueue.async { [weak self] in
+                guard let self = self, let recognizer = self.recognizer else {
+                    continuation.resume()
+                    return
+                }
+
+                recognizer.inputFinished()
+
+                // Round 2 Fix 7: Max iterations для предотвращения зависания
+                var iterations = 0
+                while recognizer.isReady() && iterations < 1000 {
+                    recognizer.decode()
+                    iterations += 1
+                }
+
+                // Получить финальный результат
+                let result = recognizer.getResult()
+                let text = result.text
+                if !text.isEmpty {
+                    // Round 2 Fix 1: Защита finalTranscript локом
+                    self.transcriptLock.withLock {
+                        self.finalTranscript += (self.finalTranscript.isEmpty ? "" : " ") + text
+                    }
+                }
+
+                continuation.resume()
+            }
+        }
+
+        // Round 2 Fix 1: Читаем finalTranscript под локом
+        let finalText = transcriptLock.withLock { finalTranscript }
+
+        await MainActor.run {
+            isRecording = false
+            if !finalText.isEmpty {
+                transcriptionResult = finalText.trimmingCharacters(in: .whitespaces)
+            }
+            interimText = ""
+        }
+
+        VolumeManager.shared.restoreVolume()
+        NSLog("✅ Результат (local): \(finalText)")
+    }
+
+    private func requestMicrophonePermission() async -> Bool {
+        await withCheckedContinuation { continuation in
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                continuation.resume(returning: granted)
+            }
+        }
+    }
+}
+
 // MARK: - Real-time Streaming Audio Manager (WebSocket)
 class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDelegate {
     @Published var isRecording = false
@@ -992,6 +1410,26 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
         NSLog("🔌 WebSocket закрыт: \(closeCode.rawValue)")
         webSocketConnected = false
+    }
+}
+
+// MARK: - ASR Provider Type
+enum ASRProviderType: String, CaseIterable {
+    case local = "local"     // Локальная модель (T-ONE)
+    case deepgram = "deepgram"  // Deepgram (облако)
+
+    var displayName: String {
+        switch self {
+        case .local: return "Локальная модель"
+        case .deepgram: return "Deepgram (облако)"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .local: return "Работает офлайн, ~300мс задержка"
+        case .deepgram: return "Требует интернет и API ключ"
+        }
     }
 }
 
@@ -1489,8 +1927,30 @@ class BillingManager: ObservableObject {
 
 // MARK: - Main View
 struct InputModalView: View {
-    @StateObject private var audioManager = AudioRecordingManager()
+    @StateObject private var audioManager = AudioRecordingManager()  // Deepgram
+    @StateObject private var localASRManager = SherpaASRProvider()   // Локальная модель T-ONE
     @ObservedObject private var settings = SettingsManager.shared
+
+    // Computed properties для текущего ASR провайдера
+    private var isRecording: Bool {
+        settings.asrProviderType == .local ? localASRManager.isRecording : audioManager.isRecording
+    }
+
+    private var audioLevel: Float {
+        settings.asrProviderType == .local ? localASRManager.audioLevel : audioManager.audioLevel
+    }
+
+    private var interimText: String {
+        settings.asrProviderType == .local ? localASRManager.interimText : audioManager.interimText
+    }
+
+    private var transcriptionResult: String? {
+        settings.asrProviderType == .local ? localASRManager.transcriptionResult : audioManager.transcriptionResult
+    }
+
+    private var asrErrorMessage: String? {
+        settings.asrProviderType == .local ? localASRManager.errorMessage : audioManager.errorMessage
+    }
     @State private var inputText: String = ""
     @State private var showHistory: Bool = false
     @State private var searchQuery: String = ""
@@ -1507,7 +1967,7 @@ struct InputModalView: View {
 
     // Computed property для проверки возможности отправки
     private var canSubmit: Bool {
-        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || audioManager.isRecording
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRecording
     }
     private var maxTextHeight: CGFloat { CGFloat(maxLines) * lineHeight }
 
@@ -1516,8 +1976,8 @@ struct InputModalView: View {
             // ВЕРХНЯЯ ЧАСТЬ: Ввод + Оверлеи
             ZStack(alignment: .top) {
                 // Оверлей записи голоса - amplitude-индикатор
-                if audioManager.isRecording {
-                    VoiceOverlayView(audioLevel: audioManager.audioLevel)
+                if isRecording {
+                    VoiceOverlayView(audioLevel: audioLevel)
                     .background(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.95))
                     .clipShape(UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
                     .allowsHitTesting(false)  // Пропускать события к TextEditor
@@ -1610,23 +2070,21 @@ struct InputModalView: View {
                     // Кнопка Голос
                     Button(action: {
                         Task {
-                            if audioManager.isRecording {
-                                await audioManager.stopRecordingAndTranscribe(
-                                    language: SettingsManager.shared.preferredLanguage
-                                )
+                            if isRecording {
+                                await stopASR()
                             } else {
-                                // Проверить наличие API ключа перед записью
-                                if !SettingsManager.shared.hasAPIKey() {
-                                    audioManager.errorMessage = "API ключ не найден. Откройте Настройки (Cmd+,)"
+                                // Проверить возможность записи
+                                if !canStartASR() {
+                                    setASRError("API ключ не найден. Откройте Настройки (Cmd+,)")
                                     return
                                 }
                                 // Передаём существующий текст для режима дозаписи
-                                await audioManager.startRecording(existingText: inputText)
+                                await startASR(existingText: inputText)
                             }
                         }
                     }) {
                         HStack(spacing: 6) {
-                            if audioManager.isRecording {
+                            if isRecording {
                                 Image(systemName: "stop.fill")
                                     .font(.system(size: 12))
                                     .foregroundColor(Color(nsColor: .systemRed))
@@ -1635,13 +2093,13 @@ struct InputModalView: View {
                                     .font(.system(size: 14))
                             }
 
-                            Text(audioManager.isRecording ? "Stop" : "Голос")
+                            Text(isRecording ? "Stop" : "Голос")
                                 .font(.system(size: 12, weight: .medium))
                         }
                         .padding(.vertical, 4)
                         .padding(.horizontal, 8)
-                        .background(audioManager.isRecording ? Color(nsColor: .systemRed).opacity(0.15) : Color.clear)
-                        .foregroundColor(audioManager.isRecording ? Color(nsColor: .systemRed) : Color.white.opacity(0.8))
+                        .background(isRecording ? Color(nsColor: .systemRed).opacity(0.15) : Color.clear)
+                        .foregroundColor(isRecording ? Color(nsColor: .systemRed) : Color.white.opacity(0.8))
                         .cornerRadius(6)
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -1679,11 +2137,9 @@ struct InputModalView: View {
                 // Кнопка режима Текст/Аудио - показывает ДЕЙСТВИЕ (куда переключиться)
                 Button(action: {
                     // Если переключаемся с Аудио на Текст И идёт запись - остановить
-                    if settings.audioModeEnabled && audioManager.isRecording {
+                    if settings.audioModeEnabled && isRecording {
                         Task {
-                            await audioManager.stopRecordingAndTranscribe(
-                                language: SettingsManager.shared.preferredLanguage
-                            )
+                            await stopASR()
                         }
                     }
                     settings.audioModeEnabled.toggle()
@@ -1754,11 +2210,11 @@ struct InputModalView: View {
             resetView()
 
             // Автозапуск записи в режиме Аудио
-            if settings.audioModeEnabled && SettingsManager.shared.hasAPIKey() && !audioManager.isRecording {
+            if settings.audioModeEnabled && canStartASR() && !isRecording {
                 Task {
                     // Небольшая задержка чтобы UI успел отрисоваться
                     try? await Task.sleep(nanoseconds: 200_000_000)
-                    await audioManager.startRecording(existingText: "")
+                    await startASR(existingText: "")
                 }
             }
         }
@@ -1766,18 +2222,18 @@ struct InputModalView: View {
             resetView()
 
             // Автозапуск при сбросе в режиме Аудио
-            if settings.audioModeEnabled && SettingsManager.shared.hasAPIKey() && !audioManager.isRecording {
+            if settings.audioModeEnabled && canStartASR() && !isRecording {
                 Task {
                     try? await Task.sleep(nanoseconds: 200_000_000)
-                    await audioManager.startRecording(existingText: "")
+                    await startASR(existingText: "")
                 }
             }
         }
         .onChange(of: settings.audioModeEnabled) { isAudioMode in
             // При включении режима Аудио - запустить запись
-            if isAudioMode && !audioManager.isRecording && SettingsManager.shared.hasAPIKey() {
+            if isAudioMode && !isRecording && canStartASR() {
                 Task {
-                    await audioManager.startRecording(existingText: inputText)
+                    await startASR(existingText: inputText)
                 }
             }
         }
@@ -1792,15 +2248,26 @@ struct InputModalView: View {
                 audioManager.transcriptionResult = nil
             }
         }
-        .alert("Ошибка", isPresented: .constant(audioManager.errorMessage != nil)) {
-            Button("OK") { audioManager.errorMessage = nil }
+        .onChange(of: localASRManager.transcriptionResult) { newValue in
+            if let transcription = newValue {
+                // У локальной модели нет appendMode, всегда заменяем или добавляем к существующему
+                if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    inputText = inputText.trimmingCharacters(in: .whitespacesAndNewlines) + " " + transcription
+                } else {
+                    inputText = transcription
+                }
+                localASRManager.transcriptionResult = nil
+            }
+        }
+        .alert("Ошибка", isPresented: .constant(asrErrorMessage != nil)) {
+            Button("OK") { clearASRError() }
         } message: {
-            Text(audioManager.errorMessage ?? "")
+            Text(asrErrorMessage ?? "")
         }
         .onReceive(NotificationCenter.default.publisher(for: .checkAndSubmit)) { _ in
             // Закрытие по хоткею: если есть текст или идёт запись - отправить и вставить, иначе просто закрыть
             let trimmedText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedText.isEmpty || audioManager.isRecording {
+            if !trimmedText.isEmpty || isRecording {
                 submitImmediate()  // Остановит запись если нужно, отправит и вставит
             } else {
                 // Просто закрыть без вставки
@@ -1842,10 +2309,8 @@ struct InputModalView: View {
     private func submitImmediate() {
         Task {
             // Если идёт запись - остановить и подождать результат
-            if audioManager.isRecording {
-                await audioManager.stopRecordingAndTranscribe(
-                    language: SettingsManager.shared.preferredLanguage
-                )
+            if isRecording {
+                await stopASR()
                 // Подождать пока результат придёт
                 try? await Task.sleep(nanoseconds: 150_000_000)
             }
@@ -1854,14 +2319,14 @@ struct InputModalView: View {
                 // Собрать текст: из inputText или из только что полученного результата
                 var textToSubmit: String
 
-                if let result = audioManager.transcriptionResult, !result.isEmpty {
-                    // Режим дозаписи
-                    if audioManager.appendMode && !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let result = transcriptionResult, !result.isEmpty {
+                    // Режим дозаписи (только для Deepgram)
+                    if appendMode && !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         textToSubmit = inputText.trimmingCharacters(in: .whitespacesAndNewlines) + " " + result
                     } else {
                         textToSubmit = result
                     }
-                    audioManager.transcriptionResult = nil
+                    clearTranscriptionResult()
                 } else {
                     textToSubmit = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
@@ -1894,7 +2359,7 @@ struct InputModalView: View {
         // Check API key
         guard SettingsManager.shared.hasGeminiKey() else {
             await MainActor.run {
-                audioManager.errorMessage = "Gemini API ключ не найден. Откройте Настройки (AI → Добавить ключ)"
+                setASRError("Gemini API ключ не найден. Откройте Настройки (AI → Добавить ключ)")
             }
             return
         }
@@ -1920,11 +2385,74 @@ struct InputModalView: View {
             NSLog("❌ Gemini error: \(error.localizedDescription)")
 
             await MainActor.run {
-                audioManager.errorMessage = "Ошибка Gemini: \(error.localizedDescription)"
+                setASRError("Ошибка Gemini: \(error.localizedDescription)")
                 isProcessingAI = false
                 currentProcessingPrompt = nil
             }
         }
+    }
+
+    // MARK: - ASR Helper Methods
+
+    /// Проверяет можно ли начать запись (для Deepgram нужен API key)
+    private func canStartASR() -> Bool {
+        if settings.asrProviderType == .local {
+            return true  // Локальная модель всегда доступна
+        } else {
+            return SettingsManager.shared.hasAPIKey()  // Deepgram требует API key
+        }
+    }
+
+    /// Запускает запись с текущим ASR провайдером
+    private func startASR(existingText: String = "") async {
+        if settings.asrProviderType == .local {
+            await localASRManager.startRecording()
+        } else {
+            await audioManager.startRecording(existingText: existingText)
+        }
+    }
+
+    /// Останавливает запись текущего ASR провайдера
+    private func stopASR() async {
+        if settings.asrProviderType == .local {
+            await localASRManager.stopRecordingAndTranscribe()
+        } else {
+            await audioManager.stopRecordingAndTranscribe(
+                language: SettingsManager.shared.preferredLanguage
+            )
+        }
+    }
+
+    /// Устанавливает ошибку для текущего ASR провайдера
+    private func setASRError(_ message: String) {
+        if settings.asrProviderType == .local {
+            localASRManager.errorMessage = message
+        } else {
+            audioManager.errorMessage = message
+        }
+    }
+
+    /// Очищает ошибку текущего ASR провайдера
+    private func clearASRError() {
+        if settings.asrProviderType == .local {
+            localASRManager.errorMessage = nil
+        } else {
+            audioManager.errorMessage = nil
+        }
+    }
+
+    /// Очищает результат транскрипции
+    private func clearTranscriptionResult() {
+        if settings.asrProviderType == .local {
+            localASRManager.transcriptionResult = nil
+        } else {
+            audioManager.transcriptionResult = nil
+        }
+    }
+
+    /// Режим дозаписи (только для Deepgram, у локальной модели нет)
+    private var appendMode: Bool {
+        settings.asrProviderType == .local ? false : audioManager.appendMode
     }
 }
 
@@ -2634,7 +3162,7 @@ enum SettingsTab: String, CaseIterable {
     case general = "Основные"
     case hotkeys = "Хоткеи"
     case features = "Фитчи"
-    case deepgram = "Deepgram"
+    case speech = "Речь"
     case ai = "AI"
 
     var icon: String {
@@ -2642,7 +3170,7 @@ enum SettingsTab: String, CaseIterable {
         case .general: return "gearshape"
         case .hotkeys: return "keyboard"
         case .features: return "camera.fill"
-        case .deepgram: return "mic"
+        case .speech: return "waveform"
         case .ai: return "sparkles"
         }
     }
@@ -2816,7 +3344,7 @@ struct SettingsView: View {
         case .general: generalTabContent
         case .hotkeys: hotkeysTabContent
         case .features: featuresTabContent
-        case .deepgram: deepgramTabContent
+        case .speech: speechTabContent
         case .ai: aiTabContent
         }
     }
@@ -3094,10 +3622,15 @@ struct SettingsView: View {
         }
     }
 
-    // === TAB: DEEPGRAM ===
-    var deepgramTabContent: some View {
+    // === TAB: РЕЧЬ ===
+    var speechTabContent: some View {
         VStack(spacing: 0) {
-            DeepgramAPISection()
+            ASRProviderSection()
+
+            // Показываем настройки Deepgram только если выбран Deepgram провайдер
+            if settings.asrProviderType == .deepgram {
+                DeepgramAPISection()
+            }
         }
     }
 
@@ -3133,6 +3666,92 @@ struct HotkeyDisplayRow: View {
                 .background(Color.white.opacity(0.08))
                 .cornerRadius(4)
         }
+    }
+}
+
+// MARK: - ASR Provider Section
+struct ASRProviderSection: View {
+    @ObservedObject private var settings = SettingsManager.shared
+
+    var body: some View {
+        SettingsSection(title: "РАСПОЗНАВАНИЕ РЕЧИ") {
+            VStack(alignment: .leading, spacing: 16) {
+                // Локальная модель (T-ONE)
+                ASRProviderRow(
+                    title: "Локальная модель (T-ONE)",
+                    subtitle: "Работает офлайн, ~300ms задержка",
+                    icon: "cpu",
+                    isSelected: settings.asrProviderType == .local,
+                    action: {
+                        settings.asrProviderType = .local
+                    }
+                )
+
+                Divider().background(Color.white.opacity(0.1))
+
+                // Deepgram (облако)
+                ASRProviderRow(
+                    title: "Deepgram (облако)",
+                    subtitle: "Требует интернет и API ключ",
+                    icon: "cloud",
+                    isSelected: settings.asrProviderType == .deepgram,
+                    action: {
+                        settings.asrProviderType = .deepgram
+                    }
+                )
+            }
+            .padding(.vertical, 8)
+        }
+    }
+}
+
+// MARK: - ASR Provider Row
+struct ASRProviderRow: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                // Иконка
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .foregroundColor(isSelected ? DesignSystem.Colors.accent : .gray)
+                    .frame(width: 32, height: 32)
+
+                // Текст
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                }
+
+                Spacer()
+
+                // Индикатор выбора
+                ZStack {
+                    Circle()
+                        .stroke(isSelected ? DesignSystem.Colors.accent : Color.gray.opacity(0.5), lineWidth: 2)
+                        .frame(width: 20, height: 20)
+
+                    if isSelected {
+                        Circle()
+                            .fill(DesignSystem.Colors.accent)
+                            .frame(width: 12, height: 12)
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
