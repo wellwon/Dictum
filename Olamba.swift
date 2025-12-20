@@ -1278,11 +1278,19 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
     // Fix 9: Флаг для предотвращения использования закрывающегося WebSocket
     private var isClosingWebSocket: Bool = false
 
+    // C1: WorkItem для отмены timeout при успешном подключении
+    private var connectionTimeoutWorkItem: DispatchWorkItem?
+
     // Fix 4: NSLock для защиты finalTranscript от data race
     private let transcriptLock = NSLock()
 
     // Fix 5: Serial queue для thread-safe доступа к audioBuffer
     private let audioBufferQueue = DispatchQueue(label: "com.olamba.audioBuffer")
+
+    // C2: Кешированный AudioConverter для производительности
+    private var cachedConverter: AVAudioConverter?
+    private var cachedInputFormat: AVAudioFormat?
+    private var cachedOutputFormat: AVAudioFormat?
 
     override init() {
         super.init()
@@ -1345,8 +1353,9 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
 
         NSLog("🔌 Подключение к Deepgram WebSocket...")
 
-        // Fix 6: Timeout для WebSocket подключения (5 секунд)
-        let connectionTimeout = DispatchWorkItem { [weak self] in
+        // Fix 6 + C1: Timeout для WebSocket подключения (5 секунд)
+        connectionTimeoutWorkItem?.cancel()  // Отменить предыдущий если есть
+        connectionTimeoutWorkItem = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
             if !self.webSocketConnected && self.isRecording {
                 NSLog("⚠️ WebSocket timeout - нет подключения за 5 секунд")
@@ -1359,7 +1368,9 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
                 VolumeManager.shared.restoreVolume()
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: connectionTimeout)
+        if let workItem = connectionTimeoutWorkItem {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: workItem)
+        }
 
         // Слушать ответы
         receiveMessages()
@@ -1417,8 +1428,19 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
             }
         }
 
-        // 2. Конвертировать в 16kHz
-        guard let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else { return }
+        // 2. Конвертировать в 16kHz (C2: используем кешированный converter)
+        let converter: AVAudioConverter
+        if let cached = cachedConverter,
+           cachedInputFormat == inputFormat,
+           cachedOutputFormat == outputFormat {
+            converter = cached
+        } else {
+            guard let newConverter = AVAudioConverter(from: inputFormat, to: outputFormat) else { return }
+            cachedConverter = newConverter
+            cachedInputFormat = inputFormat
+            cachedOutputFormat = outputFormat
+            converter = newConverter
+        }
 
         let ratio = outputFormat.sampleRate / inputFormat.sampleRate
         let outputFrameCount = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
@@ -1475,6 +1497,11 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
+
+        // C2: Сбросить кешированный converter
+        cachedConverter = nil
+        cachedInputFormat = nil
+        cachedOutputFormat = nil
 
         // Fix 9: Устанавливаем флаг перед закрытием
         isClosingWebSocket = true
@@ -1574,6 +1601,10 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
 
         // Установить флаг
         webSocketConnected = true
+
+        // C1: Отменить timeout - подключение успешно
+        connectionTimeoutWorkItem?.cancel()
+        connectionTimeoutWorkItem = nil
 
         // Fix 5: Защита audioBuffer через serial queue
         audioBufferQueue.async { [weak self] in
@@ -3253,13 +3284,30 @@ class LaunchAtLoginManager {
 """
 
         let launchAgentsDir = (launchAgentPath as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(atPath: launchAgentsDir, withIntermediateDirectories: true)
-        try? plistContent.write(toFile: launchAgentPath, atomically: true, encoding: .utf8)
+
+        // H2: Логируем ошибки FileManager
+        do {
+            try FileManager.default.createDirectory(atPath: launchAgentsDir, withIntermediateDirectories: true)
+        } catch {
+            NSLog("❌ Ошибка создания LaunchAgents: %@", error.localizedDescription)
+            return
+        }
+
+        do {
+            try plistContent.write(toFile: launchAgentPath, atomically: true, encoding: .utf8)
+        } catch {
+            NSLog("❌ Ошибка записи plist: %@", error.localizedDescription)
+            return
+        }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         process.arguments = ["load", launchAgentPath]
-        try? process.run()
+        do {
+            try process.run()
+        } catch {
+            NSLog("❌ Ошибка launchctl load: %@", error.localizedDescription)
+        }
     }
 
     private func disableLaunchAtLogin() {
@@ -5487,7 +5535,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         sw.center()
         sw.minSize = NSSize(width: 800, height: 600)
 
-        sw.isReleasedWhenClosed = false
+        // H6: isReleasedWhenClosed = true для автоматического освобождения памяти
+        sw.isReleasedWhenClosed = true
         sw.delegate = self
         settingsWindow = sw
 
@@ -5507,11 +5556,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
-        // Для главного окна - только скрыть и показать снова
+        // H3: Для главного окна - пересоздаём через setupWindow
         if closedWindow == window {
             window = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.showWindow()
+                self?.setupWindow()  // setupWindow создаёт новое окно
             }
         }
     }
