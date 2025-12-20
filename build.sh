@@ -4,7 +4,7 @@ set -e
 
 APP_NAME="Olamba"
 BUNDLE_ID="com.olamba.app"
-VERSION="1.8"
+VERSION="1.9"
 
 # Пути к sherpa-onnx
 SHERPA_ONNX_DIR="/Users/macbookpro/PycharmProjects/sherpa-onnx"

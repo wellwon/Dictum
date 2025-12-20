@@ -1716,8 +1716,11 @@ class DeepgramService {
         }
 
         // 3. URL с параметрами (по документации)
+        // Fix R4-M1: guard let вместо force unwrap
         let model = SettingsManager.shared.deepgramModel
-        var components = URLComponents(string: baseURL)!
+        guard var components = URLComponents(string: baseURL) else {
+            throw DeepgramError.invalidResponse
+        }
         components.queryItems = [
             URLQueryItem(name: "model", value: model),
             URLQueryItem(name: "language", value: language),
@@ -1726,7 +1729,10 @@ class DeepgramService {
         ]
 
         // 4. Создать запрос
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else {
+            throw DeepgramError.invalidResponse
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
@@ -1826,8 +1832,11 @@ class GeminiService: ObservableObject {
             throw GeminiError.noAPIKey
         }
 
+        // Fix R4-M1: guard let вместо force unwrap
         let baseURL = "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
-        var components = URLComponents(string: baseURL)!
+        guard var components = URLComponents(string: baseURL) else {
+            throw GeminiError.invalidResponse
+        }
         components.queryItems = [URLQueryItem(name: "key", value: apiKey)]
 
         guard let url = components.url else {
@@ -2036,12 +2045,18 @@ class DeepgramManagementService {
             throw DeepgramManagementError.noAPIKey
         }
 
-        var components = URLComponents(string: "\(baseURL)/projects/\(projectId)/requests")!
+        // Fix R4-M1: guard let вместо force unwrap
+        guard var components = URLComponents(string: "\(baseURL)/projects/\(projectId)/requests") else {
+            throw DeepgramManagementError.invalidResponse
+        }
         components.queryItems = [
             URLQueryItem(name: "limit", value: String(limit))
         ]
 
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else {
+            throw DeepgramManagementError.invalidResponse
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 30
@@ -5008,34 +5023,39 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let filepath = screenshotsDir.appendingPathComponent(filename).path
 
         // Запускаем screencapture с интерактивным выбором
+        // Fix R4-H1: Выполняем в background thread чтобы не блокировать UI
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         process.arguments = ["-i", filepath]  // -i = interactive mode
 
-        do {
-            try process.run()
-            process.waitUntilExit()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                try process.run()
+                process.waitUntilExit()  // Теперь блокирует только background thread
 
-            if process.terminationStatus == 0 {
-                // Проверяем что файл создан (пользователь мог отменить)
-                if FileManager.default.fileExists(atPath: filepath) {
-                    NSLog("✅ Screenshot saved: \(filepath)")
+                DispatchQueue.main.async {
+                    if process.terminationStatus == 0 {
+                        // Проверяем что файл создан (пользователь мог отменить)
+                        if FileManager.default.fileExists(atPath: filepath) {
+                            NSLog("✅ Screenshot saved: \(filepath)")
 
-                    // Копируем путь в буфер обмена
-                    let pasteboard = NSPasteboard.general
-                    pasteboard.clearContents()
-                    pasteboard.setString(filepath, forType: .string)
+                            // Копируем путь в буфер обмена
+                            let pasteboard = NSPasteboard.general
+                            pasteboard.clearContents()
+                            pasteboard.setString(filepath, forType: .string)
 
-                    // Показываем временное уведомление
-                    showScreenshotNotification()
-                } else {
-                    NSLog("⚠️ Screenshot cancelled by user")
+                            // Показываем временное уведомление
+                            self?.showScreenshotNotification()
+                        } else {
+                            NSLog("⚠️ Screenshot cancelled by user")
+                        }
+                    } else {
+                        NSLog("❌ screencapture failed with status: \(process.terminationStatus)")
+                    }
                 }
-            } else {
-                NSLog("❌ screencapture failed with status: \(process.terminationStatus)")
+            } catch {
+                NSLog("❌ Failed to execute screencapture: \(error)")
             }
-        } catch {
-            NSLog("❌ Failed to execute screencapture: \(error)")
         }
     }
 
