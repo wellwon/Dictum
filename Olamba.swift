@@ -136,7 +136,9 @@ class HistoryManager: ObservableObject {
         if searchQuery.isEmpty {
             return Array(history.prefix(limit))
         } else {
-            let filtered = history.filter { $0.text.lowercased().contains(searchQuery.lowercased()) }
+            // Fix 22: Cache lowercased query outside filter loop
+            let lowercasedQuery = searchQuery.lowercased()
+            let filtered = history.filter { $0.text.lowercased().contains(lowercasedQuery) }
             return Array(filtered.prefix(limit))
         }
     }
@@ -153,7 +155,8 @@ class HistoryManager: ObservableObject {
             decoder.dateDecodingStrategy = .iso8601
             history = try decoder.decode([HistoryItem].self, from: data)
         } catch {
-            print("Error loading history: \(error)")
+            // Fix 16: NSLog for error visibility
+            NSLog("❌ Error loading history: \(error.localizedDescription)")
             history = []
         }
     }
@@ -165,7 +168,8 @@ class HistoryManager: ObservableObject {
             let data = try encoder.encode(history)
             UserDefaults.standard.set(data, forKey: historyKey)
         } catch {
-            print("Error saving history: \(error)")
+            // Fix 16: NSLog for error visibility
+            NSLog("❌ Error saving history: \(error.localizedDescription)")
         }
     }
 }
@@ -225,14 +229,14 @@ struct HotkeyConfig: Codable, Equatable {
         if modifiers & UInt32(shiftKey) != 0 { names.append("⇧") }
         if modifiers & UInt32(optionKey) != 0 { names.append("⌥") }
         if modifiers & UInt32(controlKey) != 0 { names.append("⌃") }
-        return names.joined()
+        return names.joined(separator: " ")
     }
 
     var displayString: String {
         if modifiers == 0 {
             return keyName
         }
-        return modifierNames + keyName
+        return modifierNames + " " + keyName
     }
 
     private func keyCodeToChar(_ code: UInt16) -> Character? {
@@ -255,34 +259,75 @@ struct HotkeyConfig: Codable, Equatable {
 class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
 
+    // Fix 7: Async UserDefaults saves to prevent UI blocking
     @Published var hotkeyEnabled: Bool {
-        didSet { UserDefaults.standard.set(hotkeyEnabled, forKey: "settings.hotkeyEnabled") }
+        didSet {
+            let value = hotkeyEnabled
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.hotkeyEnabled")
+            }
+        }
     }
     @Published var soundEnabled: Bool {
-        didSet { UserDefaults.standard.set(soundEnabled, forKey: "settings.soundEnabled") }
+        didSet {
+            let value = soundEnabled
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.soundEnabled")
+            }
+        }
     }
     @Published var preferredLanguage: String {
-        didSet { UserDefaults.standard.set(preferredLanguage, forKey: "settings.preferredLanguage") }
+        didSet {
+            let value = preferredLanguage
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.preferredLanguage")
+            }
+        }
     }
     @Published var maxHistoryItems: Int {
-        didSet { UserDefaults.standard.set(maxHistoryItems, forKey: "settings.maxHistoryItems") }
+        didSet {
+            let value = maxHistoryItems
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.maxHistoryItems")
+            }
+        }
     }
     @Published var toggleHotkey: HotkeyConfig {
         didSet { saveHotkey() }
     }
     @Published var audioModeEnabled: Bool {
-        didSet { UserDefaults.standard.set(audioModeEnabled, forKey: "settings.audioModeEnabled") }
+        didSet {
+            let value = audioModeEnabled
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.audioModeEnabled")
+            }
+        }
     }
     @Published var deepgramModel: String {
-        didSet { UserDefaults.standard.set(deepgramModel, forKey: "settings.deepgramModel") }
+        didSet {
+            let value = deepgramModel
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.deepgramModel")
+            }
+        }
     }
     @Published var highlightForeignWords: Bool {
-        didSet { UserDefaults.standard.set(highlightForeignWords, forKey: "settings.highlightForeignWords") }
+        didSet {
+            let value = highlightForeignWords
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.highlightForeignWords")
+            }
+        }
     }
 
     // Screenshot feature
     @Published var screenshotFeatureEnabled: Bool {
-        didSet { UserDefaults.standard.set(screenshotFeatureEnabled, forKey: "settings.screenshotFeatureEnabled") }
+        didSet {
+            let value = screenshotFeatureEnabled
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.screenshotFeatureEnabled")
+            }
+        }
     }
     @Published var screenshotHotkey: HotkeyConfig {
         didSet { saveScreenshotHotkey() }
@@ -293,34 +338,74 @@ class SettingsManager: ObservableObject {
 
     // AI функции включены/выключены
     @Published var aiEnabled: Bool {
-        didSet { UserDefaults.standard.set(aiEnabled, forKey: "settings.aiEnabled") }
+        didSet {
+            let value = aiEnabled
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.aiEnabled")
+            }
+        }
     }
 
     // Settings window state
     @Published var settingsWindowWasOpen: Bool {
-        didSet { UserDefaults.standard.set(settingsWindowWasOpen, forKey: "settings.windowWasOpen") }
+        didSet {
+            let value = settingsWindowWasOpen
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.windowWasOpen")
+            }
+        }
     }
     @Published var lastSettingsTab: String {
-        didSet { UserDefaults.standard.set(lastSettingsTab, forKey: "settings.lastTab") }
+        didSet {
+            let value = lastSettingsTab
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.lastTab")
+            }
+        }
     }
 
     // Custom prompts for each language mode
     @Published var promptWB: String {
-        didSet { UserDefaults.standard.set(promptWB, forKey: "com.olamba.prompt.wb") }
+        didSet {
+            let value = promptWB
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "com.olamba.prompt.wb")
+            }
+        }
     }
     @Published var promptRU: String {
-        didSet { UserDefaults.standard.set(promptRU, forKey: "com.olamba.prompt.ru") }
+        didSet {
+            let value = promptRU
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "com.olamba.prompt.ru")
+            }
+        }
     }
     @Published var promptEN: String {
-        didSet { UserDefaults.standard.set(promptEN, forKey: "com.olamba.prompt.en") }
+        didSet {
+            let value = promptEN
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "com.olamba.prompt.en")
+            }
+        }
     }
     @Published var promptCH: String {
-        didSet { UserDefaults.standard.set(promptCH, forKey: "com.olamba.prompt.ch") }
+        didSet {
+            let value = promptCH
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "com.olamba.prompt.ch")
+            }
+        }
     }
 
     // ASR провайдер: локальная модель или Deepgram
     @Published var asrProviderType: ASRProviderType {
-        didSet { UserDefaults.standard.set(asrProviderType.rawValue, forKey: "settings.asrProviderType") }
+        didSet {
+            let value = asrProviderType.rawValue
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.asrProviderType")
+            }
+        }
     }
 
     init() {
@@ -390,13 +475,17 @@ class SettingsManager: ObservableObject {
 
     private func saveHotkey() {
         if let data = try? JSONEncoder().encode(toggleHotkey) {
-            UserDefaults.standard.set(data, forKey: "settings.toggleHotkey")
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(data, forKey: "settings.toggleHotkey")
+            }
         }
     }
 
     private func saveScreenshotHotkey() {
         if let data = try? JSONEncoder().encode(screenshotHotkey) {
-            UserDefaults.standard.set(data, forKey: "settings.screenshotHotkey")
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(data, forKey: "settings.screenshotHotkey")
+            }
         }
     }
 
@@ -663,6 +752,12 @@ class VolumeManager {
         let process = Process()
         let pipe = Pipe()
 
+        // Fix 2: defer для cleanup Process/Pipe при любом выходе
+        defer {
+            try? pipe.fileHandleForReading.close()
+            if process.isRunning { process.terminate() }
+        }
+
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "output volume of (get volume settings)"]
         process.standardOutput = pipe
@@ -686,11 +781,17 @@ class VolumeManager {
         let clampedLevel = max(0, min(100, level))
         let process = Process()
 
+        // Fix 2: defer для cleanup Process при любом выходе
+        defer {
+            if process.isRunning { process.terminate() }
+        }
+
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "set volume output volume \(clampedLevel)"]
 
         do {
             try process.run()
+            process.waitUntilExit()
             NSLog("🔊 Volume set to \(clampedLevel)")
         } catch {
             NSLog("❌ Failed to set volume: \(error)")
@@ -733,7 +834,8 @@ class AccessibilityHelper {
 }
 
 // MARK: - Local ASR Provider (Sherpa-onnx T-ONE)
-class SherpaASRProvider: ObservableObject {
+// @unchecked Sendable: thread-safety обеспечивается recognizerQueue (serial) и transcriptLock
+class SherpaASRProvider: ObservableObject, @unchecked Sendable {
     @Published var isRecording = false
     @Published var transcriptionResult: String?
     @Published var interimText: String = ""
@@ -747,8 +849,8 @@ class SherpaASRProvider: ObservableObject {
     // Round 2 Fix 1: NSLock для защиты finalTranscript от data race
     private let transcriptLock = NSLock()
 
-    // Round 2 Fix 2-3: Семафор вместо isProcessing для предотвращения параллельных decode
-    private let decodingSemaphore = DispatchSemaphore(value: 1)
+    // Fix: Флаг вместо семафора (protected by recognizerQueue)
+    private var isDecodingInProgress = false
 
     // Fix 1: DispatchSourceTimer вместо Timer (без retain cycle)
     private var decodeTimer: DispatchSourceTimer?
@@ -765,6 +867,9 @@ class SherpaASRProvider: ObservableObject {
 
     // Round 3 Fix: Pre-allocated samples array (избегаем allocation на audio thread)
     private var samplesArray: [Float] = []
+
+    // Fix 19: Guard для предотвращения double stop
+    private var isStopInProgress = false
 
     init() {
         setupRecognizer()
@@ -1020,13 +1125,14 @@ class SherpaASRProvider: ObservableObject {
     }
 
     private func decodeAudio() {
-        // Round 2 Fix 2-3: Семафор вместо isProcessing (предотвращает параллельные decode)
-        guard decodingSemaphore.wait(timeout: .now()) == .success else { return }
-
+        // Fix: Используем флаг вместо семафора (предотвращает параллельные decode)
         recognizerQueue.async { [weak self] in
-            defer { self?.decodingSemaphore.signal() }
+            guard let self = self else { return }
+            guard !self.isDecodingInProgress else { return }  // Skip if already decoding
+            self.isDecodingInProgress = true
+            defer { self.isDecodingInProgress = false }
 
-            guard let self = self, let recognizer = self.recognizer else { return }
+            guard let recognizer = self.recognizer else { return }
 
             // Round 2 Fix 7: Max iterations для предотвращения зависания
             var iterations = 0
@@ -1060,16 +1166,24 @@ class SherpaASRProvider: ObservableObject {
     }
 
     func stopRecordingAndTranscribe() async {
+        // Fix 19: Предотвращаем double stop
+        guard !isStopInProgress else {
+            NSLog("⚠️ stopRecording already in progress, skipping")
+            return
+        }
+        isStopInProgress = true
+        defer { isStopInProgress = false }
+
         // Fix 1: Остановить DispatchSourceTimer
         decodeTimer?.cancel()
         decodeTimer = nil
 
-        // Round 2 Fix 4-5: Ждём завершения pending decodeAudio через семафор
-        // Используем detached Task для изоляции от async контекста
-        await Task.detached { [decodingSemaphore] in
-            decodingSemaphore.wait()
-            decodingSemaphore.signal()
-        }.value
+        // Fix: Ждём завершения pending decodeAudio через serial queue
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            recognizerQueue.async {
+                continuation.resume()
+            }
+        }
 
         // Остановить аудио
         audioEngine?.inputNode.removeTap(onBus: 0)
@@ -1152,7 +1266,23 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
     private var urlSession: URLSession!
     private var finalTranscript: String = ""
     private var audioBuffer: [Data] = []      // Буфер для pre-buffering
-    private var webSocketConnected: Bool = false
+
+    // Fix 20: Thread-safe webSocketConnected
+    private var _webSocketConnected: Bool = false
+    private let webSocketConnectedLock = NSLock()
+    private var webSocketConnected: Bool {
+        get { webSocketConnectedLock.withLock { _webSocketConnected } }
+        set { webSocketConnectedLock.withLock { _webSocketConnected = newValue } }
+    }
+
+    // Fix 9: Флаг для предотвращения использования закрывающегося WebSocket
+    private var isClosingWebSocket: Bool = false
+
+    // Fix 4: NSLock для защиты finalTranscript от data race
+    private let transcriptLock = NSLock()
+
+    // Fix 5: Serial queue для thread-safe доступа к audioBuffer
+    private let audioBufferQueue = DispatchQueue(label: "com.olamba.audioBuffer")
 
     override init() {
         super.init()
@@ -1185,8 +1315,10 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
         let isAppend = !existingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         // ВСЕГДА сбрасывать finalTranscript - append логика через inputText в onChange
-        finalTranscript = ""
-        audioBuffer.removeAll()
+        // Fix 4: Защита finalTranscript локом
+        transcriptLock.withLock { finalTranscript = "" }
+        // Fix 5: Защита audioBuffer через serial queue
+        audioBufferQueue.sync { audioBuffer.removeAll() }
         webSocketConnected = false
 
         await MainActor.run {
@@ -1212,6 +1344,22 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
         webSocket?.resume()
 
         NSLog("🔌 Подключение к Deepgram WebSocket...")
+
+        // Fix 6: Timeout для WebSocket подключения (5 секунд)
+        let connectionTimeout = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            if !self.webSocketConnected && self.isRecording {
+                NSLog("⚠️ WebSocket timeout - нет подключения за 5 секунд")
+                self.webSocket?.cancel(with: .goingAway, reason: nil)
+                self.webSocket = nil
+                DispatchQueue.main.async {
+                    self.errorMessage = "Timeout подключения к серверу. Проверьте интернет."
+                    self.isRecording = false
+                }
+                VolumeManager.shared.restoreVolume()
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: connectionTimeout)
 
         // Слушать ответы
         receiveMessages()
@@ -1295,22 +1443,28 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
             let byteCount = Int(outputBuffer.frameLength) * 2
             let data = Data(bytes: channelData[0], count: byteCount)
 
-            // Pre-buffering: буферизируем пока WebSocket не подключен
-            if webSocketConnected {
-                // Сначала отправить буферизованные данные
-                if !audioBuffer.isEmpty {
-                    for bufferedData in audioBuffer {
-                        webSocket?.send(.data(bufferedData)) { _ in }
+            // Fix 5: Защита audioBuffer через serial queue
+            audioBufferQueue.async { [weak self] in
+                guard let self = self else { return }
+
+                // Pre-buffering: буферизируем пока WebSocket не подключен
+                if self.webSocketConnected {
+                    // Сначала отправить буферизованные данные
+                    if !self.audioBuffer.isEmpty {
+                        let count = self.audioBuffer.count
+                        for bufferedData in self.audioBuffer {
+                            self.webSocket?.send(.data(bufferedData)) { _ in }
+                        }
+                        self.audioBuffer.removeAll()
+                        NSLog("📤 Отправлено \(count) буферизованных чанков")
                     }
-                    audioBuffer.removeAll()
-                    NSLog("📤 Отправлено \(audioBuffer.count) буферизованных чанков")
-                }
-                // Отправить текущие данные
-                webSocket?.send(.data(data)) { _ in }
-            } else {
-                // Буферизируем (макс. 2 секунды = ~20 чанков по 100мс)
-                if audioBuffer.count < 20 {
-                    audioBuffer.append(data)
+                    // Отправить текущие данные
+                    self.webSocket?.send(.data(data)) { _ in }
+                } else {
+                    // Fix 35: Буферизируем (макс. 3 секунды = ~30 чанков по 100мс)
+                    if self.audioBuffer.count < 30 {
+                        self.audioBuffer.append(data)
+                    }
                 }
             }
         }
@@ -1322,16 +1476,24 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
         audioEngine?.stop()
         audioEngine = nil
 
+        // Fix 9: Устанавливаем флаг перед закрытием
+        isClosingWebSocket = true
+
         // Закрыть WebSocket
         webSocket?.send(.string("{\"type\": \"CloseStream\"}")) { _ in }
         try? await Task.sleep(nanoseconds: 300_000_000)  // 300ms для финальных результатов
         webSocket?.cancel(with: .goingAway, reason: nil)
         webSocket = nil
+        webSocketConnected = false
+        isClosingWebSocket = false
+
+        // Fix 4: Защита finalTranscript локом при чтении
+        let finalText = transcriptLock.withLock { finalTranscript }
 
         await MainActor.run {
             isRecording = false
-            if !finalTranscript.isEmpty {
-                transcriptionResult = finalTranscript.trimmingCharacters(in: .whitespaces)
+            if !finalText.isEmpty {
+                transcriptionResult = finalText.trimmingCharacters(in: .whitespaces)
             }
             interimText = ""
         }
@@ -1339,22 +1501,36 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
         // Restore original volume
         VolumeManager.shared.restoreVolume()
 
-        NSLog("✅ Результат: \(finalTranscript)")
+        NSLog("✅ Результат: \(finalText)")
     }
 
     private func receiveMessages() {
-        webSocket?.receive { [weak self] result in
-            guard let self = self else { return }
+        // Fix 3: Guard на состояние webSocket и isRecording
+        // Fix 9: Также проверяем isClosingWebSocket
+        guard let webSocket = webSocket, isRecording, !isClosingWebSocket else { return }
+
+        webSocket.receive { [weak self] result in
+            guard let self = self, self.webSocket != nil, !self.isClosingWebSocket else { return }
 
             switch result {
             case .success(let message):
                 if case .string(let text) = message {
                     self.handleResponse(text)
                 }
-                self.receiveMessages()  // Продолжаем слушать
+                // Продолжаем слушать только если ещё записываем и не закрываемся
+                if self.isRecording && !self.isClosingWebSocket {
+                    self.receiveMessages()
+                }
 
             case .failure(let error):
+                // Fix 9: Игнорируем ошибки если уже закрываемся
+                guard !self.isClosingWebSocket else { return }
                 NSLog("❌ WS error: \(error.localizedDescription)")
+                // Fix 3: Закрываем WebSocket при ошибке
+                self.isClosingWebSocket = true
+                self.webSocket?.cancel(with: .goingAway, reason: nil)
+                self.webSocket = nil
+                self.isClosingWebSocket = false
             }
         }
     }
@@ -1372,7 +1548,10 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
 
         DispatchQueue.main.async {
             if isFinal && !transcript.isEmpty {
-                self.finalTranscript += (self.finalTranscript.isEmpty ? "" : " ") + transcript
+                // Fix 4: Защита finalTranscript локом
+                self.transcriptLock.withLock {
+                    self.finalTranscript += (self.finalTranscript.isEmpty ? "" : " ") + transcript
+                }
                 self.interimText = ""
                 NSLog("📝 Final: \(transcript)")
             } else if !transcript.isEmpty {
@@ -1393,17 +1572,22 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         NSLog("✅ WebSocket подключен")
 
-        // Установить флаг и отправить буферизованные данные
+        // Установить флаг
         webSocketConnected = true
 
-        // Отправить все буферизованные чанки
-        if !audioBuffer.isEmpty {
-            let bufferedCount = audioBuffer.count
-            for data in audioBuffer {
-                webSocket?.send(.data(data)) { _ in }
+        // Fix 5: Защита audioBuffer через serial queue
+        audioBufferQueue.async { [weak self] in
+            guard let self = self else { return }
+
+            // Отправить все буферизованные чанки
+            if !self.audioBuffer.isEmpty {
+                let bufferedCount = self.audioBuffer.count
+                for data in self.audioBuffer {
+                    self.webSocket?.send(.data(data)) { _ in }
+                }
+                self.audioBuffer.removeAll()
+                NSLog("📤 Отправлено \(bufferedCount) буферизованных чанков аудио")
             }
-            audioBuffer.removeAll()
-            NSLog("📤 Отправлено \(bufferedCount) буферизованных чанков аудио")
         }
     }
 
@@ -1865,6 +2049,13 @@ class BillingManager: ObservableObject {
 
     private let service = DeepgramManagementService()
 
+    // Fix 17: Track async tasks for cancellation
+    private var loadTask: Task<Void, Never>?
+
+    deinit {
+        loadTask?.cancel()
+    }
+
     // Загрузить все данные
     @MainActor
     func loadAllData(apiKey: String) async {
@@ -1919,7 +2110,9 @@ class BillingManager: ObservableObject {
             return
         }
 
-        Task {
+        // Fix 17: Cancel previous task and track new one
+        loadTask?.cancel()
+        loadTask = Task {
             await loadAllData(apiKey: apiKey)
         }
     }
@@ -1958,6 +2151,8 @@ struct InputModalView: View {
     @State private var textEditorHeight: CGFloat = 40
     @State private var isProcessingAI: Bool = false
     @State private var currentProcessingPrompt: CustomPrompt? = nil
+    // Fix 25: Proper @State for alert instead of .constant()
+    @State private var showASRErrorAlert: Bool = false
     @StateObject private var geminiService = GeminiService()
     @ObservedObject private var promptsManager = PromptsManager.shared
 
@@ -2259,10 +2454,17 @@ struct InputModalView: View {
                 localASRManager.transcriptionResult = nil
             }
         }
-        .alert("Ошибка", isPresented: .constant(asrErrorMessage != nil)) {
-            Button("OK") { clearASRError() }
+        // Fix 25: Use proper @State binding for alert
+        .alert("Ошибка", isPresented: $showASRErrorAlert) {
+            Button("OK") {
+                showASRErrorAlert = false
+                clearASRError()
+            }
         } message: {
             Text(asrErrorMessage ?? "")
+        }
+        .onChange(of: asrErrorMessage) { error in
+            showASRErrorAlert = error != nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .checkAndSubmit)) { _ in
             // Закрытие по хоткею: если есть текст или идёт запись - отправить и вставить, иначе просто закрыть
@@ -2799,6 +3001,9 @@ struct CustomTextEditor: NSViewRepresentable {
         private var isApplyingHighlight = false
         var textWasReplacedExternally = false  // Флаг для различения внешней замены текста (Gemini) и обычного ввода
 
+        // Fix 11: Кешированный regex (компилируется один раз)
+        private static let wordRegex = try! NSRegularExpression(pattern: "[\\p{L}]+")
+
         init(_ parent: CustomTextEditor) {
             self.parent = parent
             self.onSubmit = parent.onSubmit
@@ -2831,9 +3036,9 @@ struct CustomTextEditor: NSViewRepresentable {
         private func findForeignWords(in text: String, primaryLanguage: TextLanguage) -> [ForeignWord] {
             guard primaryLanguage != .mixed else { return [] }
 
-            guard let regex = try? NSRegularExpression(pattern: "[\\p{L}]+") else { return [] }
+            // Fix 11: Используем кешированный regex
             let nsText = text as NSString
-            let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+            let matches = Self.wordRegex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
 
             return matches.compactMap { match in
                 let word = nsText.substring(with: match.range)
@@ -3062,7 +3267,17 @@ class LaunchAtLoginManager {
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         process.arguments = ["unload", launchAgentPath]
         try? process.run()
-        process.waitUntilExit()
+
+        // Fix 14: Polling with timeout instead of waitUntilExit()
+        let timeout: TimeInterval = 5.0
+        let start = Date()
+        while process.isRunning && Date().timeIntervalSince(start) < timeout {
+            usleep(100_000) // 100ms
+        }
+        if process.isRunning {
+            NSLog("⚠️ launchctl timeout, terminating")
+            process.terminate()
+        }
 
         try? FileManager.default.removeItem(atPath: launchAgentPath)
     }
@@ -3234,7 +3449,7 @@ struct SettingsView: View {
         return SettingsTab.allCases.first { $0.rawValue == savedTab } ?? .general
     }()
     @State private var launchAtLogin: Bool = LaunchAtLoginManager.shared.isEnabled
-    @State private var soundEnabled: Bool = SettingsManager.shared.soundEnabled
+    // Fix 13: Removed @State soundEnabled duplicate - use settings.soundEnabled directly
     @State private var hasAccessibility: Bool = AccessibilityHelper.checkAccessibility()
     @State private var hasMicrophonePermission: Bool = Self.checkMicrophonePermission()
     @State private var hasScreenRecordingPermission: Bool = Self.checkScreenRecordingPermission()
@@ -3242,7 +3457,7 @@ struct SettingsView: View {
     @State private var isRecordingHotkey: Bool = false
     @State private var isRecordingScreenshotHotkey: Bool = false
     @State private var screenshotHotkey: HotkeyConfig = SettingsManager.shared.screenshotHotkey
-    @State private var aiEnabled: Bool = SettingsManager.shared.aiEnabled
+    // Fix 13: Removed @State aiEnabled duplicate - use settings.aiEnabled directly
     @ObservedObject private var settings = SettingsManager.shared
 
     private static func checkMicrophonePermission() -> Bool {
@@ -3438,12 +3653,10 @@ struct SettingsView: View {
                     title: "Звук при появлении окна",
                     subtitle: "Воспроизводить звук при открытии и копировании"
                 ) {
-                    Toggle("", isOn: $soundEnabled)
+                    // Fix 13: Use settings binding directly
+                    Toggle("", isOn: $settings.soundEnabled)
                         .toggleStyle(GreenToggleStyle())
                         .labelsHidden()
-                        .onChange(of: soundEnabled) { newValue in
-                            SettingsManager.shared.soundEnabled = newValue
-                        }
                 }
             }
 
@@ -3602,10 +3815,17 @@ struct SettingsView: View {
                         }
 
                         // Описание
-                        Text("Скриншоты сохраняются в ~/Library/Screenshots/\nПуть к файлу автоматически копируется в буфер обмена")
-                            .font(.system(size: 11))
-                            .foregroundColor(.gray)
-                            .padding(.top, 4)
+                        VStack(alignment: .leading, spacing: 2) {
+                            (Text("Скриншоты сохраняются в ")
+                                .foregroundColor(.gray)
+                            + Text("~/Library/Screenshots/")
+                                .foregroundColor(DesignSystem.Colors.accent))
+
+                            Text("Путь к файлу автоматически копируется в буфер обмена")
+                                .foregroundColor(.gray)
+                        }
+                        .font(.system(size: 11))
+                        .padding(.top, 4)
                     }
                 }
                 .padding(.vertical, 8)
@@ -3637,8 +3857,9 @@ struct SettingsView: View {
     // === TAB: AI ===
     var aiTabContent: some View {
         VStack(spacing: 0) {
-            AISettingsSection(aiEnabled: $aiEnabled)
-            if aiEnabled {
+            // Fix 13: Use settings binding directly
+            AISettingsSection(aiEnabled: $settings.aiEnabled)
+            if settings.aiEnabled {
                 AIPromptsSection()
             }
         }
@@ -3679,7 +3900,7 @@ struct ASRProviderSection: View {
                 // Локальная модель (T-ONE)
                 ASRProviderRow(
                     title: "Локальная модель (T-ONE)",
-                    subtitle: "Работает офлайн, ~300ms задержка",
+                    subtitle: "Работает офлайн, <300мс задержка",
                     icon: "cpu",
                     isSelected: settings.asrProviderType == .local,
                     action: {
@@ -3690,15 +3911,22 @@ struct ASRProviderSection: View {
                 Divider().background(Color.white.opacity(0.1))
 
                 // Deepgram (облако)
-                ASRProviderRow(
-                    title: "Deepgram (облако)",
-                    subtitle: "Требует интернет и API ключ",
-                    icon: "cloud",
-                    isSelected: settings.asrProviderType == .deepgram,
-                    action: {
-                        settings.asrProviderType = .deepgram
-                    }
-                )
+                VStack(alignment: .leading, spacing: 8) {
+                    ASRProviderRow(
+                        title: "Deepgram (облако)",
+                        subtitle: "~200мс задержка, требует API ключ",
+                        icon: "cloud",
+                        isSelected: settings.asrProviderType == .deepgram,
+                        action: {
+                            settings.asrProviderType = .deepgram
+                        }
+                    )
+
+                    Link("Получить API ключ Deepgram →", destination: URL(string: "https://console.deepgram.com/signup")!)
+                        .font(.system(size: 11))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                        .padding(.leading, 44)
+                }
             }
             .padding(.vertical, 8)
         }
@@ -4097,12 +4325,10 @@ struct AISettingsSection: View {
                     title: "Включить AI функции",
                     subtitle: "Кнопки WB, RU, EN, CH для обработки текста через Gemini AI"
                 ) {
+                    // Fix 13: Binding already connected to settings, no onChange needed
                     Toggle("", isOn: $aiEnabled)
                         .toggleStyle(GreenToggleStyle())
                         .labelsHidden()
-                        .onChange(of: aiEnabled) { newValue in
-                            SettingsManager.shared.aiEnabled = newValue
-                        }
                 }
 
                 // Gemini API Key (только если включено)
@@ -4539,7 +4765,7 @@ struct PermissionRow: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 20))
-                .foregroundColor(isGranted ? .green : .orange)
+                .foregroundColor(isGranted ? DesignSystem.Colors.accent : .orange)
                 .frame(width: 32)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -4623,7 +4849,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var hotKeyRefs: [EventHotKeyRef] = []
     var localEventMonitor: Any?
     var globalEventMonitor: Any?
-    var previousApp: NSRunningApplication?  // Предыдущее активное приложение для авто-вставки
+    private var _previousApp: NSRunningApplication?  // Предыдущее активное приложение для авто-вставки
+    // Fix 10: NSLock для thread-safe доступа к previousApp
+    private let previousAppLock = NSLock()
+    var previousApp: NSRunningApplication? {
+        get { previousAppLock.withLock { _previousApp } }
+        set { previousAppLock.withLock { _previousApp = newValue } }
+    }
     var screenshotNotificationWindow: NSWindow?  // Окно уведомления о скриншоте
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -5285,6 +5517,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc func quitApp() {
+        // Fix 1: Очищаем Carbon hotkeys ДО terminate
+        unregisterHotKeys()
+
         // Убираем NotificationCenter observers
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
