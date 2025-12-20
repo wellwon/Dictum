@@ -252,7 +252,7 @@ struct HotkeyConfig: Codable, Equatable {
         return keyMap[code]
     }
 
-    static let defaultToggle = HotkeyConfig(keyCode: 10, modifiers: 0) // § без модификаторов
+    static let defaultToggle = HotkeyConfig(keyCode: 10, modifiers: UInt32(cmdKey)) // ⌘ + §
 }
 
 // MARK: - Settings Manager
@@ -1642,8 +1642,8 @@ enum ASRProviderType: String, CaseIterable {
 
     var description: String {
         switch self {
-        case .local: return "Работает офлайн, ~300мс задержка"
-        case .deepgram: return "Требует интернет и API ключ"
+        case .local: return "Работает офлайн, задержка ~100мс"
+        case .deepgram: return "Нужен API ключ Deepgram, задержка ~200мс"
         }
     }
 }
@@ -3804,7 +3804,7 @@ struct SettingsView: View {
                     SettingsManager.shared.toggleHotkey = HotkeyConfig.defaultToggle
                     NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
                 }) {
-                    Text("Сбросить хоткей по умолчанию (§)")
+                    Text("Сбросить (⌘ §)")
                         .font(.system(size: 12))
                         .foregroundColor(.gray)
                 }
@@ -3821,7 +3821,7 @@ struct SettingsView: View {
                     // Toggle для включения/выключения
                     SettingsRow(
                         title: "Быстрые скриншоты",
-                        subtitle: "Глобальный хоткей для создания скриншота с автоматическим копированием пути в буфер обмена"
+                        subtitle: "Глобальный хоткей для создания скриншота. Сохраняется в ~/Library/Screenshots/, путь копируется в буфер обмена"
                     ) {
                         Toggle("", isOn: .init(
                             get: { SettingsManager.shared.screenshotFeatureEnabled },
@@ -3876,19 +3876,6 @@ struct SettingsView: View {
                                 NotificationCenter.default.post(name: .screenshotHotkeyChanged, object: nil)
                             }
                         }
-
-                        // Описание
-                        VStack(alignment: .leading, spacing: 2) {
-                            (Text("Скриншоты сохраняются в ")
-                                .foregroundColor(.gray)
-                            + Text("~/Library/Screenshots/")
-                                .foregroundColor(DesignSystem.Colors.accent))
-
-                            Text("Путь к файлу автоматически копируется в буфер обмена")
-                                .foregroundColor(.gray)
-                        }
-                        .font(.system(size: 11))
-                        .padding(.top, 4)
                     }
                 }
                 .padding(.vertical, 8)
@@ -3963,7 +3950,7 @@ struct ASRProviderSection: View {
                 // Локальная модель (T-ONE)
                 ASRProviderRow(
                     title: "Локальная модель (T-ONE)",
-                    subtitle: "Работает офлайн, <300мс задержка",
+                    subtitle: "Работает офлайн, задержка ~100мс",
                     icon: "cpu",
                     isSelected: settings.asrProviderType == .local,
                     action: {
@@ -3977,7 +3964,7 @@ struct ASRProviderSection: View {
                 VStack(alignment: .leading, spacing: 8) {
                     ASRProviderRow(
                         title: "Deepgram (облако)",
-                        subtitle: "~200мс задержка, требует API ключ",
+                        subtitle: "Нужен API ключ Deepgram, задержка ~200мс",
                         icon: "cloud",
                         isSelected: settings.asrProviderType == .deepgram,
                         action: {
@@ -5300,12 +5287,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if hotkey.modifiers != 0 {
             registerCarbonHotKey(keyCode: UInt32(hotkey.keyCode), modifiers: hotkey.modifiers, id: 1)
         }
-
-        // Также регистрируем дефолтные комбинации для удобства
-        registerCarbonHotKey(keyCode: UInt32(kVK_ANSI_Grave), modifiers: UInt32(cmdKey), id: 2)
-        registerCarbonHotKey(keyCode: UInt32(kVK_ISO_Section), modifiers: UInt32(cmdKey), id: 3)
-        registerCarbonHotKey(keyCode: UInt32(kVK_ANSI_Grave), modifiers: UInt32(cmdKey | shiftKey), id: 4)
-        registerCarbonHotKey(keyCode: UInt32(kVK_ISO_Section), modifiers: UInt32(cmdKey | shiftKey), id: 5)
 
         // Register screenshot hotkey (ID=6) if feature is enabled
         if SettingsManager.shared.screenshotFeatureEnabled {
