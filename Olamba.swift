@@ -5,6 +5,62 @@ import Carbon
 import AVFoundation
 import Security
 
+// MARK: - Design System
+enum DesignSystem {
+    enum Colors {
+        // Accent — единый зеленый цвет #1AAF87 для всего приложения
+        static let accent = Color(red: 0.102, green: 0.686, blue: 0.529)
+        static let accentSecondary = Color(red: 0.204, green: 0.596, blue: 0.859)  // #3498DB
+
+        // Backgrounds
+        static let panelBackground = Color.black.opacity(0.3)
+        static let cardBackground = Color.white.opacity(0.05)
+        static let hoverBackground = Color.white.opacity(0.1)
+        static let selectedBackground = Color.white.opacity(0.15)
+
+        // Text
+        static let textPrimary = Color.white
+        static let textSecondary = Color.gray
+        static let textMuted = Color.white.opacity(0.6)
+
+        // States
+        static let toggleActive = accent  // Зеленый для тумблеров
+        static let destructive = Color(red: 1.0, green: 0.231, blue: 0.188)  // #FF3B30
+        static let warning = Color.orange
+    }
+
+    enum Spacing {
+        static let xs: CGFloat = 4
+        static let sm: CGFloat = 8
+        static let md: CGFloat = 12
+        static let lg: CGFloat = 16
+        static let xl: CGFloat = 20
+    }
+
+    enum CornerRadius {
+        static let button: CGFloat = 4
+        static let card: CGFloat = 6
+        static let panel: CGFloat = 8
+    }
+
+    enum Typography {
+        static let sectionHeader = Font.system(size: 11, weight: .semibold)
+        static let body = Font.system(size: 12)
+        static let label = Font.system(size: 11, weight: .medium)
+        static let caption = Font.system(size: 10)
+    }
+}
+
+// MARK: - App Config
+enum AppConfig {
+    static var version: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+    static var build: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+    }
+}
+
 // MARK: - API Key Manager (UserDefaults, base64 encoded)
 class APIKeyManager {
     static let deepgram = APIKeyManager(service: "deepgram")
@@ -240,6 +296,14 @@ class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(aiEnabled, forKey: "settings.aiEnabled") }
     }
 
+    // Settings window state
+    @Published var settingsWindowWasOpen: Bool {
+        didSet { UserDefaults.standard.set(settingsWindowWasOpen, forKey: "settings.windowWasOpen") }
+    }
+    @Published var lastSettingsTab: String {
+        didSet { UserDefaults.standard.set(lastSettingsTab, forKey: "settings.lastTab") }
+    }
+
     // Custom prompts for each language mode
     @Published var promptWB: String {
         didSet { UserDefaults.standard.set(promptWB, forKey: "com.olamba.prompt.wb") }
@@ -302,9 +366,13 @@ class SettingsManager: ObservableObject {
            let hotkey = try? JSONDecoder().decode(HotkeyConfig.self, from: data) {
             self.screenshotHotkey = hotkey
         } else {
-            // Key code 22 = "6", Cmd+Shift modifiers
-            self.screenshotHotkey = HotkeyConfig(keyCode: 22, modifiers: UInt32(cmdKey | shiftKey))
+            // Key code 2 = "D", Cmd+Shift modifiers
+            self.screenshotHotkey = HotkeyConfig(keyCode: 2, modifiers: UInt32(cmdKey | shiftKey))
         }
+
+        // Settings window state
+        self.settingsWindowWasOpen = UserDefaults.standard.bool(forKey: "settings.windowWasOpen")
+        self.lastSettingsTab = UserDefaults.standard.string(forKey: "settings.lastTab") ?? "general"
     }
 
     private func saveHotkey() {
@@ -361,6 +429,172 @@ class SettingsManager: ObservableObject {
         let prefix = String(key.prefix(4))
         let suffix = String(key.suffix(4))
         return "\(prefix)...\(suffix)"
+    }
+}
+
+// MARK: - Custom Prompt Model
+struct CustomPrompt: Codable, Identifiable, Equatable {
+    let id: UUID
+    var label: String           // "WB", "FR" (2-4 символа)
+    var description: String     // "Вежливый Бот" (описание на русском)
+    var prompt: String          // Текст промпта
+    var isVisible: Bool         // Показывать в UI
+    var isSystem: Bool          // true для 4 стандартных
+    var order: Int              // Порядок отображения
+
+    // Создание системного промпта со стабильным UUID
+    static func system(label: String, description: String, prompt: String, order: Int) -> CustomPrompt {
+        // Создаем стабильный UUID на основе label
+        let uuidString = "00000000-0000-0000-0000-\(String(format: "%012d", label.hashValue & 0xFFFFFFFF))"
+        let stableId = UUID(uuidString: uuidString) ?? UUID()
+        return CustomPrompt(
+            id: stableId,
+            label: label,
+            description: description,
+            prompt: prompt,
+            isVisible: true,
+            isSystem: true,
+            order: order
+        )
+    }
+
+    // Дефолтные системные промпты
+    static let defaultSystemPrompts: [CustomPrompt] = [
+        .system(
+            label: "WB",
+            description: "Вежливый Бот — перефразирует текст вежливо и профессионально",
+            prompt: "Перефразируй этот текст на том же языке, сделав его более вежливым и профессиональным. Используй разговорный, но уважительный тон. Исправь все грамматические и пунктуационные ошибки. Текст должен показывать, что мы ценим клиента и хорошо к нему относимся. Сохрани суть сообщения, но сделай его максимально приятным для получателя:",
+            order: 0
+        ),
+        .system(
+            label: "RU",
+            description: "Перевод на русский язык как носитель",
+            prompt: "Переведи следующий текст на русский язык. Верни ТОЛЬКО перевод, ничего больше. Никаких объяснений, вариантов или дополнительного текста. Только прямой перевод так, как написал бы носитель русского языка:",
+            order: 1
+        ),
+        .system(
+            label: "EN",
+            description: "Перевод на английский язык как носитель",
+            prompt: "Переведи следующий текст на английский язык. Верни ТОЛЬКО перевод, ничего больше. Никаких объяснений, вариантов или дополнительного текста. Только прямой перевод так, как написал бы носитель английского языка:",
+            order: 2
+        ),
+        .system(
+            label: "CH",
+            description: "Перевод на китайский язык как носитель",
+            prompt: "Переведи следующий текст на китайский язык. Верни ТОЛЬКО перевод, ничего больше. Никаких объяснений, вариантов или дополнительного текста. Только прямой перевод так, как написал бы носитель китайского языка:",
+            order: 3
+        )
+    ]
+}
+
+// MARK: - Prompts Manager
+class PromptsManager: ObservableObject {
+    static let shared = PromptsManager()
+
+    private let userDefaultsKey = "com.olamba.customPrompts"
+    private let migrationKey = "com.olamba.promptsMigrationV1"
+
+    @Published var prompts: [CustomPrompt] = [] {
+        didSet { savePrompts() }
+    }
+
+    // Только видимые, отсортированные по order
+    var visiblePrompts: [CustomPrompt] {
+        prompts.filter { $0.isVisible }.sorted { $0.order < $1.order }
+    }
+
+    init() {
+        migrateIfNeeded()
+        loadPrompts()
+    }
+
+    // MARK: - Persistence
+    private func savePrompts() {
+        if let data = try? JSONEncoder().encode(prompts) {
+            UserDefaults.standard.set(data, forKey: userDefaultsKey)
+        }
+    }
+
+    private func loadPrompts() {
+        if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
+           let decoded = try? JSONDecoder().decode([CustomPrompt].self, from: data) {
+            prompts = decoded
+        } else {
+            prompts = CustomPrompt.defaultSystemPrompts
+        }
+    }
+
+    // MARK: - Migration from old system
+    private func migrateIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        var migratedPrompts = CustomPrompt.defaultSystemPrompts
+
+        // Перенос кастомизированных текстов промптов из старой системы
+        let oldKeys: [(String, String)] = [
+            ("WB", "com.olamba.prompt.wb"),
+            ("RU", "com.olamba.prompt.ru"),
+            ("EN", "com.olamba.prompt.en"),
+            ("CH", "com.olamba.prompt.ch")
+        ]
+
+        for (label, key) in oldKeys {
+            if let customText = UserDefaults.standard.string(forKey: key),
+               let idx = migratedPrompts.firstIndex(where: { $0.label == label }) {
+                migratedPrompts[idx].prompt = customText
+            }
+        }
+
+        // Сохранение в новом формате
+        if let data = try? JSONEncoder().encode(migratedPrompts) {
+            UserDefaults.standard.set(data, forKey: userDefaultsKey)
+        }
+
+        // Отметка о миграции
+        UserDefaults.standard.set(true, forKey: migrationKey)
+    }
+
+    // MARK: - CRUD Operations
+    func addPrompt(_ prompt: CustomPrompt) {
+        var newPrompt = prompt
+        newPrompt.order = (prompts.map { $0.order }.max() ?? -1) + 1
+        prompts.append(newPrompt)
+    }
+
+    func updatePrompt(_ prompt: CustomPrompt) {
+        if let idx = prompts.firstIndex(where: { $0.id == prompt.id }) {
+            prompts[idx] = prompt
+        }
+    }
+
+    func deletePrompt(_ prompt: CustomPrompt) {
+        guard !prompt.isSystem else { return }  // Защита системных
+        prompts.removeAll { $0.id == prompt.id }
+    }
+
+    func toggleVisibility(_ prompt: CustomPrompt) {
+        if let idx = prompts.firstIndex(where: { $0.id == prompt.id }) {
+            prompts[idx].isVisible.toggle()
+        }
+    }
+
+    func movePrompt(from source: IndexSet, to destination: Int) {
+        var sorted = prompts.sorted { $0.order < $1.order }
+        sorted.move(fromOffsets: source, toOffset: destination)
+        for (index, prompt) in sorted.enumerated() {
+            if let idx = prompts.firstIndex(where: { $0.id == prompt.id }) {
+                prompts[idx].order = index
+            }
+        }
+    }
+
+    func resetToDefaults() {
+        prompts = CustomPrompt.defaultSystemPrompts
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+    }
+
+    func getPrompt(by label: String) -> CustomPrompt? {
+        prompts.first { $0.label == label }
     }
 }
 
@@ -1263,39 +1497,9 @@ struct InputModalView: View {
     @State private var historyItems: [HistoryItem] = []
     @State private var textEditorHeight: CGFloat = 40
     @State private var isProcessingAI: Bool = false
-    @State private var currentProcessingType: PromptType? = nil
+    @State private var currentProcessingPrompt: CustomPrompt? = nil
     @StateObject private var geminiService = GeminiService()
-
-    enum PromptType: Equatable {
-        case wb, ru, en, ch
-
-        func getPrompt(from settings: SettingsManager) -> String {
-            switch self {
-            case .wb: return settings.promptWB
-            case .ru: return settings.promptRU
-            case .en: return settings.promptEN
-            case .ch: return settings.promptCH
-            }
-        }
-
-        var label: String {
-            switch self {
-            case .wb: return "WB"
-            case .ru: return "RU"
-            case .en: return "EN"
-            case .ch: return "CH"
-            }
-        }
-
-        var tooltip: String {
-            switch self {
-            case .wb: return "Вежливый Бот"
-            case .ru: return "Русский"
-            case .en: return "English"
-            case .ch: return "中文"
-            }
-        }
-    }
+    @ObservedObject private var promptsManager = PromptsManager.shared
 
     // Максимум 30 строк (~600px), минимум 40px
     private let lineHeight: CGFloat = 20
@@ -1385,14 +1589,14 @@ struct InputModalView: View {
                     // AI Processing buttons (WB, RU, EN, CH) - только если включено
                     if settings.aiEnabled {
                         HStack(spacing: 6) {
-                            ForEach([PromptType.wb, .ru, .en, .ch], id: \.label) { promptType in
+                            ForEach(promptsManager.visiblePrompts) { prompt in
                                 LoadingLanguageButton(
-                                    label: promptType.label,
-                                    tooltip: promptType.tooltip,
-                                    isLoading: currentProcessingType == promptType
+                                    label: prompt.label,
+                                    tooltip: prompt.description,
+                                    isLoading: currentProcessingPrompt?.id == prompt.id
                                 ) {
                                     Task {
-                                        await processWithGemini(promptType: promptType)
+                                        await processWithGemini(prompt: prompt)
                                     }
                                 }
                             }
@@ -1495,10 +1699,10 @@ struct InputModalView: View {
                     .padding(.horizontal, 10)
                     // Подсветка когда НЕ в этом режиме (т.е. кнопка активна для переключения)
                     .background(!settings.audioModeEnabled
-                        ? Color(red: 0.098, green: 0.686, blue: 0.529).opacity(0.2)
+                        ? DesignSystem.Colors.accent.opacity(0.2)
                         : Color.white.opacity(0.1))
                     .foregroundColor(!settings.audioModeEnabled
-                        ? Color(red: 0.098, green: 0.686, blue: 0.529)
+                        ? DesignSystem.Colors.accent
                         : Color.white.opacity(0.8))
                     .cornerRadius(6)
                 }
@@ -1522,7 +1726,7 @@ struct InputModalView: View {
                     .padding(.horizontal, 12)
                     .background(!canSubmit
                         ? Color.white.opacity(0.1)
-                        : Color(red: 0.098, green: 0.686, blue: 0.529))  // #19af87
+                        : DesignSystem.Colors.accent)  // #19af87
                     .foregroundColor(!canSubmit
                         ? Color.white.opacity(0.5)
                         : .white)
@@ -1678,7 +1882,7 @@ struct InputModalView: View {
     }
 
     /// Process text with Gemini AI
-    private func processWithGemini(promptType: PromptType) async {
+    private func processWithGemini(prompt customPrompt: CustomPrompt) async {
         let trimmedText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Validate input
@@ -1697,19 +1901,18 @@ struct InputModalView: View {
 
         await MainActor.run {
             isProcessingAI = true
-            currentProcessingType = promptType
+            currentProcessingPrompt = customPrompt
         }
 
-        NSLog("🤖 Processing with Gemini (\(promptType.label))...")
+        NSLog("🤖 Processing with Gemini (\(customPrompt.label))...")
 
         do {
-            let prompt = promptType.getPrompt(from: settings)
-            let result = try await geminiService.generateContent(prompt: prompt, userText: trimmedText)
+            let result = try await geminiService.generateContent(prompt: customPrompt.prompt, userText: trimmedText)
 
             await MainActor.run {
                 inputText = result
                 isProcessingAI = false
-                currentProcessingType = nil
+                currentProcessingPrompt = nil
             }
 
             NSLog("✅ Gemini processing complete")
@@ -1719,7 +1922,7 @@ struct InputModalView: View {
             await MainActor.run {
                 audioManager.errorMessage = "Ошибка Gemini: \(error.localizedDescription)"
                 isProcessingAI = false
-                currentProcessingType = nil
+                currentProcessingPrompt = nil
             }
         }
     }
@@ -1858,15 +2061,15 @@ struct VoiceOverlayView: View {
     private let randomFactors: [CGFloat] = (0..<10).map { _ in CGFloat.random(in: 0.85...1.15) }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 8) {
             ForEach(0..<10, id: \.self) { index in
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color(nsColor: .systemRed))
-                    .frame(width: 4, height: calculateBarHeight(for: index))
+                    .frame(width: 8, height: calculateBarHeight(for: index))
                     .animation(.easeOut(duration: 0.08), value: audioLevel)
             }
         }
-        .frame(height: 40)  // Совпадает с minHeight TextEditor
+        .frame(height: 80)  // Совпадает с minHeight TextEditor
         .frame(maxWidth: .infinity)
         .padding(.leading, 20)
         .padding(.trailing, 20)
@@ -1875,15 +2078,15 @@ struct VoiceOverlayView: View {
     }
 
     private func calculateBarHeight(for index: Int) -> CGFloat {
-        let baseHeight: CGFloat = 4
-        let maxAddition: CGFloat = 32
+        let baseHeight: CGFloat = 8
+        let maxAddition: CGFloat = 64
 
         // Волновой эффект - центральные полосы выше
         let centerDistance = abs(CGFloat(index) - 4.5) / 4.5
-        let centerMultiplier = 1.0 - (centerDistance * 0.4)
+        let centerMultiplier = 1.0 - (centerDistance * 0.6)
 
         let height = baseHeight + (maxAddition * CGFloat(audioLevel) * centerMultiplier * randomFactors[index])
-        return max(baseHeight, min(36, height))
+        return max(baseHeight, min(72, height))
     }
 }
 
@@ -1893,7 +2096,7 @@ struct ScreenshotNotificationView: View {
         HStack(spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 20))
-                .foregroundColor(.green)
+                .foregroundColor(DesignSystem.Colors.accent)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Путь скопирован")
@@ -1930,7 +2133,7 @@ struct LoadingLanguageButton: View {
                 // Фон кнопки
                 Text(label)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(isLoading ? Color(red: 0.102, green: 0.686, blue: 0.529) : .white.opacity(0.8))
+                    .foregroundColor(isLoading ? DesignSystem.Colors.accent : .white.opacity(0.8))
                     .frame(width: 28, height: 24)
                     .background(
                         ZStack {
@@ -1941,12 +2144,12 @@ struct LoadingLanguageButton: View {
                             // Полупрозрачная рамка при загрузке (как "колея")
                             if isLoading {
                                 RoundedRectangle(cornerRadius: 4)
-                                    .stroke(Color(red: 0.102, green: 0.686, blue: 0.529).opacity(0.2), lineWidth: 1)
+                                    .stroke(DesignSystem.Colors.accent.opacity(0.2), lineWidth: 1)
                             }
                         }
                     )
                     .shadow(
-                        color: isLoading ? Color(red: 0.102, green: 0.686, blue: 0.529).opacity(0.3) : .clear,
+                        color: isLoading ? DesignSystem.Colors.accent.opacity(0.3) : .clear,
                         radius: 8
                     )
 
@@ -1955,12 +2158,12 @@ struct LoadingLanguageButton: View {
                     RoundedRectangle(cornerRadius: 4)
                         .trim(from: trimOffset, to: trimOffset + 0.12)
                         .stroke(
-                            Color(red: 0.102, green: 0.686, blue: 0.529),
+                            DesignSystem.Colors.accent,
                             style: StrokeStyle(lineWidth: 2, lineCap: .round)
                         )
                         .frame(width: 28, height: 24)
-                        .shadow(color: Color(red: 0.102, green: 0.686, blue: 0.529).opacity(0.8), radius: 4)
-                        .shadow(color: Color(red: 0.102, green: 0.686, blue: 0.529), radius: 2)
+                        .shadow(color: DesignSystem.Colors.accent.opacity(0.8), radius: 4)
+                        .shadow(color: DesignSystem.Colors.accent, radius: 2)
                 }
             }
         }
@@ -2463,25 +2666,67 @@ struct SettingsTabButton: View {
             .foregroundColor(isSelected ? .white : .gray)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(isSelected ? Color.white.opacity(0.1) : Color.clear)
-            .cornerRadius(6)
-            .contentShape(Rectangle())
+            .background(isSelected ? DesignSystem.Colors.hoverBackground : Color.clear)
+            .cornerRadius(8)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(PlainButtonStyle())
+        .padding(.horizontal, 8)
+    }
+}
+
+// Кастомный стиль тумблера с цветом #1aaf87
+// Остается зеленым даже при потере фокуса окна (не серый как стандартный SwitchToggleStyle)
+struct GreenToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack {
+            configuration.label
+            Spacer()
+            ZStack {
+                Capsule()
+                    .fill(configuration.isOn ? DesignSystem.Colors.accent : Color.gray.opacity(0.3))
+                    .frame(width: 51, height: 31)
+
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 27, height: 27)
+                    .offset(x: configuration.isOn ? 10 : -10)
+                    .animation(.easeInOut(duration: 0.2), value: configuration.isOn)
+            }
+            .onTapGesture {
+                configuration.isOn.toggle()
+            }
+        }
     }
 }
 
 struct SettingsView: View {
-    @State private var selectedTab: SettingsTab = .general
+    @State private var selectedTab: SettingsTab = {
+        let savedTab = SettingsManager.shared.lastSettingsTab
+        return SettingsTab.allCases.first { $0.rawValue == savedTab } ?? .general
+    }()
     @State private var launchAtLogin: Bool = LaunchAtLoginManager.shared.isEnabled
     @State private var soundEnabled: Bool = SettingsManager.shared.soundEnabled
     @State private var hasAccessibility: Bool = AccessibilityHelper.checkAccessibility()
+    @State private var hasMicrophonePermission: Bool = Self.checkMicrophonePermission()
+    @State private var hasScreenRecordingPermission: Bool = Self.checkScreenRecordingPermission()
     @State private var currentHotkey: HotkeyConfig = SettingsManager.shared.toggleHotkey
     @State private var isRecordingHotkey: Bool = false
     @State private var isRecordingScreenshotHotkey: Bool = false
     @State private var screenshotHotkey: HotkeyConfig = SettingsManager.shared.screenshotHotkey
     @State private var aiEnabled: Bool = SettingsManager.shared.aiEnabled
     @ObservedObject private var settings = SettingsManager.shared
+
+    private static func checkMicrophonePermission() -> Bool {
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        return status == .authorized
+    }
+
+    private static func checkScreenRecordingPermission() -> Bool {
+        // Screen Recording permission проверяется косвенно
+        // Возвращаем true если уже запрашивали ранее
+        return UserDefaults.standard.bool(forKey: "screenRecordingRequested")
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -2496,6 +2741,7 @@ struct SettingsView: View {
                 ForEach(SettingsTab.allCases, id: \.self) { tab in
                     SettingsTabButton(tab: tab, isSelected: selectedTab == tab) {
                         selectedTab = tab
+                        SettingsManager.shared.lastSettingsTab = tab.rawValue
                     }
                 }
 
@@ -2510,13 +2756,13 @@ struct SettingsView: View {
                     .foregroundColor(.gray)
                     .buttonStyle(PlainButtonStyle())
 
-                    Text("Olamba v1.0")
+                    Text("Olamba v\(AppConfig.version)")
                         .font(.system(size: 10))
                         .foregroundColor(.gray.opacity(0.6))
                 }
                 .padding(.horizontal, 12)
             }
-            .frame(width: 160)
+            .frame(width: 180)
             .padding(.vertical, 20)
             .background(Color.black.opacity(0.3))
 
@@ -2551,6 +2797,17 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(red: 30/255, green: 30/255, blue: 32/255))
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .onAppear {
+            hasAccessibility = AccessibilityHelper.checkAccessibility()
+            hasMicrophonePermission = Self.checkMicrophonePermission()
+            hasScreenRecordingPermission = Self.checkScreenRecordingPermission()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            hasAccessibility = AccessibilityHelper.checkAccessibility()
+            hasMicrophonePermission = Self.checkMicrophonePermission()
+            hasScreenRecordingPermission = Self.checkScreenRecordingPermission()
+        }
     }
 
     @ViewBuilder
@@ -2568,35 +2825,68 @@ struct SettingsView: View {
     var generalTabContent: some View {
         VStack(spacing: 0) {
             // Секция: Разрешения
-            if !hasAccessibility {
-                SettingsSection(title: "⚠️ ТРЕБУЮТСЯ РАЗРЕШЕНИЯ") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Настройки системы → Конфиденциальность и безопасность → Универсальный доступ")
-                            .font(.system(size: 13))
-                            .foregroundColor(.orange)
-
-                        Button(action: {
+            SettingsSection(title: "РАЗРЕШЕНИЯ") {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Accessibility - ВСЕГДА
+                    PermissionRow(
+                        icon: "hand.raised.fill",
+                        title: "Универсальный доступ",
+                        subtitle: "Для вставки текста в другие приложения",
+                        isGranted: hasAccessibility,
+                        action: {
                             AccessibilityHelper.requestAccessibility()
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                                 hasAccessibility = AccessibilityHelper.checkAccessibility()
                             }
-                        }) {
-                            Text("Открыть настройки доступа")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(Color(red: 1.0, green: 0.4, blue: 0.2))
-                                .cornerRadius(6)
                         }
-                        .buttonStyle(PlainButtonStyle())
+                    )
 
-                        Text("После включения перезапустите приложение")
-                            .font(.system(size: 11))
-                            .foregroundColor(.gray)
+                    Divider().background(Color.white.opacity(0.1))
+
+                    // Microphone - ВСЕГДА
+                    PermissionRow(
+                        icon: "mic.fill",
+                        title: "Микрофон",
+                        subtitle: "Для записи голосовых заметок",
+                        isGranted: hasMicrophonePermission,
+                        action: {
+                            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                                DispatchQueue.main.async {
+                                    hasMicrophonePermission = granted
+                                }
+                            }
+                        }
+                    )
+
+                    // Screen Recording - только если Screenshots feature включена
+                    if SettingsManager.shared.screenshotFeatureEnabled {
+                        Divider().background(Color.white.opacity(0.1))
+
+                        PermissionRow(
+                            icon: "camera.metering.matrix",
+                            title: "Запись экрана",
+                            subtitle: "Для создания скриншотов",
+                            isGranted: hasScreenRecordingPermission,
+                            action: {
+                                // Открыть System Preferences
+                                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                                UserDefaults.standard.set(true, forKey: "screenRecordingRequested")
+                                hasScreenRecordingPermission = true
+                            }
+                        )
                     }
-                    .padding(.vertical, 8)
+
+                    if !hasAccessibility || !hasMicrophonePermission ||
+                       (SettingsManager.shared.screenshotFeatureEnabled && !hasScreenRecordingPermission) {
+                        Divider().background(Color.white.opacity(0.1))
+
+                        Text("⚠️ Некоторые функции могут работать некорректно без необходимых разрешений")
+                            .font(.system(size: 11))
+                            .foregroundColor(.orange)
+                            .padding(.top, 4)
+                    }
                 }
+                .padding(.vertical, 8)
             }
 
             // Секция: Автозапуск
@@ -2606,7 +2896,7 @@ struct SettingsView: View {
                     subtitle: "Olamba будет автоматически запускаться при старте macOS"
                 ) {
                     Toggle("", isOn: $launchAtLogin)
-                        .toggleStyle(SwitchToggleStyle(tint: Color(red: 1.0, green: 0.4, blue: 0.2)))
+                        .toggleStyle(GreenToggleStyle())
                         .labelsHidden()
                         .onChange(of: launchAtLogin) { newValue in
                             LaunchAtLoginManager.shared.isEnabled = newValue
@@ -2621,7 +2911,7 @@ struct SettingsView: View {
                     subtitle: "Воспроизводить звук при открытии и копировании"
                 ) {
                     Toggle("", isOn: $soundEnabled)
-                        .toggleStyle(SwitchToggleStyle(tint: Color(red: 1.0, green: 0.4, blue: 0.2)))
+                        .toggleStyle(GreenToggleStyle())
                         .labelsHidden()
                         .onChange(of: soundEnabled) { newValue in
                             SettingsManager.shared.soundEnabled = newValue
@@ -2639,7 +2929,7 @@ struct SettingsView: View {
                         get: { SettingsManager.shared.highlightForeignWords },
                         set: { SettingsManager.shared.highlightForeignWords = $0 }
                     ))
-                        .toggleStyle(SwitchToggleStyle(tint: Color(red: 1.0, green: 0.4, blue: 0.2)))
+                        .toggleStyle(GreenToggleStyle())
                         .labelsHidden()
                 }
             }
@@ -2654,7 +2944,7 @@ struct SettingsView: View {
                     // Настраиваемый хоткей
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Открыть/закрыть окно")
+                            Text("Открыть/закрыть приложение")
                                 .font(.system(size: 14))
                                 .foregroundColor(.white)
                             Text("Нажмите для записи нового хоткея")
@@ -2733,7 +3023,7 @@ struct SettingsView: View {
                             get: { SettingsManager.shared.screenshotFeatureEnabled },
                             set: { SettingsManager.shared.screenshotFeatureEnabled = $0 }
                         ))
-                            .toggleStyle(SwitchToggleStyle(tint: Color(red: 1.0, green: 0.4, blue: 0.2)))
+                            .toggleStyle(GreenToggleStyle())
                             .labelsHidden()
                     }
 
@@ -2791,6 +3081,15 @@ struct SettingsView: View {
                     }
                 }
                 .padding(.vertical, 8)
+                .padding(.horizontal, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.white.opacity(0.03))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                )
             }
         }
     }
@@ -2799,7 +3098,6 @@ struct SettingsView: View {
     var deepgramTabContent: some View {
         VStack(spacing: 0) {
             DeepgramAPISection()
-            LanguageSettingsSection()
         }
     }
 
@@ -2843,119 +3141,262 @@ struct DeepgramAPISection: View {
     @State private var apiKeyInput: String = ""
     @State private var showSaveSuccess: Bool = false
     @State private var hasKey: Bool = SettingsManager.shared.hasAPIKey()
+    @State private var isEditingKey: Bool = false
     @StateObject private var billingManager = BillingManager()
 
     var body: some View {
-        SettingsSection(title: "DEEPGRAM API") {
-            VStack(alignment: .leading, spacing: 12) {
-                // Статус API ключа
-                HStack {
-                    Image(systemName: hasKey ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                        .foregroundColor(hasKey ? .green : .orange)
-                    Text(hasKey ? "API ключ установлен" : "API ключ не установлен")
-                        .font(.system(size: 13))
-                        .foregroundColor(hasKey ? .green : .orange)
-
-                    if hasKey {
-                        Text("(\(SettingsManager.shared.getAPIKeyMasked()))")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.gray)
-                    }
-                }
-
-                // Баланс (если ключ есть)
-                if hasKey {
-                    HStack {
-                        Text("Баланс:")
-                            .font(.system(size: 13))
-                            .foregroundColor(.white.opacity(0.7))
-
-                        Spacer()
-
-                        if billingManager.isLoading {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                        } else if let error = billingManager.errorMessage {
-                            Text(error)
-                                .font(.system(size: 12))
-                                .foregroundColor(.red)
-                        } else {
-                            Text(String(format: "$%.2f", billingManager.currentBalance))
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.green)
-                        }
-
-                        Button {
-                            Task { @MainActor in
-                                Task { await billingManager.loadAllData(apiKey: KeychainManager.shared.getAPIKey() ?? "") }
-                            }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 11))
+        VStack(spacing: 0) {
+            // СЕКЦИЯ 1: API КЛЮЧ
+            SettingsSection(title: "DEEPGRAM API") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if hasKey && !isEditingKey {
+                        // Статус + кнопка "Изменить" в одной строке
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(DesignSystem.Colors.accent)
+                            Text("API ключ установлен")
+                                .font(.system(size: 13))
+                                .foregroundColor(DesignSystem.Colors.accent)
+                            Text("(\(SettingsManager.shared.getAPIKeyMasked()))")
+                                .font(.system(size: 11, design: .monospaced))
                                 .foregroundColor(.gray)
+
+                            Spacer()
+
+                            Button(action: {
+                                isEditingKey = true
+                                apiKeyInput = ""
+                            }) {
+                                Text("Изменить")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.white.opacity(0.15))
+                                    .cornerRadius(6)
+                            }
+                            .buttonStyle(PlainButtonStyle())
                         }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                    .task {
-                        Task { await billingManager.loadAllData(apiKey: KeychainManager.shared.getAPIKey() ?? "") }
-                    }
-                }
+                    } else {
+                        // Поле ввода + кнопка "Сохранить"
+                        VStack(alignment: .leading, spacing: 8) {
+                            if !hasKey {
+                                HStack {
+                                    Image(systemName: "exclamationmark.circle.fill")
+                                        .foregroundColor(.orange)
+                                    Text("API ключ не установлен")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.orange)
+                                }
+                            }
 
-                // Поле ввода API ключа
-                HStack {
-                    SecureField("Введите API ключ Deepgram...", text: $apiKeyInput)
-                        .textFieldStyle(PlainTextFieldStyle())
-                        .font(.system(size: 13))
-                        .padding(8)
-                        .background(Color.white.opacity(0.1))
-                        .cornerRadius(6)
+                            HStack {
+                                SecureField("Введите API ключ Deepgram...", text: $apiKeyInput)
+                                    .textFieldStyle(PlainTextFieldStyle())
+                                    .font(.system(size: 13))
+                                    .padding(8)
+                                    .background(Color.white.opacity(0.1))
+                                    .cornerRadius(6)
 
-                    Button(action: saveAPIKey) {
-                        Text("Сохранить")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(apiKeyInput.isEmpty ? Color.gray.opacity(0.3) : Color(red: 1.0, green: 0.4, blue: 0.2))
-                            .cornerRadius(6)
+                                Button(action: saveAPIKey) {
+                                    Text("Сохранить")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(apiKeyInput.isEmpty ? Color.gray.opacity(0.3) : Color(red: 1.0, green: 0.4, blue: 0.2))
+                                        .cornerRadius(6)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .disabled(apiKeyInput.isEmpty)
+                            }
+
+                            if isEditingKey {
+                                Button(action: {
+                                    isEditingKey = false
+                                    apiKeyInput = ""
+                                }) {
+                                    Text("Отменить")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.gray)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+
+                            if showSaveSuccess {
+                                Text("Ключ успешно сохранён!")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(DesignSystem.Colors.accent)
+                            }
+                        }
+                    }
+
+                    // Ссылка на получение ключа
+                    Button(action: {
+                        NSWorkspace.shared.open(URL(string: "https://console.deepgram.com/")!)
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 11))
+                            Text("Получить API ключ на deepgram.com")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(.gray)
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .disabled(apiKeyInput.isEmpty)
                 }
-
-                if showSaveSuccess {
-                    Text("Ключ успешно сохранён!")
-                        .font(.system(size: 12))
-                        .foregroundColor(.green)
-                }
-
-                // Ссылка на получение ключа
-                Button(action: {
-                    NSWorkspace.shared.open(URL(string: "https://console.deepgram.com/")!)
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.up.right.square")
-                            .font(.system(size: 11))
-                        Text("Получить API ключ на deepgram.com")
-                            .font(.system(size: 11))
-                    }
-                    .foregroundColor(.gray)
-                }
-                .buttonStyle(PlainButtonStyle())
+                .padding(.vertical, 8)
             }
-            .padding(.vertical, 8)
+
+            // СЕКЦИЯ 2: НАСТРОЙКИ (только если ключ установлен)
+            if hasKey {
+                // Выбор модели
+                DeepgramModelSection()
+
+                // Язык распознавания
+                LanguageSettingsSection()
+            }
+
+            // СЕКЦИЯ 3: БАЛАНС И РАСХОДЫ (внизу, только если ключ установлен)
+            if hasKey {
+                SettingsSection(title: "БАЛАНС И РАСХОДЫ") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Текущий баланс:")
+                                .font(.system(size: 13))
+                                .foregroundColor(.white.opacity(0.7))
+
+                            Spacer()
+
+                            if billingManager.isLoading {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                            } else if let error = billingManager.errorMessage {
+                                Text(error)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.red)
+                            } else {
+                                Text(String(format: "$%.2f", billingManager.currentBalance))
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(DesignSystem.Colors.accent)
+                            }
+
+                            Button {
+                                Task { @MainActor in
+                                    await billingManager.loadAllData(apiKey: KeychainManager.shared.getAPIKey() ?? "")
+                                }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.gray)
+                                    .padding(6)
+                                    .background(Color.white.opacity(0.1))
+                                    .cornerRadius(4)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .padding(.vertical, 8)
+                    .task {
+                        await billingManager.loadAllData(apiKey: KeychainManager.shared.getAPIKey() ?? "")
+                    }
+                }
+            }
         }
     }
 
     private func saveAPIKey() {
         if SettingsManager.shared.saveAPIKey(apiKeyInput) {
             hasKey = true
+            isEditingKey = false
             showSaveSuccess = true
             apiKeyInput = ""
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 showSaveSuccess = false
             }
         }
+    }
+}
+
+// MARK: - Deepgram Model Section
+struct DeepgramModelSection: View {
+    @ObservedObject private var settings = SettingsManager.shared
+
+    var body: some View {
+        SettingsSection(title: "МОДЕЛЬ DEEPGRAM") {
+            VStack(spacing: 8) {
+                ModelOptionRow(
+                    model: "nova-3",
+                    title: "Nova-3",
+                    description: "Последняя модель с улучшенной точностью",
+                    badge: "Рекомендуется",
+                    isSelected: settings.deepgramModel == "nova-3",
+                    onSelect: {
+                        settings.deepgramModel = "nova-3"
+                    }
+                )
+
+                Divider().background(Color.white.opacity(0.1))
+
+                ModelOptionRow(
+                    model: "nova-2",
+                    title: "Nova-2",
+                    description: "Предыдущая версия с поддержкой русского языка",
+                    badge: nil,
+                    isSelected: settings.deepgramModel == "nova-2",
+                    onSelect: {
+                        settings.deepgramModel = "nova-2"
+                    }
+                )
+            }
+            .padding(.vertical, 8)
+        }
+    }
+}
+
+struct ModelOptionRow: View {
+    let model: String
+    let title: String
+    let description: String
+    let badge: String?
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18))
+                    .foregroundColor(isSelected ? Color(red: 1.0, green: 0.4, blue: 0.2) : .gray)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(title)
+                            .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
+                            .foregroundColor(.white)
+
+                        if let badge = badge {
+                            Text(badge)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color(red: 1.0, green: 0.4, blue: 0.2))
+                                .cornerRadius(4)
+                        }
+                    }
+
+                    Text(description)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer()
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
@@ -3038,7 +3479,7 @@ struct AISettingsSection: View {
                     subtitle: "Кнопки WB, RU, EN, CH для обработки текста через Gemini AI"
                 ) {
                     Toggle("", isOn: $aiEnabled)
-                        .toggleStyle(SwitchToggleStyle(tint: .green))
+                        .toggleStyle(GreenToggleStyle())
                         .labelsHidden()
                         .onChange(of: aiEnabled) { newValue in
                             SettingsManager.shared.aiEnabled = newValue
@@ -3116,10 +3557,10 @@ struct AISettingsSection: View {
                     if showSaveSuccess {
                         HStack(spacing: 6) {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
+                                .foregroundColor(DesignSystem.Colors.accent)
                             Text("Ключ сохранён")
                                 .font(.system(size: 11))
-                                .foregroundColor(.green)
+                                .foregroundColor(DesignSystem.Colors.accent)
                         }
                     }
 
@@ -3143,86 +3584,270 @@ struct AISettingsSection: View {
 
 // MARK: - AI Prompts Section
 struct AIPromptsSection: View {
-    @ObservedObject private var settings = SettingsManager.shared
-    @State private var selectedPrompt: String = "wb"
+    @ObservedObject private var promptsManager = PromptsManager.shared
+    @State private var selectedPrompt: CustomPrompt? = nil
+    @State private var showAddSheet: Bool = false
+    @State private var editedPromptText: String = ""
 
     var body: some View {
         SettingsSection(title: "AI ПРОМПТЫ") {
             VStack(alignment: .leading, spacing: 12) {
-                // Выбор промпта
-                HStack(spacing: 8) {
-                    ForEach(["wb", "ru", "en", "ch"], id: \.self) { key in
-                        Button(action: { selectedPrompt = key }) {
-                            Text(key.uppercased())
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(selectedPrompt == key ? .white : .gray)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(selectedPrompt == key ? Color.white.opacity(0.15) : Color.clear)
-                                .cornerRadius(4)
-                        }
-                        .buttonStyle(PlainButtonStyle())
+                // Список промптов с drag-n-drop
+                VStack(spacing: 4) {
+                    ForEach(promptsManager.prompts.sorted { $0.order < $1.order }) { prompt in
+                        PromptRowView(
+                            prompt: prompt,
+                            isSelected: selectedPrompt?.id == prompt.id,
+                            onSelect: {
+                                selectedPrompt = prompt
+                                editedPromptText = prompt.prompt
+                            },
+                            onToggleVisibility: {
+                                promptsManager.toggleVisibility(prompt)
+                            },
+                            onDelete: prompt.isSystem ? nil : {
+                                promptsManager.deletePrompt(prompt)
+                                if selectedPrompt?.id == prompt.id {
+                                    selectedPrompt = nil
+                                }
+                            }
+                        )
                     }
-                    Spacer()
+                    .onMove { from, to in
+                        promptsManager.movePrompt(from: from, to: to)
+                    }
                 }
 
-                // Описание
-                Text(promptDescription(for: selectedPrompt))
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-
-                // Редактор промпта
-                TextEditor(text: promptBinding(for: selectedPrompt))
-                    .font(.system(size: 12))
-                    .frame(height: 100)
-                    .padding(8)
-                    .background(Color.white.opacity(0.05))
-                    .cornerRadius(6)
-
-                // Кнопка сброса
-                Button(action: { resetPrompt(for: selectedPrompt) }) {
-                    Text("Сбросить по умолчанию")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
+                // Кнопка добавления
+                Button(action: { showAddSheet = true }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 12))
+                        Text("Добавить промпт")
+                            .font(.system(size: 11))
+                    }
+                    .foregroundColor(DesignSystem.Colors.accent)
                 }
                 .buttonStyle(PlainButtonStyle())
+                .padding(.top, 4)
+
+                // Редактор выбранного промпта
+                if let prompt = selectedPrompt {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Divider()
+                            .background(Color.white.opacity(0.1))
+                            .padding(.vertical, 4)
+
+                        // Заголовок
+                        HStack {
+                            Text("\(prompt.label): \(prompt.description)")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.white)
+
+                            if prompt.isSystem {
+                                Image(systemName: "lock.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.gray.opacity(0.5))
+                            }
+                        }
+
+                        // Редактор текста промпта
+                        TextEditor(text: $editedPromptText)
+                            .font(.system(size: 12))
+                            .frame(height: 100)
+                            .padding(8)
+                            .background(DesignSystem.Colors.cardBackground)
+                            .cornerRadius(DesignSystem.CornerRadius.card)
+                            .onChange(of: editedPromptText) { newValue in
+                                // Автосохранение при изменении
+                                if var updated = selectedPrompt {
+                                    updated.prompt = newValue
+                                    promptsManager.updatePrompt(updated)
+                                }
+                            }
+
+                        // Кнопки
+                        HStack {
+                            if prompt.isSystem {
+                                Button(action: {
+                                    // Сброс к дефолту
+                                    if let defaultPrompt = CustomPrompt.defaultSystemPrompts.first(where: { $0.label == prompt.label }) {
+                                        editedPromptText = defaultPrompt.prompt
+                                        var updated = prompt
+                                        updated.prompt = defaultPrompt.prompt
+                                        promptsManager.updatePrompt(updated)
+                                    }
+                                }) {
+                                    Text("Сбросить по умолчанию")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.gray)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                            Spacer()
+                        }
+                    }
+                }
             }
             .padding(.vertical, 8)
         }
-    }
-
-    private func promptBinding(for key: String) -> Binding<String> {
-        switch key {
-        case "wb": return $settings.promptWB
-        case "ru": return $settings.promptRU
-        case "en": return $settings.promptEN
-        case "ch": return $settings.promptCH
-        default: return $settings.promptWB
+        .sheet(isPresented: $showAddSheet) {
+            AddPromptSheet { newPrompt in
+                promptsManager.addPrompt(newPrompt)
+            }
         }
     }
+}
 
-    private func promptDescription(for key: String) -> String {
-        switch key {
-        case "wb": return "WB: Вежливый Бот — перефразирует текст, делая его вежливым и профессиональным"
-        case "ru": return "RU: Перевод на русский язык как носитель"
-        case "en": return "EN: Translation to native English"
-        case "ch": return "CH: 翻译成地道的中文"
-        default: return ""
+// MARK: - Prompt Row View
+struct PromptRowView: View {
+    let prompt: CustomPrompt
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onToggleVisibility: () -> Void
+    let onDelete: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Иконка видимости (глаз)
+            Button(action: onToggleVisibility) {
+                Image(systemName: prompt.isVisible ? "eye.fill" : "eye.slash")
+                    .font(.system(size: 11))
+                    .foregroundColor(prompt.isVisible ? DesignSystem.Colors.accent : .gray.opacity(0.5))
+                    .frame(width: 16)
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // Label кнопки
+            Text(prompt.label)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(isSelected ? .white : .gray)
+                .frame(width: 32)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(isSelected ? DesignSystem.Colors.selectedBackground : DesignSystem.Colors.cardBackground)
+                .cornerRadius(DesignSystem.CornerRadius.button)
+
+            // Описание
+            Text(prompt.description)
+                .font(.system(size: 11))
+                .foregroundColor(isSelected ? .white : .gray)
+                .lineLimit(1)
+
+            Spacer()
+
+            // Иконка системного промпта
+            if prompt.isSystem {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray.opacity(0.4))
+            }
+
+            // Кнопка удаления (только для кастомных)
+            if let onDelete = onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundColor(DesignSystem.Colors.destructive.opacity(0.7))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(isSelected ? Color.white.opacity(0.05) : Color.clear)
+        .cornerRadius(4)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+    }
+}
+
+// MARK: - Add Prompt Sheet
+struct AddPromptSheet: View {
+    let onAdd: (CustomPrompt) -> Void
+    @Environment(\.dismiss) var dismiss
+
+    @State private var label: String = ""
+    @State private var description: String = ""
+    @State private var promptText: String = ""
+
+    private var isValid: Bool {
+        !label.isEmpty && label.count >= 2 && label.count <= 4 &&
+        !description.isEmpty &&
+        !promptText.isEmpty
     }
 
-    private func resetPrompt(for key: String) {
-        switch key {
-        case "wb":
-            settings.promptWB = "Перефразируй этот текст на том же языке, сделав его более вежливым и профессиональным. Используй разговорный, но уважительный тон. Исправь все грамматические и пунктуационные ошибки. Текст должен показывать, что мы ценим клиента и хорошо к нему относимся. Сохрани суть сообщения, но сделай его максимально приятным для получателя:"
-        case "ru":
-            settings.promptRU = "Переведи следующий текст на русский язык. Верни ТОЛЬКО перевод, ничего больше. Никаких объяснений, вариантов или дополнительного текста. Только прямой перевод так, как написал бы носитель русского языка:"
-        case "en":
-            settings.promptEN = "Переведи следующий текст на английский язык. Верни ТОЛЬКО перевод, ничего больше. Никаких объяснений, вариантов или дополнительного текста. Только прямой перевод так, как написал бы носитель английского языка:"
-        case "ch":
-            settings.promptCH = "Переведи следующий текст на китайский язык. Верни ТОЛЬКО перевод, ничего больше. Никаких объяснений, вариантов или дополнительного текста. Только прямой перевод так, как написал бы носитель китайского языка:"
-        default: break
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Новый промпт")
+                .font(.headline)
+                .foregroundColor(.white)
+
+            VStack(alignment: .leading, spacing: 12) {
+                // Label
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Кнопка (2-4 символа)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("", text: $label)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .frame(width: 80)
+                        .onChange(of: label) { newValue in
+                            label = String(newValue.prefix(4)).uppercased()
+                        }
+                }
+
+                // Description
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Описание")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("", text: $description)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+
+                // Prompt text
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Текст промпта")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextEditor(text: $promptText)
+                        .font(.system(size: 12))
+                        .frame(height: 120)
+                        .padding(4)
+                        .background(Color.white.opacity(0.1))
+                        .cornerRadius(6)
+                }
+            }
+
+            HStack {
+                Button("Отмена") {
+                    dismiss()
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+
+                Button("Добавить") {
+                    let newPrompt = CustomPrompt(
+                        id: UUID(),
+                        label: label,
+                        description: description,
+                        prompt: promptText,
+                        isVisible: true,
+                        isSystem: false,
+                        order: 0
+                    )
+                    onAdd(newPrompt)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!isValid)
+            }
         }
+        .padding(20)
+        .frame(width: 400, height: 350)
+        .background(Color(red: 30/255, green: 30/255, blue: 32/255))
     }
 }
 
@@ -3279,6 +3904,52 @@ struct SettingsRow<Accessory: View>: View {
             Spacer()
 
             accessory
+        }
+        .padding(.vertical, 8)
+    }
+}
+
+struct PermissionRow: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    let isGranted: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 20))
+                .foregroundColor(isGranted ? .green : .orange)
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14))
+                    .foregroundColor(.white)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+            }
+
+            Spacer()
+
+            if isGranted {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(DesignSystem.Colors.accent)
+                    .font(.system(size: 18))
+            } else {
+                Button(action: action) {
+                    Text("Разрешить")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color(red: 1.0, green: 0.4, blue: 0.2))
+                        .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
         }
         .padding(.vertical, 8)
     }
@@ -3375,7 +4046,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Показываем окно при первом запуске
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.showWindow()
+            if SettingsManager.shared.settingsWindowWasOpen {
+                self?.openSettings()
+            } else {
+                self?.showWindow()
+            }
         }
 
         NSLog("✅ Инициализация завершена")
@@ -3933,78 +4608,57 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc func openSettings() {
-        // Если настройки уже открыты - закрываем и показываем основное окно
+        // Скрываем главное модальное окно если оно открыто
+        if let mainWindow = window, mainWindow.isVisible {
+            mainWindow.close()
+        }
+
+        // Проверяем, не открыто ли уже окно настроек
         if let sw = settingsWindow, sw.isVisible {
-            sw.close()
-            showWindow()
+            sw.orderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        // Скрываем основное окно
-        window?.orderOut(nil)
+        // Фиксированный размер окна
+        let windowWidth: CGFloat = 900
+        let windowHeight: CGFloat = 700
 
-        if settingsWindow == nil {
-            let settingsView = SettingsView()
+        let sw = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
 
-            let sw = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-                styleMask: [.titled, .closable],
-                backing: .buffered,
-                defer: false
-            )
+        sw.title = "Настройки Olamba"
+        sw.contentView = NSHostingView(rootView: SettingsView())
+        sw.center()
+        sw.minSize = NSSize(width: 800, height: 600)
 
-            sw.title = "Настройки Olamba"
-            sw.titlebarAppearsTransparent = false
-            sw.titleVisibility = .visible
-            sw.backgroundColor = NSColor(red: 30/255, green: 30/255, blue: 32/255, alpha: 1.0)
-            sw.isOpaque = true
-            sw.delegate = self
+        sw.isReleasedWhenClosed = false
+        sw.delegate = self
+        settingsWindow = sw
 
-            let hostingView = NSHostingView(rootView: settingsView)
-            sw.contentView = hostingView
+        SettingsManager.shared.settingsWindowWasOpen = true
 
-            settingsWindow = sw
-        }
-
-        // Позиционируем настройки на том же экране, где был курсор
-        if let sw = settingsWindow {
-            let mouseLocation = NSEvent.mouseLocation
-            var targetScreen: NSScreen? = nil
-
-            for screen in NSScreen.screens {
-                if screen.frame.contains(mouseLocation) {
-                    targetScreen = screen
-                    break
-                }
-            }
-
-            let screen = targetScreen ?? NSScreen.main ?? NSScreen.screens.first
-            if let screen = screen {
-                let screenFrame = screen.visibleFrame
-                let windowFrame = sw.frame
-                let x = screenFrame.origin.x + (screenFrame.width - windowFrame.width) / 2
-                let y = screenFrame.origin.y + (screenFrame.height - windowFrame.height) / 2
-                sw.setFrameOrigin(NSPoint(x: x, y: y))
-            }
-
-            NSApp.activate(ignoringOtherApps: true)
-            sw.makeKeyAndOrderFront(nil)
-        }
+        sw.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: - NSWindowDelegate
     func windowWillClose(_ notification: Notification) {
         guard let closedWindow = notification.object as? NSWindow else { return }
 
-        // Не реагировать на закрытие основного окна
-        if closedWindow == window {
+        if closedWindow == settingsWindow {
+            settingsWindow = nil
+            SettingsManager.shared.settingsWindowWasOpen = false
             return
         }
 
-        // Если закрылись настройки - показываем основное окно
-        if closedWindow == settingsWindow {
-            settingsWindow = nil  // Очищаем ссылку для пересоздания
-            // С задержкой чтобы избежать проблем с UI
+        // Для главного окна - только скрыть и показать снова
+        if closedWindow == window {
+            window = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 self?.showWindow()
             }
@@ -4032,59 +4686,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         NSApplication.shared.terminate(nil)
-    }
-}
-
-// MARK: - Deepgram Settings UI Components
-struct ModelOptionRow: View {
-    let model: String
-    let title: String
-    let description: String
-    let isSelected: Bool
-    let badge: String?
-    let onSelect: () -> Void
-
-    init(model: String, title: String, description: String, isSelected: Bool, badge: String? = nil, onSelect: @escaping () -> Void) {
-        self.model = model
-        self.title = title
-        self.description = description
-        self.isSelected = isSelected
-        self.badge = badge
-        self.onSelect = onSelect
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(isSelected ? .blue : .gray)
-                .font(.system(size: 16))
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 13))
-                    .foregroundColor(.white)
-                Text(description)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-
-            if let badge = badge {
-                Text(badge)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.blue)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.blue.opacity(0.2))
-                    .cornerRadius(4)
-            }
-        }
-        .padding(8)
-        .background(isSelected ? Color.blue.opacity(0.1) : Color.clear)
-        .cornerRadius(6)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
     }
 }
 

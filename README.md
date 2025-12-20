@@ -175,6 +175,7 @@ Olamba/
 ├── Olamba.entitlements    # Права доступа
 ├── AppIcon.icns           # Иконка
 ├── build.sh               # Скрипт сборки
+├── olamba_reload.sh       # Перезапуск с очисткой permissions
 ├── create_dmg.sh          # Создание DMG
 ├── claude.md              # Документация для разработки
 ├── sound/                 # Звуковые эффекты
@@ -284,6 +285,27 @@ Olamba/
 **4. NSViewRepresentable:**
 - `CustomTextEditor` - обертка NSTextView для многострочного ввода
 - `HotkeyRecorderView` - обертка для записи хоткеев
+
+### Скрипты разработки
+
+**olamba_reload.sh** — перезапуск приложения с очисткой системных разрешений:
+
+```bash
+# Обычный перезапуск (пересборка только если исходники изменились)
+./olamba_reload.sh
+
+# Принудительная пересборка
+./olamba_reload.sh --rebuild
+./olamba_reload.sh -r
+```
+
+Что делает скрипт:
+1. Закрывает запущенное приложение
+2. Сбрасывает permissions (Accessibility, Microphone, Screen Recording)
+3. Пересобирает только если `Olamba.swift` новее бинарника (или флаг `--rebuild`)
+4. Запускает приложение
+
+После запуска нужно заново выдать разрешения в System Settings.
 
 ### Правила разработки
 
