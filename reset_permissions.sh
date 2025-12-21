@@ -20,8 +20,8 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 echo -e "${YELLOW}Закрываем приложение...${NC}"
-killall Olamba 2>/dev/null
-killall -9 Olamba 2>/dev/null
+killall Dictum 2>/dev/null
+killall -9 Dictum 2>/dev/null
 sleep 1
 
 echo -e "${YELLOW}Очищаем разрешения из базы данных TCC...${NC}"

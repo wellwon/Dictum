@@ -63,7 +63,7 @@ echo ""
 
 # 3. Пересобираем приложение (только если нужно)
 NEED_REBUILD=false
-BINARY="Olamba.app/Contents/MacOS/Olamba"
+BINARY="Dictum.app/Contents/MacOS/Dictum"
 
 if [[ "$1" == "--rebuild" ]] || [[ "$1" == "-r" ]]; then
     NEED_REBUILD=true
@@ -71,7 +71,7 @@ if [[ "$1" == "--rebuild" ]] || [[ "$1" == "-r" ]]; then
 elif [ ! -f "$BINARY" ]; then
     NEED_REBUILD=true
     echo -e "${YELLOW}3️⃣  Пересобираем приложение (бинарник не найден)...${NC}"
-elif [ "Olamba.swift" -nt "$BINARY" ]; then
+elif [ "Dictum.swift" -nt "$BINARY" ]; then
     NEED_REBUILD=true
     echo -e "${YELLOW}3️⃣  Пересобираем приложение (исходники изменились)...${NC}"
 fi

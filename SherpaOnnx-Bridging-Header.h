@@ -1,5 +1,5 @@
 // SherpaOnnx-Bridging-Header.h
-// Bridging header for sherpa-onnx C API in Olamba
+// Bridging header for sherpa-onnx C API in Dictum
 //
 // This header imports the C API functions so they can be used from Swift
 
