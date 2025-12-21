@@ -18,6 +18,12 @@
 | **Hover Background** | `rgba(255, 255, 255, 0.1)` | Ховер-состояние |
 | **Selected Background** | `rgba(255, 255, 255, 0.15)` | Выбранные элементы |
 
+### Modal/Panel Elements
+| Название | HEX | RGB | Использование |
+|----------|-----|-----|---------------|
+| **Button Area Background** | `#272729` | `(39, 39, 41)` | Фон нижней части модалки (область кнопок) |
+| **Border Color** | `#4c4d4d` | `(76, 77, 77)` | Бордер модалки (2px) |
+
 ### Text
 | Название | Значение | Использование |
 |----------|----------|---------------|
@@ -74,6 +80,8 @@
 DesignSystem.Colors.accent              // Зеленый #1AAF87
 DesignSystem.Colors.toggleActive        // Цвет активного тумблера
 DesignSystem.Colors.textSecondary       // Серый текст
+DesignSystem.Colors.buttonAreaBackground // Фон области кнопок #272729
+DesignSystem.Colors.borderColor         // Бордер модалки #4c4d4d
 
 // Отступы
 DesignSystem.Spacing.sm                 // 8px

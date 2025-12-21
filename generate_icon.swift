@@ -5,60 +5,122 @@ import Foundation
 
 // Генератор иконки Dictum
 // Создаёт .icns файл программно
+// Дизайн: разрезанная буква D с красной точкой
 
 func createIcon(size: CGFloat) -> NSImage {
     let image = NSImage(size: NSSize(width: size, height: size))
 
     image.lockFocus()
 
-    // Фон - тёмный градиент
-    let gradient = NSGradient(colors: [
-        NSColor(red: 0.15, green: 0.15, blue: 0.18, alpha: 1.0),
-        NSColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 1.0)
-    ])!
+    let scale = size / 100.0
 
+    // Хелпер для конвертации SVG координат в Core Graphics
+    // SVG: Y вниз (0 сверху), CG: Y вверх (0 снизу)
+    func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+        return NSPoint(x: x * scale, y: size - y * scale)
+    }
+
+    // Фон - чёрный с скруглёнными углами
     let rect = NSRect(x: 0, y: 0, width: size, height: size)
     let cornerRadius = size * 0.22
-    let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
-    gradient.draw(in: path, angle: -45)
+    let bgPath = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+    NSColor.black.setFill()
+    bgPath.fill()
 
-    // Обводка
-    NSColor(red: 0.3, green: 0.3, blue: 0.35, alpha: 0.5).setStroke()
-    path.lineWidth = size * 0.02
-    path.stroke()
+    // Создаём путь буквы D
+    func createDPath() -> NSBezierPath {
+        let path = NSBezierPath()
 
-    // Буква "O" с градиентом
-    let fontSize = size * 0.55
-    let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
+        // Внешний контур (SVG: M20 20 H50 C67 20 80 33 80 50 C80 67 67 80 50 80 H20 V20 Z)
+        path.move(to: point(20, 20))
+        path.line(to: point(50, 20))
+        path.curve(to: point(80, 50),
+                   controlPoint1: point(67, 20),
+                   controlPoint2: point(80, 33))
+        path.curve(to: point(50, 80),
+                   controlPoint1: point(80, 67),
+                   controlPoint2: point(67, 80))
+        path.line(to: point(20, 80))
+        path.close()
 
-    let paragraphStyle = NSMutableParagraphStyle()
-    paragraphStyle.alignment = .center
+        // Внутреннее отверстие (SVG: M37 35 V65 H47 C55 65 62 58 62 50 C62 42 55 35 47 35 H37 Z)
+        path.move(to: point(37, 35))
+        path.line(to: point(37, 65))
+        path.line(to: point(47, 65))
+        path.curve(to: point(62, 50),
+                   controlPoint1: point(55, 65),
+                   controlPoint2: point(62, 58))
+        path.curve(to: point(47, 35),
+                   controlPoint1: point(62, 42),
+                   controlPoint2: point(55, 35))
+        path.close()
 
-    let attributes: [NSAttributedString.Key: Any] = [
-        .font: font,
-        .foregroundColor: NSColor.white,
-        .paragraphStyle: paragraphStyle
-    ]
+        path.windingRule = .evenOdd
+        return path
+    }
 
-    let text = "O"
-    let textSize = text.size(withAttributes: attributes)
-    let textRect = NSRect(
-        x: (size - textSize.width) / 2,
-        y: (size - textSize.height) / 2 - size * 0.02,
-        width: textSize.width,
-        height: textSize.height
+    // Clipping path для верхней части
+    // SVG: M -10 -10 L 110 -10 L 110 34 L -10 60 Z
+    func createTopClip() -> NSBezierPath {
+        let clip = NSBezierPath()
+        clip.move(to: point(-10, -10))
+        clip.line(to: point(110, -10))
+        clip.line(to: point(110, 34))
+        clip.line(to: point(-10, 60))
+        clip.close()
+        return clip
+    }
+
+    // Clipping path для нижней части
+    // SVG: M -10 68 L 110 42 L 110 110 L -10 110 Z
+    func createBottomClip() -> NSBezierPath {
+        let clip = NSBezierPath()
+        clip.move(to: point(-10, 68))
+        clip.line(to: point(110, 42))
+        clip.line(to: point(110, 110))
+        clip.line(to: point(-10, 110))
+        clip.close()
+        return clip
+    }
+
+    // Рисуем верхнюю часть (белая, сдвинутая на -1.5, -1.5 в SVG координатах)
+    NSGraphicsContext.saveGraphicsState()
+    createTopClip().addClip()
+
+    let transform1 = AffineTransform(translationByX: -1.5 * scale, byY: 1.5 * scale)
+    let upperPath = createDPath()
+    upperPath.transform(using: transform1)
+
+    NSColor.white.setFill()
+    upperPath.fill()
+    NSGraphicsContext.restoreGraphicsState()
+
+    // Рисуем нижнюю часть (серая #9a9a9c, сдвинутая на +1.5, +1.5 в SVG координатах)
+    NSGraphicsContext.saveGraphicsState()
+    createBottomClip().addClip()
+
+    let transform2 = AffineTransform(translationByX: 1.5 * scale, byY: -1.5 * scale)
+    let lowerPath = createDPath()
+    lowerPath.transform(using: transform2)
+
+    NSColor(red: 0x9a / 255.0, green: 0x9a / 255.0, blue: 0x9c / 255.0, alpha: 1.0).setFill()
+    lowerPath.fill()
+    NSGraphicsContext.restoreGraphicsState()
+
+    // Красная точка в правом верхнем углу
+    // Равноудалена от угла (~95,5) и от буквы D (~80,20)
+    let dotRadius = 8 * scale
+    let dotCenter = point(82, 17)
+    let dotRect = NSRect(
+        x: dotCenter.x - dotRadius,
+        y: dotCenter.y - dotRadius,
+        width: dotRadius * 2,
+        height: dotRadius * 2
     )
-    text.draw(in: textRect, withAttributes: attributes)
-
-    // Акцент - маленький кружок (точка записи)
-    let dotSize = size * 0.12
-    let dotX = size * 0.68
-    let dotY = size * 0.68
-    let dotRect = NSRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
     let dotPath = NSBezierPath(ovalIn: dotRect)
 
-    // Оранжевый акцент
-    NSColor(red: 1.0, green: 0.4, blue: 0.2, alpha: 1.0).setFill()
+    // Красный цвет #d93f41
+    NSColor(red: 0xd9 / 255.0, green: 0x3f / 255.0, blue: 0x41 / 255.0, alpha: 1.0).setFill()
     dotPath.fill()
 
     image.unlockFocus()
@@ -103,7 +165,7 @@ func createIconSet() {
         ("icon_512x512@2x", 1024)
     ]
 
-    print("🎨 Генерация иконок Dictum...")
+    print("🎨 Генерация иконок Dictum (буква D)...")
 
     for (name, size) in sizes {
         let image = createIcon(size: CGFloat(size))

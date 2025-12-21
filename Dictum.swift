@@ -18,6 +18,10 @@ enum DesignSystem {
         static let hoverBackground = Color.white.opacity(0.1)
         static let selectedBackground = Color.white.opacity(0.15)
 
+        // Modal/Panel elements
+        static let buttonAreaBackground = Color(red: 39/255, green: 39/255, blue: 41/255)  // #272729
+        static let borderColor = Color(red: 76/255, green: 77/255, blue: 77/255)           // #4c4d4d
+
         // Text
         static let textPrimary = Color.white
         static let textSecondary = Color.gray
@@ -2311,15 +2315,19 @@ struct InputModalView: View {
 
                     // Кнопка Голос
                     Button(action: {
+                        NSLog("🔘 Нажата кнопка записи, isRecording=\(isRecording), provider=\(settings.asrProviderType)")
                         Task {
                             if isRecording {
+                                NSLog("⏹️ Останавливаем запись...")
                                 await stopASR()
                             } else {
                                 // Проверить возможность записи
                                 if !canStartASR() {
+                                    NSLog("❌ canStartASR() вернул false")
                                     setASRError("API ключ не найден. Откройте Настройки (Cmd+,)")
                                     return
                                 }
+                                NSLog("▶️ Запускаем запись...")
                                 // Передаём существующий текст для режима дозаписи
                                 await startASR(existingText: inputText)
                             }
@@ -2435,7 +2443,7 @@ struct InputModalView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color.white.opacity(0.05))
+            .background(DesignSystem.Colors.buttonAreaBackground)
         }
         .background(
             VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
@@ -2444,7 +2452,7 @@ struct InputModalView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .overlay(
             RoundedRectangle(cornerRadius: 24)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                .stroke(DesignSystem.Colors.borderColor, lineWidth: 2)
         )
         .shadow(color: .black.opacity(0.65), radius: 27, x: 0, y: 24)
         .frame(width: 680)
@@ -3275,7 +3283,7 @@ func createMenuBarIcon() -> NSImage {
         .foregroundColor: NSColor.white
     ]
 
-    let text = "O"
+    let text = "D"
     let textSize = text.size(withAttributes: attributes)
     let textRect = NSRect(
         x: (size - textSize.width) / 2 - 1,
@@ -5508,6 +5516,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc func showWindow() {
+        // Создаём окно если его нет (защита от краша)
+        if window == nil {
+            setupWindow()
+        }
         guard let window = window else { return }
 
         // Сохраняем предыдущее активное приложение (до активации нашего)
@@ -5531,8 +5543,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
 
         // Фокус на текстовое поле
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            if let textView = self?.findTextView(in: window.contentView) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, weak window] in
+            guard let self = self, let window = window, window.isVisible else { return }
+            if let textView = self.findTextView(in: window.contentView) {
                 window.makeFirstResponder(textView)
             }
         }
@@ -5583,8 +5596,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         sw.center()
         sw.minSize = NSSize(width: 800, height: 600)
 
-        // H6: isReleasedWhenClosed = true для автоматического освобождения памяти
-        sw.isReleasedWhenClosed = true
+        // H6: isReleasedWhenClosed = false - мы сами управляем lifecycle через settingsWindow = nil
+        sw.isReleasedWhenClosed = false
         sw.delegate = self
         settingsWindow = sw
 
@@ -5605,10 +5618,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let closedWindow = notification.object as? NSWindow else { return }
 
         if closedWindow == settingsWindow {
+            // Сначала убираем delegate чтобы избежать повторных вызовов
+            settingsWindow?.delegate = nil
             settingsWindow = nil
             SettingsManager.shared.settingsWindowWasOpen = false
 
             // Показываем модальное окно после закрытия настроек
+            // showWindow() сам создаст окно если его нет
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 self?.showWindow()
             }
@@ -5617,9 +5633,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // H3: Для главного окна - пересоздаём через setupWindow
         if closedWindow == window {
+            window?.delegate = nil
             window = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.setupWindow()  // setupWindow создаёт новое окно
+                self?.setupWindow()
             }
         }
     }

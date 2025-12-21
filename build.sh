@@ -55,22 +55,16 @@ fi
 echo -e "   → Очищаем разрешения системы (TCC)..."
 
 # Screen Recording
-tccutil reset ScreenCapture "$BUNDLE_ID" 2>/dev/null
-if [ $? -eq 0 ]; then
-    echo -e "${GREEN}      ✓ Screen Recording очищен${NC}"
-fi
+tccutil reset ScreenCapture "$BUNDLE_ID" 2>/dev/null || true
+echo -e "${GREEN}      ✓ Screen Recording очищен${NC}"
 
 # Accessibility
-tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null
-if [ $? -eq 0 ]; then
-    echo -e "${GREEN}      ✓ Accessibility очищен${NC}"
-fi
+tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null || true
+echo -e "${GREEN}      ✓ Accessibility очищен${NC}"
 
-# Microphone
-tccutil reset Microphone "$BUNDLE_ID" 2>/dev/null
-if [ $? -eq 0 ]; then
-    echo -e "${GREEN}      ✓ Microphone очищен${NC}"
-fi
+# Microphone - НЕ сбрасываем, чтобы не терять разрешение при каждой сборке
+# tccutil reset Microphone "$BUNDLE_ID" 2>/dev/null
+echo -e "${YELLOW}      ⓘ Microphone НЕ сбрасывается (сохраняем разрешение)${NC}"
 
 # 0.3 Очищаем предыдущую сборку
 echo -e "   → Удаляем предыдущую сборку..."
