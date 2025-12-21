@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="https://img.icons8.com/fluency/96/microphone.png" alt="Olamba Logo" width="96" height="96">
+  <img src="https://img.icons8.com/fluency/96/microphone.png" alt="Dictum Logo" width="96" height="96">
 </p>
 
-<h1 align="center">Olamba</h1>
+<h1 align="center">Dictum</h1>
 
 <p align="center">
   <strong>Умный ввод с ИИ для macOS</strong>
@@ -71,8 +71,8 @@
 
 ### Из DMG (рекомендуется)
 
-1. Скачайте `Olamba-1.0.dmg`
-2. Перетащите `Olamba.app` в папку `Applications`
+1. Скачайте `Dictum-1.0.dmg`
+2. Перетащите `Dictum.app` в папку `Applications`
 3. При первом запуске разрешите:
    - **Accessibility** — для вставки текста в другие приложения
    - **Microphone** — для записи голоса
@@ -80,10 +80,10 @@
 ### Сборка из исходников
 
 ```bash
-git clone https://github.com/user/olamba.git
-cd olamba
+git clone https://github.com/user/dictum.git
+cd dictum
 ./build.sh
-open Olamba.app
+open Dictum.app
 ```
 
 ---
@@ -169,13 +169,13 @@ open Olamba.app
 ## Структура проекта
 
 ```
-Olamba/
-├── Olamba.swift           # Весь код приложения (~3500 строк)
+Dictum/
+├── Dictum.swift           # Весь код приложения (~3500 строк)
 ├── Info.plist             # Конфигурация приложения
-├── Olamba.entitlements    # Права доступа
+├── Dictum.entitlements    # Права доступа
 ├── AppIcon.icns           # Иконка
 ├── build.sh               # Скрипт сборки
-├── olamba_reload.sh       # Перезапуск с очисткой permissions
+├── dictum_reload.sh       # Перезапуск с очисткой permissions
 ├── create_dmg.sh          # Создание DMG
 ├── claude.md              # Документация для разработки
 ├── sound/                 # Звуковые эффекты
@@ -202,7 +202,7 @@ Olamba/
 
 ### Архитектура приложения
 
-**Монолитный файл** (`Olamba.swift`, ~3500 строк) с четкой модульной структурой:
+**Монолитный файл** (`Dictum.swift`, ~3500 строк) с четкой модульной структурой:
 
 #### Основные компоненты:
 
@@ -268,7 +268,7 @@ Olamba/
 **1. Все в одном файле:**
 - Монолитная структура для простоты
 - ~3500 строк с четкими MARK секциями
-- Нет модульности - всё в Olamba.swift
+- Нет модульности - всё в Dictum.swift
 
 **2. SwiftUI patterns:**
 - `@Published` свойства для реактивности
@@ -288,21 +288,21 @@ Olamba/
 
 ### Скрипты разработки
 
-**olamba_reload.sh** — перезапуск приложения с очисткой системных разрешений:
+**dictum_reload.sh** — перезапуск приложения с очисткой системных разрешений:
 
 ```bash
 # Обычный перезапуск (пересборка только если исходники изменились)
-./olamba_reload.sh
+./dictum_reload.sh
 
 # Принудительная пересборка
-./olamba_reload.sh --rebuild
-./olamba_reload.sh -r
+./dictum_reload.sh --rebuild
+./dictum_reload.sh -r
 ```
 
 Что делает скрипт:
 1. Закрывает запущенное приложение
 2. Сбрасывает permissions (Accessibility, Microphone, Screen Recording)
-3. Пересобирает только если `Olamba.swift` новее бинарника (или флаг `--rebuild`)
+3. Пересобирает только если `Dictum.swift` новее бинарника (или флаг `--rebuild`)
 4. Запускает приложение
 
 После запуска нужно заново выдать разрешения в System Settings.
@@ -312,7 +312,7 @@ Olamba/
 При работе с этим проектом:
 
 1. **Всегда использовать Swift и SwiftUI** - это macOS приложение, не Python/JS
-2. **Редактировать Olamba.swift** - монолитная архитектура
+2. **Редактировать Dictum.swift** - монолитная архитектура
 3. **Компилировать через build.sh** - не Xcode project
 4. **Тестировать на macOS** - специфичные API (Accessibility, WebSocket, Audio)
 5. **Сохранять обратную совместимость** с macOS 13.0+
@@ -329,7 +329,7 @@ Olamba/
 ### Вставка не работает
 
 1. Проверьте **System Settings → Privacy & Security → Accessibility**
-2. Убедитесь что Olamba в списке и галочка стоит
+2. Убедитесь что Dictum в списке и галочка стоит
 3. Перезапустите приложение
 
 ### Голос не записывается

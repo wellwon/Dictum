@@ -71,7 +71,7 @@ class APIKeyManager {
 
     init(service: String) {
         self.serviceName = service
-        self.storageKey = "com.olamba.\(service)-api-key"
+        self.storageKey = "com.dictum.\(service)-api-key"
     }
 
     func saveAPIKey(_ key: String) -> Bool {
@@ -369,7 +369,7 @@ class SettingsManager: ObservableObject {
         didSet {
             let value = promptWB
             DispatchQueue.global(qos: .utility).async {
-                UserDefaults.standard.set(value, forKey: "com.olamba.prompt.wb")
+                UserDefaults.standard.set(value, forKey: "com.dictum.prompt.wb")
             }
         }
     }
@@ -377,7 +377,7 @@ class SettingsManager: ObservableObject {
         didSet {
             let value = promptRU
             DispatchQueue.global(qos: .utility).async {
-                UserDefaults.standard.set(value, forKey: "com.olamba.prompt.ru")
+                UserDefaults.standard.set(value, forKey: "com.dictum.prompt.ru")
             }
         }
     }
@@ -385,7 +385,7 @@ class SettingsManager: ObservableObject {
         didSet {
             let value = promptEN
             DispatchQueue.global(qos: .utility).async {
-                UserDefaults.standard.set(value, forKey: "com.olamba.prompt.en")
+                UserDefaults.standard.set(value, forKey: "com.dictum.prompt.en")
             }
         }
     }
@@ -393,7 +393,7 @@ class SettingsManager: ObservableObject {
         didSet {
             let value = promptCH
             DispatchQueue.global(qos: .utility).async {
-                UserDefaults.standard.set(value, forKey: "com.olamba.prompt.ch")
+                UserDefaults.standard.set(value, forKey: "com.dictum.prompt.ch")
             }
         }
     }
@@ -432,13 +432,13 @@ class SettingsManager: ObservableObject {
         }
 
         // Load prompts with carefully crafted defaults
-        self.promptWB = UserDefaults.standard.string(forKey: "com.olamba.prompt.wb") ?? "Перефразируй этот текст на том же языке, сделав его более вежливым и профессиональным. Используй разговорный, но уважительный тон. Исправь все грамматические и пунктуационные ошибки. Текст должен показывать, что мы ценим клиента и хорошо к нему относимся. Сохрани суть сообщения, но сделай его максимально приятным для получателя:"
+        self.promptWB = UserDefaults.standard.string(forKey: "com.dictum.prompt.wb") ?? "Перефразируй этот текст на том же языке, сделав его более вежливым и профессиональным. Используй разговорный, но уважительный тон. Исправь все грамматические и пунктуационные ошибки. Текст должен показывать, что мы ценим клиента и хорошо к нему относимся. Сохрани суть сообщения, но сделай его максимально приятным для получателя:"
 
-        self.promptRU = UserDefaults.standard.string(forKey: "com.olamba.prompt.ru") ?? "Переведи следующий текст на русский язык. Верни ТОЛЬКО перевод, ничего больше. Никаких объяснений, вариантов или дополнительного текста. Только прямой перевод так, как написал бы носитель русского языка:"
+        self.promptRU = UserDefaults.standard.string(forKey: "com.dictum.prompt.ru") ?? "Переведи следующий текст на русский язык. Верни ТОЛЬКО перевод, ничего больше. Никаких объяснений, вариантов или дополнительного текста. Только прямой перевод так, как написал бы носитель русского языка:"
 
-        self.promptEN = UserDefaults.standard.string(forKey: "com.olamba.prompt.en") ?? "Переведи следующий текст на английский язык. Верни ТОЛЬКО перевод, ничего больше. Никаких объяснений, вариантов или дополнительного текста. Только прямой перевод так, как написал бы носитель английского языка:"
+        self.promptEN = UserDefaults.standard.string(forKey: "com.dictum.prompt.en") ?? "Переведи следующий текст на английский язык. Верни ТОЛЬКО перевод, ничего больше. Никаких объяснений, вариантов или дополнительного текста. Только прямой перевод так, как написал бы носитель английского языка:"
 
-        self.promptCH = UserDefaults.standard.string(forKey: "com.olamba.prompt.ch") ?? "Переведи следующий текст на китайский язык. Верни ТОЛЬКО перевод, ничего больше. Никаких объяснений, вариантов или дополнительного текста. Только прямой перевод так, как написал бы носитель китайского языка:"
+        self.promptCH = UserDefaults.standard.string(forKey: "com.dictum.prompt.ch") ?? "Переведи следующий текст на китайский язык. Верни ТОЛЬКО перевод, ничего больше. Никаких объяснений, вариантов или дополнительного текста. Только прямой перевод так, как написал бы носитель китайского языка:"
 
         // Загружаем хоткей
         if let data = UserDefaults.standard.data(forKey: "settings.toggleHotkey"),
@@ -593,8 +593,8 @@ struct CustomPrompt: Codable, Identifiable, Equatable {
 class PromptsManager: ObservableObject {
     static let shared = PromptsManager()
 
-    private let userDefaultsKey = "com.olamba.customPrompts"
-    private let migrationKey = "com.olamba.promptsMigrationV1"
+    private let userDefaultsKey = "com.dictum.customPrompts"
+    private let migrationKey = "com.dictum.promptsMigrationV1"
 
     @Published var prompts: [CustomPrompt] = [] {
         didSet { savePrompts() }
@@ -634,10 +634,10 @@ class PromptsManager: ObservableObject {
 
         // Перенос кастомизированных текстов промптов из старой системы
         let oldKeys: [(String, String)] = [
-            ("WB", "com.olamba.prompt.wb"),
-            ("RU", "com.olamba.prompt.ru"),
-            ("EN", "com.olamba.prompt.en"),
-            ("CH", "com.olamba.prompt.ch")
+            ("WB", "com.dictum.prompt.wb"),
+            ("RU", "com.dictum.prompt.ru"),
+            ("EN", "com.dictum.prompt.en"),
+            ("CH", "com.dictum.prompt.ch")
         ]
 
         for (label, key) in oldKeys {
@@ -856,7 +856,7 @@ class SherpaASRProvider: ObservableObject, @unchecked Sendable {
     private var decodeTimer: DispatchSourceTimer?
 
     // Fix 3: Serial queue для thread-safe доступа к recognizer
-    private let recognizerQueue = DispatchQueue(label: "com.olamba.recognizer")
+    private let recognizerQueue = DispatchQueue(label: "com.dictum.recognizer")
 
     // Fix 4: Кешированный AVAudioConverter
     private var audioConverter: AVAudioConverter?
@@ -1285,7 +1285,7 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
     private let transcriptLock = NSLock()
 
     // Fix 5: Serial queue для thread-safe доступа к audioBuffer
-    private let audioBufferQueue = DispatchQueue(label: "com.olamba.audioBuffer")
+    private let audioBufferQueue = DispatchQueue(label: "com.dictum.audioBuffer")
 
     // C2: Кешированный AudioConverter для производительности
     private var cachedConverter: AVAudioConverter?
@@ -2212,66 +2212,67 @@ struct InputModalView: View {
     }
     private var maxTextHeight: CGFloat { CGFloat(maxLines) * lineHeight }
 
+    // Оверлей записи — отдельный computed property для упрощения body
+    @ViewBuilder
+    private var recordingOverlay: some View {
+        if isRecording {
+            VoiceOverlayView(audioLevel: audioLevel)
+                .background(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.95))
+                .clipShape(RoundedRectangle(cornerRadius: 24))
+                .allowsHitTesting(false)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // ВЕРХНЯЯ ЧАСТЬ: Ввод + Оверлеи
-            ZStack(alignment: .top) {
-                // Оверлей записи голоса - amplitude-индикатор
-                if isRecording {
-                    VoiceOverlayView(audioLevel: audioLevel)
-                    .background(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.95))
-                    .clipShape(UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
-                    .allowsHitTesting(false)  // Пропускать события к TextEditor
-                    .zIndex(2)
+            VStack(spacing: 0) {
+                // Поле ввода с динамической высотой
+                ZStack(alignment: .topLeading) {
+                    CustomTextEditor(
+                        text: $inputText,
+                        onSubmit: submitImmediate,
+                        onHeightChange: { height in
+                            // Ограничиваем высоту до 30 строк
+                            textEditorHeight = min(max(40, height), maxTextHeight)
+                        },
+                        highlightForeignWords: settings.highlightForeignWords
+                    )
+                    .font(.system(size: 16, weight: .regular))
+                    .frame(height: textEditorHeight)
+                    .padding(.leading, 20)
+                    .padding(.trailing, 20)
+                    .padding(.top, 18)
+                    .padding(.bottom, 12)
+                    .background(Color.clear)
+
+                    if inputText.isEmpty {
+                        Text("Введите текст...")
+                            .font(.system(size: 16, weight: .regular, design: .default))
+                            .foregroundColor(Color.white.opacity(0.45))
+                            .padding(.leading, 28)
+                            .padding(.top, 18)
+                            .allowsHitTesting(false)
+                    }
                 }
 
-                VStack(spacing: 0) {
-                    // Поле ввода с динамической высотой
-                    ZStack(alignment: .topLeading) {
-                        CustomTextEditor(
-                            text: $inputText,
-                            onSubmit: submitImmediate,
-                            onHeightChange: { height in
-                                // Ограничиваем высоту до 30 строк
-                                textEditorHeight = min(max(40, height), maxTextHeight)
-                            },
-                            highlightForeignWords: settings.highlightForeignWords
-                        )
-                        .font(.system(size: 16, weight: .regular))
-                        .frame(height: textEditorHeight)
-                        .padding(.leading, 20)
-                        .padding(.trailing, 20)
-                        .padding(.top, 18)
-                        .padding(.bottom, 12)
-                        .background(Color.clear)
-
-                        if inputText.isEmpty {
-                            Text("Введите текст...")
-                                .font(.system(size: 16, weight: .regular, design: .default))
-                                .foregroundColor(Color.white.opacity(0.45))
-                                .padding(.leading, 28)
-                                .padding(.top, 18)
-                                .allowsHitTesting(false)
+                // Список истории (упрощённый)
+                if showHistory {
+                    HistoryListView(
+                        items: historyItems,
+                        searchQuery: $searchQuery,
+                        onSelect: { item in
+                            inputText = item.text
+                            searchQuery = ""
+                            showHistory = false
+                        },
+                        onSearch: { query in
+                            loadHistory(searchQuery: query)
                         }
-                    }
-
-                    // Список истории (упрощённый)
-                    if showHistory {
-                        HistoryListView(
-                            items: historyItems,
-                            searchQuery: $searchQuery,
-                            onSelect: { item in
-                                inputText = item.text
-                                searchQuery = ""
-                                showHistory = false
-                            },
-                            onSearch: { query in
-                                loadHistory(searchQuery: query)
-                            }
-                        )
-                    }
+                    )
                 }
             }
+            .overlay(recordingOverlay)
 
             // Разделитель
             Rectangle()
@@ -2330,11 +2331,11 @@ struct InputModalView: View {
                                     .font(.system(size: 12))
                                     .foregroundColor(Color(nsColor: .systemRed))
                             } else {
-                                Image(systemName: "mic")
+                                Image(systemName: "waveform")
                                     .font(.system(size: 14))
                             }
 
-                            Text(isRecording ? "Stop" : "Голос")
+                            Text(isRecording ? "Stop" : "Запись")
                                 .font(.system(size: 12, weight: .medium))
                         }
                         .padding(.vertical, 4)
@@ -2387,7 +2388,7 @@ struct InputModalView: View {
                 }) {
                     HStack(spacing: 4) {
                         // Показываем куда переключиться (инвертировано)
-                        Image(systemName: settings.audioModeEnabled ? "text.cursor" : "waveform")
+                        Image(systemName: settings.audioModeEnabled ? "text.cursor" : "mic")
                             .font(.system(size: 12))
                         Text(settings.audioModeEnabled ? "Текст" : "Аудио")
                             .font(.system(size: 12, weight: .medium))
@@ -2833,36 +2834,74 @@ struct HistoryRowView: View {
 struct VoiceOverlayView: View {
     let audioLevel: Float  // 0.0 - 1.0
 
-    // Предварительно сгенерированные случайные факторы (один раз при создании)
-    private let randomFactors: [CGFloat] = (0..<10).map { _ in CGFloat.random(in: 0.85...1.15) }
+    private let barCount = 100
+    private let recordingColor = Color(red: 254/255, green: 67/255, blue: 70/255) // #fe4346
+
+    // Предварительно сгенерированные случайные факторы для органичности
+    private let randomFactors: [CGFloat] = (0..<100).map { _ in CGFloat.random(in: 0.85...1.15) }
 
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(0..<10, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color(nsColor: .systemRed))
-                    .frame(width: 8, height: calculateBarHeight(for: index))
-                    .animation(.easeOut(duration: 0.08), value: audioLevel)
+        HStack(spacing: 2) {
+            ForEach(0..<barCount, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 999)
+                    .fill(recordingColor.opacity(opacityForIndex(index)))
+                    .frame(width: 3, height: calculateBarHeight(for: index))
+                    .animation(.easeInOut(duration: animationDuration(for: index)), value: audioLevel)
             }
         }
-        .frame(height: 80)  // Совпадает с minHeight TextEditor
-        .frame(maxWidth: .infinity)
-        .padding(.leading, 20)
-        .padding(.trailing, 20)
-        .padding(.top, 18)
-        .padding(.bottom, 12)  // Те же отступы что у TextEditor
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 10)
     }
 
+    // Пирамидальная высота — центр высокий, края низкие
     private func calculateBarHeight(for index: Int) -> CGFloat {
-        let baseHeight: CGFloat = 8
-        let maxAddition: CGFloat = 64
+        let baseHeight: CGFloat = 4
+        let center = CGFloat(barCount) / 2.0
+        let distanceFromCenter = abs(CGFloat(index) - center) / center // 0.0 (центр) - 1.0 (край)
 
-        // Волновой эффект - центральные полосы выше
-        let centerDistance = abs(CGFloat(index) - 4.5) / 4.5
-        let centerMultiplier = 1.0 - (centerDistance * 0.6)
+        // Пирамидальный множитель высоты
+        let heightMultiplier: CGFloat
+        if distanceFromCenter > 0.9 { // края (1-10, 91-100)
+            heightMultiplier = 0.075
+        } else if distanceFromCenter > 0.7 { // (11-20, 81-90)
+            heightMultiplier = 0.15
+        } else if distanceFromCenter > 0.5 { // (21-30, 71-80)
+            heightMultiplier = 0.275
+        } else if distanceFromCenter > 0.3 { // (31-40, 61-70)
+            heightMultiplier = 0.44
+        } else if distanceFromCenter > 0.1 { // (41-45, 56-60)
+            heightMultiplier = 0.69
+        } else { // центр (46-55)
+            heightMultiplier = 1.0
+        }
 
-        let height = baseHeight + (maxAddition * CGFloat(audioLevel) * centerMultiplier * randomFactors[index])
-        return max(baseHeight, min(72, height))
+        let maxHeight: CGFloat = 80
+        let animatedHeight = maxHeight * CGFloat(audioLevel) * heightMultiplier * randomFactors[index]
+        return max(baseHeight, animatedHeight)
+    }
+
+    // Прозрачность по зонам — края более прозрачные
+    private func opacityForIndex(_ index: Int) -> Double {
+        let center = CGFloat(barCount) / 2.0
+        let distanceFromCenter = abs(CGFloat(index) - center) / center
+
+        if distanceFromCenter > 0.9 { return 0.4 }
+        if distanceFromCenter > 0.7 { return 0.6 }
+        if distanceFromCenter > 0.5 { return 0.8 }
+        return 1.0
+    }
+
+    // Разная скорость анимации — центр быстрее
+    private func animationDuration(for index: Int) -> Double {
+        let center = CGFloat(barCount) / 2.0
+        let distanceFromCenter = abs(CGFloat(index) - center) / center
+
+        if distanceFromCenter > 0.9 { return 0.7 }
+        if distanceFromCenter > 0.7 { return 0.6 }
+        if distanceFromCenter > 0.5 { return 0.5 }
+        if distanceFromCenter > 0.3 { return 0.4 }
+        if distanceFromCenter > 0.1 { return 0.3 }
+        return 0.25 // центр — быстрее всего
     }
 }
 
@@ -3264,7 +3303,7 @@ class LaunchAtLoginManager {
     static let shared = LaunchAtLoginManager()
 
     private let launchAgentPath: String
-    private let bundleIdentifier = "com.olamba.app"
+    private let bundleIdentifier = "com.dictum.app"
 
     init() {
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -3562,7 +3601,7 @@ struct SettingsView: View {
                     .foregroundColor(.gray)
                     .buttonStyle(PlainButtonStyle())
 
-                    Text("Olamba v\(AppConfig.version)")
+                    Text("Dictum v\(AppConfig.version)")
                         .font(.system(size: 10))
                         .foregroundColor(.gray.opacity(0.6))
                 }
@@ -3699,7 +3738,7 @@ struct SettingsView: View {
             SettingsSection(title: "ЗАПУСК") {
                 SettingsRow(
                     title: "Запускать при входе в систему",
-                    subtitle: "Olamba будет автоматически запускаться при старте macOS"
+                    subtitle: "Dictum будет автоматически запускаться при старте macOS"
                 ) {
                     Toggle("", isOn: $launchAtLogin)
                         .toggleStyle(GreenToggleStyle())
@@ -4909,7 +4948,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var screenshotNotificationWindow: NSWindow?  // Окно уведомления о скриншоте
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSLog("🚀 Olamba запущен")
+        NSLog("🚀 Dictum запущен")
 
         // Запросить Accessibility при первом запуске (добавит в список автоматически)
         if !AccessibilityHelper.checkAccessibility() {
@@ -5211,9 +5250,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // Правый клик - показать меню
             let menu = NSMenu()
 
-            // "Открыть Olamba" with play icon
-            let openItem = NSMenuItem(title: "Открыть Olamba", action: #selector(showWindow), keyEquivalent: "")
-            openItem.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Open Olamba")
+            // "Открыть Dictum" with play icon
+            let openItem = NSMenuItem(title: "Открыть Dictum", action: #selector(showWindow), keyEquivalent: "")
+            openItem.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Open Dictum")
             menu.addItem(openItem)
 
             // "Настройки..." with gear icon
@@ -5286,6 +5325,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Регистрируем настроенный хоткей с модификаторами (если есть)
         if hotkey.modifiers != 0 {
             registerCarbonHotKey(keyCode: UInt32(hotkey.keyCode), modifiers: hotkey.modifiers, id: 1)
+
+            // Если это § или ` — регистрируем также альтернативную клавишу
+            // для совместимости с разными раскладками клавиатуры (ISO vs ANSI)
+            if hotkey.keyCode == 10 { // § (ISO)
+                registerCarbonHotKey(keyCode: 50, modifiers: hotkey.modifiers, id: 2) // ` (ANSI)
+            } else if hotkey.keyCode == 50 { // ` (ANSI)
+                registerCarbonHotKey(keyCode: 10, modifiers: hotkey.modifiers, id: 2) // § (ISO)
+            }
         }
 
         // Register screenshot hotkey (ID=6) if feature is enabled
@@ -5531,7 +5578,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             defer: false
         )
 
-        sw.title = "Настройки Olamba"
+        sw.title = "Настройки Dictum"
         sw.contentView = NSHostingView(rootView: SettingsView())
         sw.center()
         sw.minSize = NSSize(width: 800, height: 600)
@@ -5547,6 +5594,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    // MARK: - NSApplicationDelegate
+    // Не завершать приложение при закрытии последнего окна (приложение живёт в menubar)
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
+    }
+
     // MARK: - NSWindowDelegate
     func windowWillClose(_ notification: Notification) {
         guard let closedWindow = notification.object as? NSWindow else { return }
@@ -5554,6 +5607,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if closedWindow == settingsWindow {
             settingsWindow = nil
             SettingsManager.shared.settingsWindowWasOpen = false
+
+            // Показываем модальное окно после закрытия настроек
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.showWindow()
+            }
             return
         }
 
@@ -5674,7 +5732,7 @@ struct BillingErrorView: View {
 
 // MARK: - Main App
 @main
-struct OlambaApp: App {
+struct DictumApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {

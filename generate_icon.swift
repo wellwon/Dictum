@@ -3,7 +3,7 @@
 import AppKit
 import Foundation
 
-// Генератор иконки Olamba
+// Генератор иконки Dictum
 // Создаёт .icns файл программно
 
 func createIcon(size: CGFloat) -> NSImage {
@@ -103,7 +103,7 @@ func createIconSet() {
         ("icon_512x512@2x", 1024)
     ]
 
-    print("🎨 Генерация иконок Olamba...")
+    print("🎨 Генерация иконок Dictum...")
 
     for (name, size) in sizes {
         let image = createIcon(size: CGFloat(size))

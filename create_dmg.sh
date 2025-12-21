@@ -2,7 +2,7 @@
 
 set -e
 
-APP_NAME="Olamba"
+APP_NAME="Dictum"
 DMG_NAME="$APP_NAME-1.0"
 DMG_TEMP="$DMG_NAME-temp"
 VOLUME_NAME="$APP_NAME"
