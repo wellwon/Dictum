@@ -9,8 +9,9 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/macOS-13.0+-blue?style=flat-square&logo=apple" alt="macOS 13.0+">
-  <img src="https://img.shields.io/badge/Swift-5.9-orange?style=flat-square&logo=swift" alt="Swift 5.9">
+  <img src="https://img.shields.io/badge/macOS-14.0+-blue?style=flat-square&logo=apple" alt="macOS 14.0+">
+  <img src="https://img.shields.io/badge/Apple_Silicon-required-red?style=flat-square&logo=apple" alt="Apple Silicon">
+  <img src="https://img.shields.io/badge/Swift-6.0-orange?style=flat-square&logo=swift" alt="Swift 6.0">
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT License">
 </p>
 
@@ -30,9 +31,16 @@
 - **Быстрые кнопки** — мгновенная обработка одним кликом
 
 ### Голосовой ввод
-- **Real-time streaming** — текст появляется мгновенно пока говоришь
-- **Deepgram Nova-2** — лучшая модель распознавания речи
-- **Поддержка русского и английского** языков
+
+**Два режима распознавания:**
+
+| Режим | Описание |
+|-------|----------|
+| **Deepgram** | Облачный streaming, real-time, 54+ языка |
+| **Parakeet v3** | Локальная модель, офлайн, 25 европейских языков |
+
+- **Real-time streaming** (Deepgram) — текст появляется мгновенно
+- **Быстрая локальная обработка** (Parakeet) — ~190x real-time на Apple Silicon
 - **Дозапись** — продолжай диктовать, текст добавляется к существующему
 - **Визуализация** — amplitude bars реагируют на голос
 
@@ -79,10 +87,28 @@
 
 ### Сборка из исходников
 
+**Требования:**
+- macOS 14.0+ (Sonoma)
+- Apple Silicon (M1/M2/M3)
+- Xcode 16+
+- xcodegen (`brew install xcodegen`)
+
 ```bash
 git clone https://github.com/user/dictum.git
 cd dictum
-./build.sh
+
+# Генерация Xcode проекта
+xcodegen generate
+
+# Сборка
+xcodebuild -project Dictum.xcodeproj \
+    -scheme Dictum \
+    -configuration Release \
+    -derivedDataPath ./build \
+    build
+
+# Копирование и запуск
+cp -r ./build/Build/Products/Release/Dictum.app ./
 open Dictum.app
 ```
 
@@ -141,10 +167,11 @@ open Dictum.app
 
 ## Требования
 
-- **macOS 13.0** или новее
-- **Apple Silicon** (arm64) или Intel
-- **Deepgram API Key** — для голосового ввода (бесплатный tier: 200 часов/мес)
+- **macOS 14.0** (Sonoma) или новее
+- **Apple Silicon** (M1/M2/M3) — обязательно для локальной ASR
+- **Deepgram API Key** — для облачного голосового ввода (бесплатный tier: 200 часов/мес)
 - **Gemini API Key** — для ИИ-обработки текста (опционально)
+- **~700 MB** свободного места для локальной модели Parakeet
 
 ### Permissions
 
@@ -157,9 +184,10 @@ open Dictum.app
 
 ## Технологии
 
-- **Swift + SwiftUI** — нативный UI
+- **Swift + SwiftUI** — нативный UI (macOS 14.0+)
 - **AVAudioEngine** — real-time захват аудио
-- **Deepgram WebSocket** — streaming транскрибация
+- **Deepgram WebSocket** — облачная streaming транскрибация
+- **FluidAudio SDK** — локальная ASR (NVIDIA Parakeet v3 на CoreML/ANE)
 - **Gemini AI** — обработка текста нейросетью
 - **AppleScript + System Events** — надёжная вставка (как Raycast, Alfred)
 - **Keychain** — безопасное хранение API ключей
@@ -170,14 +198,14 @@ open Dictum.app
 
 ```
 Dictum/
-├── Dictum.swift           # Весь код приложения (~3500 строк)
+├── Dictum.swift           # Весь код приложения (~10000 строк)
+├── project.yml            # Конфигурация для xcodegen (SPM deps)
 ├── Info.plist             # Конфигурация приложения
 ├── Dictum.entitlements    # Права доступа
 ├── AppIcon.icns           # Иконка
-├── build.sh               # Скрипт сборки
-├── dictum_reload.sh       # Перезапуск с очисткой permissions
 ├── create_dmg.sh          # Создание DMG
 ├── claude.md              # Документация для разработки
+├── DESIGN_SYSTEM.md       # Дизайн-система (цвета, шрифты)
 ├── sound/                 # Звуковые эффекты
 │   ├── start.wav
 │   ├── stop.wav
@@ -192,23 +220,26 @@ Dictum/
 
 ### Технический стек
 
-**Это нативное macOS приложение на Swift 5.9+ с использованием современных технологий:**
+**Это нативное macOS приложение на Swift 6.0 с использованием современных технологий:**
 
-- **Язык**: Swift 5.9+
-- **UI Framework**: SwiftUI (100% нативный SwiftUI, без UIKit/AppKit кроме NSViewRepresentable)
+- **Язык**: Swift 6.0
+- **UI Framework**: SwiftUI (100% нативный SwiftUI)
 - **Архитектура**: MVVM с ObservableObject
-- **Минимальная версия**: macOS 13.0 (Ventura)
-- **Целевая платформа**: macOS (arm64 + x86_64)
+- **Минимальная версия**: macOS 14.0 (Sonoma)
+- **Целевая платформа**: macOS (arm64 / Apple Silicon)
+- **Система сборки**: xcodegen + xcodebuild
+- **Зависимости**: FluidAudio 0.8.0 (via SPM)
 
 ### Архитектура приложения
 
-**Монолитный файл** (`Dictum.swift`, ~3500 строк) с четкой модульной структурой:
+**Монолитный файл** (`Dictum.swift`, ~10000 строк) с четкой модульной структурой:
 
 #### Основные компоненты:
 
 1. **Managers (ObservableObject):**
    - `SettingsManager` - управление настройками (UserDefaults)
-   - `AudioRecordingManager` - real-time аудио запись + WebSocket транскрипция
+   - `AudioRecordingManager` - облачная ASR через Deepgram WebSocket
+   - `ParakeetASRProvider` - локальная ASR через FluidAudio (Parakeet v3)
    - `BillingManager` - Management API для биллинга Deepgram
    - `HistoryManager` - хранение и поиск истории заметок
    - `KeychainManager` - безопасное хранение API ключей
@@ -267,7 +298,7 @@ Dictum/
 
 **1. Все в одном файле:**
 - Монолитная структура для простоты
-- ~3500 строк с четкими MARK секциями
+- ~10000 строк с четкими MARK секциями
 - Нет модульности - всё в Dictum.swift
 
 **2. SwiftUI patterns:**
@@ -288,24 +319,20 @@ Dictum/
 
 ### Скрипты разработки
 
-**dictum_reload.sh** — перезапуск приложения с очисткой системных разрешений:
-
+**Сборка:**
 ```bash
-# Обычный перезапуск (пересборка только если исходники изменились)
-./dictum_reload.sh
+# Полная сборка
+xcodegen generate && xcodebuild -project Dictum.xcodeproj \
+    -scheme Dictum -configuration Release build
 
-# Принудительная пересборка
-./dictum_reload.sh --rebuild
-./dictum_reload.sh -r
+# Копирование .app
+cp -r build/Build/Products/Release/Dictum.app ./
 ```
 
-Что делает скрипт:
-1. Закрывает запущенное приложение
-2. Сбрасывает permissions (Accessibility, Microphone, Screen Recording)
-3. Пересобирает только если `Dictum.swift` новее бинарника (или флаг `--rebuild`)
-4. Запускает приложение
-
-После запуска нужно заново выдать разрешения в System Settings.
+**Создание DMG:**
+```bash
+./create_dmg.sh
+```
 
 ### Правила разработки
 
@@ -313,9 +340,9 @@ Dictum/
 
 1. **Всегда использовать Swift и SwiftUI** - это macOS приложение, не Python/JS
 2. **Редактировать Dictum.swift** - монолитная архитектура
-3. **Компилировать через build.sh** - не Xcode project
-4. **Тестировать на macOS** - специфичные API (Accessibility, WebSocket, Audio)
-5. **Сохранять обратную совместимость** с macOS 13.0+
+3. **Компилировать через xcodegen + xcodebuild** (не build.sh!)
+4. **Тестировать на Apple Silicon** - FluidAudio требует ANE
+5. **Минимальная версия**: macOS 14.0 (Sonoma)
 
 ### API Keys требования
 

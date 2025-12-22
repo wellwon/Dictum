@@ -11,19 +11,13 @@ NC='\033[0m'
 
 APP_NAME="Dictum"
 BUNDLE_ID="com.dictum.app"
-VERSION="1.9"
 
-# Пути к sherpa-onnx
-SHERPA_ONNX_DIR="/Users/macbookpro/PycharmProjects/sherpa-onnx"
-SHERPA_BUILD_DIR="$SHERPA_ONNX_DIR/build-swift-macos"
-SHERPA_LIB="$SHERPA_BUILD_DIR/install/lib/libsherpa-onnx-all.a"
-SHERPA_INCLUDE="$SHERPA_BUILD_DIR/install/include"
-
-# Путь к модели T-ONE
-MODEL_DIR="models/sherpa-onnx-streaming-t-one-russian-2025-09-08"
+# Читаем версию из Info.plist (единственный источник правды)
+VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist 2>/dev/null || echo "1.0")
+BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" Info.plist 2>/dev/null || echo "1")
 
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}🔨 Чистая пересборка $APP_NAME v$VERSION${NC}"
+echo -e "${BLUE}🔨 Сборка $APP_NAME v$VERSION (Xcode + FluidAudio)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
@@ -36,14 +30,21 @@ echo ""
 # 0.1 Закрываем работающее приложение
 echo -e "   → Закрываем запущенное приложение..."
 if pgrep -x "$APP_NAME" > /dev/null; then
-    killall "$APP_NAME" 2>/dev/null
+    killall "$APP_NAME" 2>/dev/null || true
     sleep 1
 
     # Проверяем, закрылось ли
     if pgrep -x "$APP_NAME" > /dev/null; then
         echo -e "${YELLOW}      ⚠ Приложение не отвечает, принудительное завершение...${NC}"
-        killall -9 "$APP_NAME" 2>/dev/null
+        killall -9 "$APP_NAME" 2>/dev/null || true
         sleep 1
+    fi
+
+    # Финальная проверка
+    if pgrep -x "$APP_NAME" > /dev/null; then
+        echo -e "${RED}      ❌ Не удалось закрыть приложение!${NC}"
+        echo -e "${YELLOW}      Закройте вручную и запустите снова${NC}"
+        exit 1
     fi
 
     echo -e "${GREEN}      ✓ Приложение закрыто${NC}"
@@ -51,117 +52,86 @@ else
     echo -e "${GREEN}      ✓ Приложение не было запущено${NC}"
 fi
 
-# 0.2 Очищаем TCC permissions
+# 0.2 Очищаем ВСЕ TCC permissions для чистой сборки
 echo -e "   → Очищаем разрешения системы (TCC)..."
 
-# Screen Recording
+# Сбрасываем ВСЕ разрешения (tccutil не требует sudo для bundle ID)
+tccutil reset Microphone "$BUNDLE_ID" 2>/dev/null || true
 tccutil reset ScreenCapture "$BUNDLE_ID" 2>/dev/null || true
-echo -e "${GREEN}      ✓ Screen Recording очищен${NC}"
-
-# Accessibility
 tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null || true
-echo -e "${GREEN}      ✓ Accessibility очищен${NC}"
-
-# Microphone - НЕ сбрасываем, чтобы не терять разрешение при каждой сборке
-# tccutil reset Microphone "$BUNDLE_ID" 2>/dev/null
-echo -e "${YELLOW}      ⓘ Microphone НЕ сбрасывается (сохраняем разрешение)${NC}"
+echo -e "${GREEN}      ✓ Все TCC разрешения сброшены (Microphone, ScreenCapture, Accessibility)${NC}"
 
 # 0.3 Очищаем предыдущую сборку
 echo -e "   → Удаляем предыдущую сборку..."
 rm -rf "$APP_NAME.app"
-rm -f "$APP_NAME"
+rm -rf build/
 echo -e "${GREEN}      ✓ Старая сборка удалена${NC}"
 
 echo ""
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
-# Проверяем наличие sherpa-onnx библиотеки
-if [ ! -f "$SHERPA_LIB" ]; then
-    echo "❌ Не найдена библиотека sherpa-onnx: $SHERPA_LIB"
-    echo "   Запустите сборку sherpa-onnx:"
-    echo "   cd $SHERPA_ONNX_DIR && ./build-swift-macos.sh"
+# ============================================================
+# ФАЗА 1: ПРОВЕРКА XCODE
+# ============================================================
+echo -e "${YELLOW}🔍 Фаза 1: Проверка Xcode${NC}"
+echo ""
+
+# Проверяем xcode-select
+XCODE_PATH=$(xcode-select -p 2>/dev/null || echo "")
+if [[ "$XCODE_PATH" == "/Library/Developer/CommandLineTools" ]]; then
+    echo -e "${RED}❌ xcode-select указывает на Command Line Tools${NC}"
+    echo -e "${YELLOW}   Выполните:${NC}"
+    echo -e "   ${BLUE}sudo xcode-select -s /Applications/Xcode.app/Contents/Developer${NC}"
     exit 1
 fi
 
-# Проверяем наличие модели
-if [ ! -d "$MODEL_DIR" ]; then
-    echo "❌ Не найдена модель T-ONE: $MODEL_DIR"
-    echo "   Скачайте модель:"
-    echo "   wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-t-one-russian-2025-09-08.tar.bz2"
-    echo "   tar xvf sherpa-onnx-streaming-t-one-russian-2025-09-08.tar.bz2 -C models/"
+echo -e "${GREEN}      ✓ Xcode: $XCODE_PATH${NC}"
+
+# Проверяем наличие project.yml для xcodegen
+if [ ! -f "project.yml" ]; then
+    echo -e "${RED}❌ Не найден project.yml${NC}"
     exit 1
 fi
 
-# Создаём структуру .app bundle
-echo "📁 Создаём структуру приложения..."
-mkdir -p "$APP_NAME.app/Contents/MacOS"
-mkdir -p "$APP_NAME.app/Contents/Resources"
-mkdir -p "$APP_NAME.app/Contents/Resources/models"
-
-# Генерируем иконку если нет
-if [ ! -f "AppIcon.icns" ]; then
-    echo "🎨 Генерируем иконку..."
-    swift generate_icon.swift
+# Генерируем/обновляем Xcode проект
+echo -e "   → Генерируем Xcode проект..."
+if command -v xcodegen &> /dev/null; then
+    xcodegen generate --use-cache
+    echo -e "${GREEN}      ✓ Xcode проект сгенерирован${NC}"
+else
+    echo -e "${YELLOW}      ⓘ xcodegen не установлен, используем существующий проект${NC}"
 fi
 
-# Копируем ресурсы
-cp Info.plist "$APP_NAME.app/Contents/"
-cp AppIcon.icns "$APP_NAME.app/Contents/Resources/"
+echo ""
 
-# Копируем звуки
-if [ -d "sound" ]; then
-    echo "🔊 Копируем звуковые файлы..."
-    cp sound/*.wav "$APP_NAME.app/Contents/Resources/" 2>/dev/null || true
-fi
+# ============================================================
+# ФАЗА 2: СБОРКА ЧЕРЕЗ XCODEBUILD
+# ============================================================
+echo -e "${YELLOW}⚙️  Фаза 2: Сборка через xcodebuild${NC}"
+echo ""
 
-# Копируем модель T-ONE для локального ASR
-echo "🧠 Копируем модель T-ONE для локального распознавания речи..."
-cp -r "$MODEL_DIR" "$APP_NAME.app/Contents/Resources/models/"
-
-# Создаём PkgInfo
-echo "APPL????" > "$APP_NAME.app/Contents/PkgInfo"
-
-# Компилируем Swift с sherpa-onnx
-echo "⚙️  Компилируем Swift код с sherpa-onnx..."
-swiftc -o "$APP_NAME.app/Contents/MacOS/$APP_NAME" \
-    -parse-as-library \
-    -framework SwiftUI \
-    -framework AppKit \
-    -framework Carbon \
-    -framework AVFoundation \
-    -framework Security \
-    -framework Accelerate \
-    -framework CoreML \
-    -target arm64-apple-macosx13.0 \
-    -O \
-    -import-objc-header SherpaOnnx-Bridging-Header.h \
-    -I "$SHERPA_INCLUDE" \
-    "$SHERPA_LIB" \
-    -Xlinker -lc++ \
-    SherpaOnnx.swift \
-    Dictum.swift
+# Собираем Release версию
+echo -e "   → Компиляция (Release, arm64)..."
+xcodebuild -project Dictum.xcodeproj \
+    -scheme Dictum \
+    -configuration Release \
+    -derivedDataPath ./build \
+    -quiet \
+    build
 
 if [ $? -ne 0 ]; then
-    echo "❌ Ошибка компиляции"
+    echo -e "${RED}❌ Ошибка компиляции${NC}"
     exit 1
 fi
 
-echo "✅ Компиляция успешна!"
+echo -e "${GREEN}      ✓ Компиляция успешна${NC}"
 
-# Подписываем приложение
-echo "🔐 Подписываем приложение..."
-codesign --force --sign - \
-    --entitlements Dictum.entitlements \
-    --deep \
-    "$APP_NAME.app"
+# Копируем приложение в корень проекта
+echo -e "   → Копируем приложение..."
+cp -r "./build/Build/Products/Release/$APP_NAME.app" ./
+echo -e "${GREEN}      ✓ $APP_NAME.app скопирован${NC}"
 
-if [ $? -ne 0 ]; then
-    echo "❌ Ошибка подписи"
-    exit 1
-fi
-
-echo "✅ Подпись успешна!"
 echo ""
 
 # ============================================================
@@ -175,6 +145,7 @@ echo ""
 # Показываем размер
 APP_SIZE=$(du -sh "$APP_NAME.app" | cut -f1)
 echo -e "${BLUE}📦 Размер приложения: $APP_SIZE${NC}"
+echo -e "${BLUE}   (Модель Parakeet v3 ~600MB загружается отдельно в ~/.cache/fluidaudio/)${NC}"
 echo ""
 
 # Опции запуска

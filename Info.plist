@@ -21,7 +21,7 @@
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>13.0</string>
+	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
@@ -32,5 +32,17 @@
 	<true/>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Dictum использует скриншоты для быстрого захвата экрана по горячей клавише.</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>Dictum использует Accessibility для вставки текста в другие приложения через системные горячие клавиши.</string>
+
+	<!-- Sparkle / Update Configuration -->
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/wellwon/Dictum/main/appcast.xml</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
 </dict>
 </plist>

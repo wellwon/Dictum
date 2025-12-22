@@ -3,7 +3,11 @@
 set -e
 
 APP_NAME="Dictum"
-DMG_NAME="$APP_NAME-1.0"
+
+# Читаем версию из Info.plist (единственный источник правды)
+VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist 2>/dev/null || echo "1.0")
+
+DMG_NAME="$APP_NAME-$VERSION"
 DMG_TEMP="$DMG_NAME-temp"
 VOLUME_NAME="$APP_NAME"
 

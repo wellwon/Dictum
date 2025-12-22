@@ -73,6 +73,44 @@
 
 ---
 
+## Карточки / Плашки (Feature Cards)
+
+Используется для выделения отдельных функций в настройках (AI Settings, Скриншоты, Бекап и т.д.).
+
+| Свойство | Значение | Описание |
+|----------|----------|----------|
+| **Padding vertical** | 8px | Вертикальные отступы |
+| **Padding horizontal** | 16px | Горизонтальные отступы |
+| **Background** | `Color.white.opacity(0.03)` | Полупрозрачный белый фон |
+| **Border** | `Color.white.opacity(0.15)` | Полупрозрачная рамка |
+| **Border Width** | 1px | Толщина рамки |
+| **Corner Radius** | 8px | Радиус скругления |
+
+### Использование
+
+```swift
+VStack {
+    // Содержимое секции
+}
+.padding(.vertical, 8)
+.padding(.horizontal, 16)
+.background(
+    RoundedRectangle(cornerRadius: 8)
+        .fill(Color.white.opacity(0.03))
+)
+.overlay(
+    RoundedRectangle(cornerRadius: 8)
+        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+)
+```
+
+### Примеры применения
+- **ScreenshotSettingsSection** — секция инструмента скриншотов
+- **AISettingsSection** — секция AI настроек
+- **Backup Configuration** — секция бекапа конфигурации
+
+---
+
 ## Использование в коде
 
 ```swift

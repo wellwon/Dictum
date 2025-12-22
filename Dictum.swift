@@ -3,7 +3,28 @@ import SwiftUI
 import AppKit
 import Carbon
 import AVFoundation
-import Security
+import FluidAudio
+
+// MARK: - Color Extension for Hex
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (255, 0, 0, 0)
+        }
+        self.init(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255, opacity: Double(a) / 255)
+    }
+}
 
 // MARK: - Design System
 enum DesignSystem {
@@ -11,6 +32,9 @@ enum DesignSystem {
         // Accent — единый зеленый цвет #1AAF87 для всего приложения
         static let accent = Color(red: 0.102, green: 0.686, blue: 0.529)
         static let accentSecondary = Color(red: 0.204, green: 0.596, blue: 0.859)  // #3498DB
+
+        // Deepgram Orange — для облачного провайдера #FF6633
+        static let deepgramOrange = Color(hex: "#FF6633")
 
         // Backgrounds
         static let panelBackground = Color.black.opacity(0.3)
@@ -66,7 +90,7 @@ enum AppConfig {
 }
 
 // MARK: - API Key Manager (UserDefaults, base64 encoded)
-class APIKeyManager {
+class APIKeyManager: @unchecked Sendable {
     static let deepgram = APIKeyManager(service: "deepgram")
     static let gemini = APIKeyManager(service: "gemini")
 
@@ -110,16 +134,287 @@ class GeminiKeyManager {
     static let shared = APIKeyManager.gemini
 }
 
+// MARK: - Update Manager
+class UpdateManager: ObservableObject, @unchecked Sendable {
+    static let shared = UpdateManager()
+
+    @Published var updateAvailable = false
+    @Published var latestVersion: String?
+    @Published var downloadURL: String?
+    @Published var releaseNotes: String?
+    @Published var isChecking = false
+    @Published var lastCheckDate: Date?
+    @Published var checkError: String?
+
+    private let feedURL: String
+    private let checkIntervalSeconds: TimeInterval = 86400  // 24 hours
+
+    init() {
+        // Read feed URL from Info.plist or use default
+        self.feedURL = Bundle.main.infoDictionary?["SUFeedURL"] as? String
+            ?? "https://raw.githubusercontent.com/wellwon/Dictum/main/appcast.xml"
+
+        // Load last check date
+        if let timestamp = UserDefaults.standard.object(forKey: "lastUpdateCheck") as? Date {
+            self.lastCheckDate = timestamp
+        }
+    }
+
+    /// Check for updates (can be called manually or automatically)
+    func checkForUpdates(force: Bool = false) {
+        // Skip if already checking
+        guard !isChecking else { return }
+
+        // Skip if checked recently (unless forced)
+        if !force, let lastCheck = lastCheckDate {
+            let timeSinceLastCheck = Date().timeIntervalSince(lastCheck)
+            if timeSinceLastCheck < checkIntervalSeconds {
+                NSLog("⏭️ Skipping update check (last check: \(Int(timeSinceLastCheck/60)) min ago)")
+                return
+            }
+        }
+
+        isChecking = true
+        checkError = nil
+
+        Task {
+            await performUpdateCheck()
+        }
+    }
+
+    private func performUpdateCheck() async {
+        NSLog("🔄 Checking for updates...")
+
+        guard let url = URL(string: feedURL) else {
+            await MainActor.run {
+                self.checkError = "Invalid feed URL"
+                self.isChecking = false
+            }
+            return
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                throw UpdateError.serverError
+            }
+
+            // Parse appcast XML
+            let parser = AppcastParser(data: data)
+            let items = parser.parse()
+
+            guard let latestItem = items.first else {
+                throw UpdateError.noUpdatesFound
+            }
+
+            let currentVersion = AppConfig.version
+            let isNewer = compareVersions(latestItem.version, currentVersion) > 0
+
+            await MainActor.run {
+                self.latestVersion = latestItem.version
+                self.downloadURL = latestItem.downloadURL
+                self.releaseNotes = latestItem.releaseNotes
+                self.updateAvailable = isNewer
+                self.lastCheckDate = Date()
+                self.isChecking = false
+
+                // Save last check date
+                UserDefaults.standard.set(Date(), forKey: "lastUpdateCheck")
+
+                if isNewer {
+                    NSLog("✅ Update available: \(latestItem.version) (current: \(currentVersion))")
+                } else {
+                    NSLog("✅ App is up to date (\(currentVersion))")
+                }
+            }
+
+        } catch {
+            await MainActor.run {
+                self.checkError = error.localizedDescription
+                self.isChecking = false
+                NSLog("❌ Update check failed: \(error)")
+            }
+        }
+    }
+
+    /// Compare two version strings (e.g., "1.9.1" vs "1.10")
+    /// Returns: >0 if v1 > v2, <0 if v1 < v2, 0 if equal
+    private func compareVersions(_ v1: String, _ v2: String) -> Int {
+        let parts1 = v1.split(separator: ".").compactMap { Int($0) }
+        let parts2 = v2.split(separator: ".").compactMap { Int($0) }
+
+        let maxLen = max(parts1.count, parts2.count)
+
+        for i in 0..<maxLen {
+            let p1 = i < parts1.count ? parts1[i] : 0
+            let p2 = i < parts2.count ? parts2[i] : 0
+
+            if p1 > p2 { return 1 }
+            if p1 < p2 { return -1 }
+        }
+
+        return 0
+    }
+
+    /// Open download URL in browser
+    func openDownloadPage() {
+        guard let urlString = downloadURL, let url = URL(string: urlString) else {
+            // Fallback to GitHub releases page
+            if let url = URL(string: "https://github.com/wellwon/Dictum/releases") {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    enum UpdateError: LocalizedError {
+        case serverError
+        case noUpdatesFound
+        case parseError
+
+        var errorDescription: String? {
+            switch self {
+            case .serverError: return "Server error"
+            case .noUpdatesFound: return "No updates found"
+            case .parseError: return "Failed to parse update feed"
+            }
+        }
+    }
+}
+
+// MARK: - Appcast Parser (Sparkle-compatible XML)
+class AppcastParser: NSObject, XMLParserDelegate, @unchecked Sendable {
+    struct AppcastItem {
+        var version: String = ""
+        var shortVersion: String = ""
+        var downloadURL: String = ""
+        var releaseNotes: String = ""
+        var pubDate: String = ""
+    }
+
+    private var items: [AppcastItem] = []
+    private var currentItem: AppcastItem?
+    private var currentElement = ""
+    private var currentText = ""
+
+    private let data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    func parse() -> [AppcastItem] {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+
+        // Sort by version descending
+        return items.sorted { item1, item2 in
+            let v1 = item1.shortVersion.isEmpty ? item1.version : item1.shortVersion
+            let v2 = item2.shortVersion.isEmpty ? item2.version : item2.shortVersion
+            return compareVersions(v1, v2) > 0
+        }
+    }
+
+    private func compareVersions(_ v1: String, _ v2: String) -> Int {
+        let parts1 = v1.split(separator: ".").compactMap { Int($0) }
+        let parts2 = v2.split(separator: ".").compactMap { Int($0) }
+
+        let maxLen = max(parts1.count, parts2.count)
+
+        for i in 0..<maxLen {
+            let p1 = i < parts1.count ? parts1[i] : 0
+            let p2 = i < parts2.count ? parts2[i] : 0
+
+            if p1 > p2 { return 1 }
+            if p1 < p2 { return -1 }
+        }
+
+        return 0
+    }
+
+    // MARK: XMLParserDelegate
+
+    func parser(_ parser: XMLParser, didStartElement elementName: String,
+                namespaceURI: String?, qualifiedName: String?,
+                attributes: [String: String] = [:]) {
+        currentElement = elementName
+        currentText = ""
+
+        if elementName == "item" {
+            currentItem = AppcastItem()
+        } else if elementName == "enclosure" {
+            currentItem?.downloadURL = attributes["url"] ?? ""
+            if let version = attributes["sparkle:version"] {
+                currentItem?.version = version
+            }
+            if let shortVersion = attributes["sparkle:shortVersionString"] {
+                currentItem?.shortVersion = shortVersion
+            }
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        currentText += string
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String,
+                namespaceURI: String?, qualifiedName: String?) {
+        let trimmed = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch elementName {
+        case "sparkle:version":
+            currentItem?.version = trimmed
+        case "sparkle:shortVersionString":
+            currentItem?.shortVersion = trimmed
+        case "description":
+            currentItem?.releaseNotes = trimmed
+        case "pubDate":
+            currentItem?.pubDate = trimmed
+        case "item":
+            if var item = currentItem {
+                // Use shortVersion as primary version if available
+                if item.shortVersion.isEmpty {
+                    item.shortVersion = item.version
+                }
+                items.append(item)
+            }
+            currentItem = nil
+        default:
+            break
+        }
+
+        currentText = ""
+    }
+}
+
 // MARK: - History Manager
-class HistoryManager: ObservableObject {
+class HistoryManager: ObservableObject, @unchecked Sendable {
     static let shared = HistoryManager()
 
     @Published var history: [HistoryItem] = []
     private let maxHistoryItems = 50
-    private let historyKey = "olamba-history"
+    private let historyKey = "dictum-history"
+    private let oldHistoryKey = "olamba-history"  // Для миграции
 
     init() {
+        migrateFromOldKey()
         loadHistory()
+    }
+
+    /// Миграция данных из старого ключа Olamba
+    private func migrateFromOldKey() {
+        let defaults = UserDefaults.standard
+        // Если есть старые данные и нет новых — мигрируем
+        if let oldData = defaults.data(forKey: oldHistoryKey),
+           defaults.data(forKey: historyKey) == nil {
+            defaults.set(oldData, forKey: historyKey)
+            defaults.removeObject(forKey: oldHistoryKey)
+            NSLog("✅ История мигрирована из olamba-history в dictum-history")
+        }
     }
 
     func addNote(_ text: String) {
@@ -259,8 +554,132 @@ struct HotkeyConfig: Codable, Equatable {
     static let defaultToggle = HotkeyConfig(keyCode: 10, modifiers: UInt32(cmdKey)) // ⌘ + §
 }
 
+// MARK: - Gemini Model
+enum GeminiModel: String, CaseIterable {
+    case gemini3FlashPreview = "gemini-3-flash-preview"
+    case gemini25Flash = "gemini-2.5-flash"
+    case gemini25FlashLite = "gemini-2.5-flash-lite"
+    case gemini20Flash = "gemini-2.0-flash"
+    case gemini20FlashLite = "gemini-2.0-flash-lite"
+
+    var displayName: String {
+        switch self {
+        case .gemini3FlashPreview: return "Gemini 3 Flash Preview"
+        case .gemini25Flash: return "Gemini 2.5 Flash"
+        case .gemini25FlashLite: return "Gemini 2.5 Flash-Lite"
+        case .gemini20Flash: return "Gemini 2.0 Flash"
+        case .gemini20FlashLite: return "Gemini 2.0 Flash-Lite"
+        }
+    }
+
+    var price: String {
+        switch self {
+        case .gemini3FlashPreview: return "$0.50 / $3.00"
+        case .gemini25Flash: return "$0.30 / $2.50"
+        case .gemini25FlashLite: return "$0.10 / $0.40"
+        case .gemini20Flash: return "$0.10 / $0.40"
+        case .gemini20FlashLite: return "$0.075 / $0.30"
+        }
+    }
+
+    /// Для выпадающего меню: "Gemini 2.5 Flash · 1m · $0.30 / $2.50"
+    var menuDisplayName: String {
+        "\(displayName) · 1m · \(price)"
+    }
+
+    var isNew: Bool {
+        self == .gemini3FlashPreview
+    }
+}
+
+// MARK: - Deepgram Model
+enum DeepgramModelType: String, CaseIterable {
+    case nova3 = "nova-3"
+    case nova2 = "nova-2"
+
+    var displayName: String {
+        switch self {
+        case .nova3: return "Nova-3"
+        case .nova2: return "Nova-2"
+        }
+    }
+
+    var price: String {
+        switch self {
+        case .nova3: return "$0.0043/мин"
+        case .nova2: return "$0.0040/мин"
+        }
+    }
+
+    var menuDisplayName: String {
+        "\(displayName) · \(price)"
+    }
+
+    var isRecommended: Bool {
+        self == .nova3
+    }
+}
+
+// MARK: - Config Export/Import
+
+struct DictumConfig: Codable {
+    let version: String
+    let appVersion: String
+    let exportDate: Date
+
+    var settings: ConfigSettings       // ВСЕГДА экспортируется (основные настройки + хоткеи)
+    var aiSettings: AISettings?        // Опционально: AI промпты
+    var prompts: ConfigPrompts?        // Опционально: сниппеты (WB/RU/EN/CH + кастомные)
+    var history: [HistoryItem]?        // Опционально: история заметок
+
+    struct ConfigSettings: Codable {
+        // General
+        var hotkeyEnabled: Bool
+        var soundEnabled: Bool
+        var preferredLanguage: String
+        var maxHistoryItems: Int
+        var volumeLevel: Int
+        var autoCheckUpdates: Bool
+
+        // ASR
+        var deepgramModel: String
+        var highlightForeignWords: Bool
+        var asrProviderType: String
+        var audioModeEnabled: Bool
+
+        // AI (базовое - вкл/выкл и модели)
+        var aiEnabled: Bool
+        var selectedGeminiModel: String
+        var selectedGeminiModelForAI: String
+
+        // Screenshot
+        var screenshotFeatureEnabled: Bool
+
+        // Hotkeys (всегда экспортируются)
+        var toggleHotkey: HotkeyConfig
+        var screenshotHotkey: HotkeyConfig
+    }
+
+    struct AISettings: Codable {
+        // AI промпты (опционально экспортируются)
+        var enhanceSystemPrompt: String
+        var llmProcessingPrompt: String
+        var llmAdditionalInstructions: String
+    }
+
+    struct ConfigPrompts: Codable {
+        var wb: String
+        var ru: String
+        var en: String
+        var ch: String
+        var custom: [CustomPrompt]
+    }
+
+    static let currentVersion = "1.0"
+}
+
 // MARK: - Settings Manager
-class SettingsManager: ObservableObject {
+class SettingsManager: ObservableObject, @unchecked Sendable {
     static let shared = SettingsManager()
 
     // Fix 7: Async UserDefaults saves to prevent UI blocking
@@ -301,10 +720,9 @@ class SettingsManager: ObservableObject {
     }
     @Published var audioModeEnabled: Bool {
         didSet {
-            let value = audioModeEnabled
-            DispatchQueue.global(qos: .utility).async {
-                UserDefaults.standard.set(value, forKey: "settings.audioModeEnabled")
-            }
+            // Синхронная запись — критическая настройка, должна сохраняться немедленно
+            UserDefaults.standard.set(audioModeEnabled, forKey: "settings.audioModeEnabled")
+            UserDefaults.standard.synchronize()
         }
     }
     @Published var deepgramModel: String {
@@ -346,6 +764,53 @@ class SettingsManager: ObservableObject {
             let value = aiEnabled
             DispatchQueue.global(qos: .utility).async {
                 UserDefaults.standard.set(value, forKey: "settings.aiEnabled")
+            }
+        }
+    }
+
+    @Published var selectedGeminiModel: GeminiModel {
+        didSet {
+            let value = selectedGeminiModel.rawValue
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.geminiModel")
+            }
+        }
+    }
+
+    @Published var selectedGeminiModelForAI: GeminiModel {
+        didSet {
+            let value = selectedGeminiModelForAI.rawValue
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.geminiModelForAI")
+            }
+        }
+    }
+
+    // Дефолтный системный промпт для "Улучшить через ИИ"
+    static let defaultEnhanceSystemPrompt = """
+Ты - помощник для улучшения текста. Пользователь дает тебе текст и инструкции как его обработать.
+
+Правила:
+1. Верни ТОЛЬКО обработанный текст
+2. Не добавляй пояснения, комментарии или кавычки
+3. Сохраняй форматирование если не просят иначе
+"""
+
+    // Системный промпт для "Улучшить через ИИ"
+    @Published var enhanceSystemPrompt: String {
+        didSet {
+            let value = enhanceSystemPrompt
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.enhanceSystemPrompt")
+            }
+        }
+    }
+
+    @Published var volumeLevel: Int {
+        didSet {
+            let value = volumeLevel
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.volumeLevel")
             }
         }
     }
@@ -412,6 +877,56 @@ class SettingsManager: ObservableObject {
         }
     }
 
+    // LLM обработка для локальной модели
+    @Published var llmProcessingPrompt: String {
+        didSet {
+            let value = llmProcessingPrompt
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.llmProcessingPrompt")
+            }
+        }
+    }
+
+    @Published var llmAdditionalInstructions: String {
+        didSet {
+            let value = llmAdditionalInstructions
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.llmAdditionalInstructions")
+            }
+        }
+    }
+
+    // Максимальное количество токенов в ответе LLM (512-8192)
+    @Published var maxOutputTokens: Int {
+        didSet {
+            let value = maxOutputTokens
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.maxOutputTokens")
+            }
+        }
+    }
+
+    // Автопроверка обновлений
+    @Published var autoCheckUpdates: Bool {
+        didSet {
+            let value = autoCheckUpdates
+            DispatchQueue.global(qos: .utility).async {
+                UserDefaults.standard.set(value, forKey: "settings.autoCheckUpdates")
+            }
+        }
+    }
+
+    static let defaultLLMPrompt = """
+Ты — профессиональный редактор текста, полученного через систему распознавания речи (ASR). Твоя задача — превратить поток слов в чистовой, структурированный текст.
+
+Следуй строгим правилам:
+1. ПУНКТУАЦИЯ И ГРАММАТИКА: Расставь знаки препинания, исправь орфографические ошибки и опечатки. Начало предложений пиши с заглавной буквы.
+2. ИНОСТРАННЫЕ СЛОВА: Если встречаются английские слова в русской транскрипции (например, "халло", "ворк", "джейсон"), пиши их на английском ("Hello", "work", "JSON"), если это уместно по контексту.
+3. СТРУКТУРА: Если в тексте есть логическое перечисление задач или пунктов, оформляй их нумерованным списком (1., 2., 3.).
+4. ТЕХНИЧЕСКИЕ ДАННЫЕ: Если диктуется код, JSON или SQL, форматируй их в соответствующие блоки кода или валидный синтаксис.
+5. ФОРМАТ ВЫВОДА: Верни ТОЛЬКО обработанный текст. Не добавляй никаких вступлений ("Вот ваш текст"), комментариев или markdown-кавычек, если они не являются частью кода.
+"""
+
     init() {
         self.hotkeyEnabled = UserDefaults.standard.object(forKey: "settings.hotkeyEnabled") as? Bool ?? true
         self.soundEnabled = UserDefaults.standard.object(forKey: "settings.soundEnabled") as? Bool ?? true
@@ -475,6 +990,38 @@ class SettingsManager: ObservableObject {
         } else {
             self.asrProviderType = .local  // По умолчанию локальная модель
         }
+
+        // LLM обработка для локальной модели
+        self.llmProcessingPrompt = UserDefaults.standard.string(forKey: "settings.llmProcessingPrompt") ?? Self.defaultLLMPrompt
+        self.llmAdditionalInstructions = UserDefaults.standard.string(forKey: "settings.llmAdditionalInstructions") ?? ""
+
+        // Максимальное количество токенов в ответе LLM: по умолчанию 10000
+        self.maxOutputTokens = UserDefaults.standard.object(forKey: "settings.maxOutputTokens") as? Int ?? 10000
+
+        // Gemini model для локальной модели (Speech): по умолчанию 2.5 Flash
+        if let rawValue = UserDefaults.standard.string(forKey: "settings.geminiModel"),
+           let model = GeminiModel(rawValue: rawValue) {
+            self.selectedGeminiModel = model
+        } else {
+            self.selectedGeminiModel = .gemini25Flash
+        }
+
+        // Gemini model для AI функций: по умолчанию 2.5 Flash
+        if let rawValue = UserDefaults.standard.string(forKey: "settings.geminiModelForAI"),
+           let model = GeminiModel(rawValue: rawValue) {
+            self.selectedGeminiModelForAI = model
+        } else {
+            self.selectedGeminiModelForAI = .gemini25Flash
+        }
+
+        // Системный промпт для "Улучшить через ИИ"
+        self.enhanceSystemPrompt = UserDefaults.standard.string(forKey: "settings.enhanceSystemPrompt") ?? Self.defaultEnhanceSystemPrompt
+
+        // Volume level: по умолчанию 10%
+        self.volumeLevel = UserDefaults.standard.object(forKey: "settings.volumeLevel") as? Int ?? 10
+
+        // Автопроверка обновлений: по умолчанию включена
+        self.autoCheckUpdates = UserDefaults.standard.object(forKey: "settings.autoCheckUpdates") as? Bool ?? true
     }
 
     private func saveHotkey() {
@@ -536,6 +1083,190 @@ class SettingsManager: ObservableObject {
         let suffix = String(key.suffix(4))
         return "\(prefix)...\(suffix)"
     }
+
+    // MARK: - Deepgram API Key (wrappers for UI)
+    var hasDeepgramAPIKey: Bool {
+        return hasAPIKey()
+    }
+
+    func saveDeepgramAPIKey(_ key: String) -> Bool {
+        return saveAPIKey(key)
+    }
+
+    func getDeepgramAPIKeyMasked() -> String {
+        return getAPIKeyMasked()
+    }
+
+    // MARK: - Export/Import Config
+
+    func exportConfig(
+        includeHistory: Bool = true,
+        includeAIFunctions: Bool = true,
+        includeSnippets: Bool = true
+    ) -> DictumConfig {
+        return DictumConfig(
+            version: DictumConfig.currentVersion,
+            appVersion: "1.9",
+            exportDate: Date(),
+            // Основные настройки + хоткеи (ВСЕГДА экспортируются)
+            settings: DictumConfig.ConfigSettings(
+                hotkeyEnabled: hotkeyEnabled,
+                soundEnabled: soundEnabled,
+                preferredLanguage: preferredLanguage,
+                maxHistoryItems: maxHistoryItems,
+                volumeLevel: volumeLevel,
+                autoCheckUpdates: autoCheckUpdates,
+                deepgramModel: deepgramModel,
+                highlightForeignWords: highlightForeignWords,
+                asrProviderType: asrProviderType.rawValue,
+                audioModeEnabled: audioModeEnabled,
+                aiEnabled: aiEnabled,
+                selectedGeminiModel: selectedGeminiModel.rawValue,
+                selectedGeminiModelForAI: selectedGeminiModelForAI.rawValue,
+                screenshotFeatureEnabled: screenshotFeatureEnabled,
+                toggleHotkey: toggleHotkey,
+                screenshotHotkey: screenshotHotkey
+            ),
+            // AI промпты (опционально)
+            aiSettings: includeAIFunctions ? DictumConfig.AISettings(
+                enhanceSystemPrompt: enhanceSystemPrompt,
+                llmProcessingPrompt: llmProcessingPrompt,
+                llmAdditionalInstructions: llmAdditionalInstructions
+            ) : nil,
+            // Сниппеты (опционально)
+            prompts: includeSnippets ? DictumConfig.ConfigPrompts(
+                wb: promptWB,
+                ru: promptRU,
+                en: promptEN,
+                ch: promptCH,
+                custom: PromptsManager.shared.prompts.filter { !$0.isSystem }
+            ) : nil,
+            // История (опционально)
+            history: includeHistory ? HistoryManager.shared.history : nil
+        )
+    }
+
+    func importConfig(_ config: DictumConfig) {
+        // === ОСНОВНЫЕ НАСТРОЙКИ (ВСЕГДА применяются) ===
+
+        // General
+        hotkeyEnabled = config.settings.hotkeyEnabled
+        soundEnabled = config.settings.soundEnabled
+        preferredLanguage = config.settings.preferredLanguage
+        maxHistoryItems = config.settings.maxHistoryItems
+        volumeLevel = config.settings.volumeLevel
+        autoCheckUpdates = config.settings.autoCheckUpdates
+
+        // ASR
+        deepgramModel = config.settings.deepgramModel
+        highlightForeignWords = config.settings.highlightForeignWords
+        if let asr = ASRProviderType(rawValue: config.settings.asrProviderType) {
+            asrProviderType = asr
+        }
+        audioModeEnabled = config.settings.audioModeEnabled
+
+        // AI (базовое)
+        aiEnabled = config.settings.aiEnabled
+        if let model = GeminiModel(rawValue: config.settings.selectedGeminiModel) {
+            selectedGeminiModel = model
+        }
+        if let modelAI = GeminiModel(rawValue: config.settings.selectedGeminiModelForAI) {
+            selectedGeminiModelForAI = modelAI
+        }
+
+        // Screenshot
+        screenshotFeatureEnabled = config.settings.screenshotFeatureEnabled
+
+        // Hotkeys (теперь в settings)
+        toggleHotkey = config.settings.toggleHotkey
+        screenshotHotkey = config.settings.screenshotHotkey
+
+        // === AI ПРОМПТЫ (опционально) ===
+        if let ai = config.aiSettings {
+            enhanceSystemPrompt = ai.enhanceSystemPrompt
+            llmProcessingPrompt = ai.llmProcessingPrompt
+            llmAdditionalInstructions = ai.llmAdditionalInstructions
+        }
+
+        // === СНИППЕТЫ (опционально) ===
+        if let prompts = config.prompts {
+            promptWB = prompts.wb
+            promptRU = prompts.ru
+            promptEN = prompts.en
+            promptCH = prompts.ch
+
+            // Custom prompts — мержим с существующими
+            for customPrompt in prompts.custom {
+                if PromptsManager.shared.prompts.contains(where: { $0.id == customPrompt.id }) {
+                    PromptsManager.shared.updatePrompt(customPrompt)
+                } else {
+                    PromptsManager.shared.addPrompt(customPrompt)
+                }
+            }
+        }
+
+        // === ИСТОРИЯ (опционально) ===
+        if let history = config.history {
+            HistoryManager.shared.history = history
+        }
+    }
+
+    func saveConfigToFile(
+        includeHistory: Bool = true,
+        includeAIFunctions: Bool = true,
+        includeSnippets: Bool = true
+    ) -> URL? {
+        let config = exportConfig(
+            includeHistory: includeHistory,
+            includeAIFunctions: includeAIFunctions,
+            includeSnippets: includeSnippets
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+
+        guard let data = try? encoder.encode(config) else { return nil }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        let dateStr = ISO8601DateFormatter().string(from: Date()).prefix(10)
+        panel.nameFieldStringValue = "dictum-config-\(dateStr).json"
+        panel.title = "Экспорт конфигурации"
+        panel.message = "Выберите место для сохранения"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+
+        do {
+            try data.write(to: url)
+            return url
+        } catch {
+            print("❌ Ошибка сохранения: \(error)")
+            return nil
+        }
+    }
+
+    func loadConfigFromFile() -> Bool {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.title = "Импорт конфигурации"
+        panel.message = "Выберите файл конфигурации"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let config = try decoder.decode(DictumConfig.self, from: data)
+            importConfig(config)
+            return true
+        } catch {
+            print("❌ Ошибка загрузки: \(error)")
+            return false
+        }
+    }
 }
 
 // MARK: - Custom Prompt Model
@@ -544,9 +1275,39 @@ struct CustomPrompt: Codable, Identifiable, Equatable {
     var label: String           // "WB", "FR" (2-4 символа)
     var description: String     // "Вежливый Бот" (описание на русском)
     var prompt: String          // Текст промпта
-    var isVisible: Bool         // Показывать в UI
+    var isVisible: Bool         // Показывать в UI (legacy, используется вместе с isFavorite)
+    var isFavorite: Bool        // Показывать в строке быстрого доступа (ROW 1)
     var isSystem: Bool          // true для 4 стандартных
     var order: Int              // Порядок отображения
+
+    // CodingKeys для обратной совместимости (isFavorite может отсутствовать в старых данных)
+    enum CodingKeys: String, CodingKey {
+        case id, label, description, prompt, isVisible, isFavorite, isSystem, order
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        label = try container.decode(String.self, forKey: .label)
+        description = try container.decode(String.self, forKey: .description)
+        prompt = try container.decode(String.self, forKey: .prompt)
+        isVisible = try container.decode(Bool.self, forKey: .isVisible)
+        // Миграция: если isFavorite отсутствует, используем isVisible
+        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? isVisible
+        isSystem = try container.decode(Bool.self, forKey: .isSystem)
+        order = try container.decode(Int.self, forKey: .order)
+    }
+
+    init(id: UUID, label: String, description: String, prompt: String, isVisible: Bool, isFavorite: Bool, isSystem: Bool, order: Int) {
+        self.id = id
+        self.label = label
+        self.description = description
+        self.prompt = prompt
+        self.isVisible = isVisible
+        self.isFavorite = isFavorite
+        self.isSystem = isSystem
+        self.order = order
+    }
 
     // Создание системного промпта со стабильным UUID
     static func system(label: String, description: String, prompt: String, order: Int) -> CustomPrompt {
@@ -559,6 +1320,7 @@ struct CustomPrompt: Codable, Identifiable, Equatable {
             description: description,
             prompt: prompt,
             isVisible: true,
+            isFavorite: true,  // Системные промпты по умолчанию в избранном
             isSystem: true,
             order: order
         )
@@ -594,7 +1356,7 @@ struct CustomPrompt: Codable, Identifiable, Equatable {
 }
 
 // MARK: - Prompts Manager
-class PromptsManager: ObservableObject {
+class PromptsManager: ObservableObject, @unchecked Sendable {
     static let shared = PromptsManager()
 
     private let userDefaultsKey = "com.dictum.customPrompts"
@@ -607,6 +1369,11 @@ class PromptsManager: ObservableObject {
     // Только видимые, отсортированные по order
     var visiblePrompts: [CustomPrompt] {
         prompts.filter { $0.isVisible }.sorted { $0.order < $1.order }
+    }
+
+    // Избранные промпты для строки быстрого доступа (ROW 1)
+    var favoritePrompts: [CustomPrompt] {
+        prompts.filter { $0.isFavorite }.sorted { $0.order < $1.order }
     }
 
     init() {
@@ -674,13 +1441,18 @@ class PromptsManager: ObservableObject {
     }
 
     func deletePrompt(_ prompt: CustomPrompt) {
-        guard !prompt.isSystem else { return }  // Защита системных
         prompts.removeAll { $0.id == prompt.id }
     }
 
     func toggleVisibility(_ prompt: CustomPrompt) {
         if let idx = prompts.firstIndex(where: { $0.id == prompt.id }) {
             prompts[idx].isVisible.toggle()
+        }
+    }
+
+    func toggleFavorite(_ prompt: CustomPrompt) {
+        if let idx = prompts.firstIndex(where: { $0.id == prompt.id }) {
+            prompts[idx].isFavorite.toggle()
         }
     }
 
@@ -699,13 +1471,137 @@ class PromptsManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: migrationKey)
     }
 
+    /// Восстанавливает удалённые системные промпты (WB/RU/EN/CH) без затирания пользовательских
+    func restoreDefaultPrompts() {
+        let existingLabels = Set(prompts.map { $0.label })
+
+        for defaultPrompt in CustomPrompt.defaultSystemPrompts {
+            if !existingLabels.contains(defaultPrompt.label) {
+                let newOrder = (prompts.map { $0.order }.max() ?? -1) + 1
+                let newPrompt = CustomPrompt(
+                    id: UUID(),
+                    label: defaultPrompt.label,
+                    description: defaultPrompt.description,
+                    prompt: defaultPrompt.prompt,
+                    isVisible: defaultPrompt.isVisible,
+                    isFavorite: defaultPrompt.isFavorite,
+                    isSystem: defaultPrompt.isSystem,
+                    order: newOrder
+                )
+                prompts.append(newPrompt)
+            }
+        }
+    }
+
     func getPrompt(by label: String) -> CustomPrompt? {
         prompts.first { $0.label == label }
     }
 }
 
+// MARK: - Snippet Model
+struct Snippet: Codable, Identifiable, Equatable {
+    let id: UUID
+    var shortcut: String        // "addr", "sig" (2-6 символов для быстрого доступа)
+    var title: String           // "Домашний адрес" (описание)
+    var content: String         // Текст сниппета (может быть многострочным)
+    var isFavorite: Bool        // Показывать в строке быстрого доступа (ROW 1)
+    var order: Int              // Порядок сортировки среди избранных
+
+    static func create(shortcut: String, title: String, content: String) -> Snippet {
+        Snippet(
+            id: UUID(),
+            shortcut: shortcut,
+            title: title,
+            content: content,
+            isFavorite: false,
+            order: 0
+        )
+    }
+
+    // Дефолтные примеры сниппетов
+    static let defaultSnippets: [Snippet] = []
+}
+
+// MARK: - Snippets Manager
+class SnippetsManager: ObservableObject, @unchecked Sendable {
+    static let shared = SnippetsManager()
+
+    private let userDefaultsKey = "com.dictum.snippets"
+
+    @Published var snippets: [Snippet] = [] {
+        didSet { saveSnippets() }
+    }
+
+    // Избранные сниппеты для строки быстрого доступа (ROW 1)
+    var favoriteSnippets: [Snippet] {
+        snippets.filter { $0.isFavorite }.sorted { $0.order < $1.order }
+    }
+
+    // Все сниппеты отсортированные
+    var allSnippets: [Snippet] {
+        snippets.sorted { $0.order < $1.order }
+    }
+
+    init() {
+        loadSnippets()
+    }
+
+    // MARK: - Persistence
+    private func saveSnippets() {
+        if let data = try? JSONEncoder().encode(snippets) {
+            UserDefaults.standard.set(data, forKey: userDefaultsKey)
+        }
+    }
+
+    private func loadSnippets() {
+        if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
+           let decoded = try? JSONDecoder().decode([Snippet].self, from: data) {
+            snippets = decoded
+        } else {
+            snippets = Snippet.defaultSnippets
+        }
+    }
+
+    // MARK: - CRUD Operations
+    func addSnippet(_ snippet: Snippet) {
+        var newSnippet = snippet
+        newSnippet.order = (snippets.map { $0.order }.max() ?? -1) + 1
+        snippets.append(newSnippet)
+    }
+
+    func updateSnippet(_ snippet: Snippet) {
+        if let idx = snippets.firstIndex(where: { $0.id == snippet.id }) {
+            snippets[idx] = snippet
+        }
+    }
+
+    func deleteSnippet(_ snippet: Snippet) {
+        snippets.removeAll { $0.id == snippet.id }
+    }
+
+    func toggleFavorite(_ snippet: Snippet) {
+        if let idx = snippets.firstIndex(where: { $0.id == snippet.id }) {
+            snippets[idx].isFavorite.toggle()
+        }
+    }
+
+    func moveSnippet(from source: IndexSet, to destination: Int) {
+        var sorted = snippets.sorted { $0.order < $1.order }
+        sorted.move(fromOffsets: source, toOffset: destination)
+        for (index, snippet) in sorted.enumerated() {
+            if let idx = snippets.firstIndex(where: { $0.id == snippet.id }) {
+                snippets[idx].order = index
+            }
+        }
+    }
+
+    func getSnippet(by shortcut: String) -> Snippet? {
+        snippets.first { $0.shortcut == shortcut }
+    }
+}
+
 // MARK: - Sound Manager
-class SoundManager {
+class SoundManager: @unchecked Sendable {
     static let shared = SoundManager()
 
     // Предзагруженные звуки для мгновенного воспроизведения
@@ -714,14 +1610,14 @@ class SoundManager {
 
     init() {
         // Загружаем кастомные звуки из бандла приложения
-        if let openURL = Bundle.main.url(forResource: "open", withExtension: "wav") {
+        if let openURL = Bundle.main.url(forResource: "open", withExtension: "wav", subdirectory: "sound") {
             openSound = NSSound(contentsOf: openURL, byReference: false)
             openSound?.volume = 0.7
         } else {
             NSLog("⚠️ Не найден звук open.wav в бандле")
         }
 
-        if let closeURL = Bundle.main.url(forResource: "close", withExtension: "wav") {
+        if let closeURL = Bundle.main.url(forResource: "close", withExtension: "wav", subdirectory: "sound") {
             closeSound = NSSound(contentsOf: closeURL, byReference: false)
             closeSound?.volume = 0.6
         } else {
@@ -745,10 +1641,17 @@ class SoundManager {
         // Используем тот же звук что и для закрытия
         playCloseSound()
     }
+
+    func playStopSound() {
+        // Звук остановки записи - используем openSound как индикацию
+        guard SettingsManager.shared.soundEnabled else { return }
+        openSound?.stop()
+        openSound?.play()
+    }
 }
 
 // MARK: - Volume Manager
-class VolumeManager {
+class VolumeManager: @unchecked Sendable {
     static let shared = VolumeManager()
     private var savedVolume: Int?
 
@@ -822,7 +1725,7 @@ class VolumeManager {
 }
 
 // MARK: - Accessibility Helper
-class AccessibilityHelper {
+class AccessibilityHelper: @unchecked Sendable {
     static func checkAccessibility() -> Bool {
         let trusted = AXIsProcessTrusted()
         if !trusted {
@@ -832,127 +1735,217 @@ class AccessibilityHelper {
     }
 
     static func requestAccessibility() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+        // Значение kAXTrustedCheckOptionPrompt = "AXTrustedCheckOptionPrompt"
+        // Используем строку напрямую для Swift 6 concurrency safety
+        let options: [String: Bool] = ["AXTrustedCheckOptionPrompt": true]
         AXIsProcessTrustedWithOptions(options as CFDictionary)
+    }
+
+    /// Проверяет, есть ли разрешение Screen Recording
+    /// Надёжный способ: пытаемся получить список окон с именами
+    /// Если нет Screen Recording - имена окон будут пустыми
+    static func hasScreenRecordingPermission() -> Bool {
+        guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+            return false
+        }
+
+        // Проверяем можем ли мы видеть имена окон других приложений
+        for window in windowList {
+            if let ownerName = window[kCGWindowOwnerName as String] as? String,
+               let windowName = window[kCGWindowName as String] as? String,
+               ownerName != "Dictum" && !windowName.isEmpty {
+                return true  // Есть разрешение - видим имена окон
+            }
+        }
+        return false
     }
 }
 
-// MARK: - Local ASR Provider (Sherpa-onnx T-ONE)
-// @unchecked Sendable: thread-safety обеспечивается recognizerQueue (serial) и transcriptLock
-class SherpaASRProvider: ObservableObject, @unchecked Sendable {
+// MARK: - Local ASR Provider (FluidAudio Parakeet v3)
+// @unchecked Sendable: thread-safety обеспечивается через async/await и NSLock
+// MARK: - Parakeet Model Status
+enum ParakeetModelStatus: Equatable {
+    case notChecked          // Ещё не проверяли
+    case checking            // Проверка наличия модели
+    case notDownloaded       // Модель не скачана
+    case downloading         // Идёт скачивание (~600 MB)
+    case loading             // Загрузка в память (компиляция CoreML)
+    case ready               // Готова к работе
+    case error(String)       // Ошибка
+
+    var displayText: String {
+        switch self {
+        case .notChecked: return "Проверка..."
+        case .checking: return "Проверка наличия модели..."
+        case .notDownloaded: return "Модель не скачана"
+        case .downloading: return "Скачивание модели..."
+        case .loading: return "Загрузка в память..."
+        case .ready: return "Parakeet v3 готова"
+        case .error(let msg): return "Ошибка: \(msg)"
+        }
+    }
+}
+
+class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
     @Published var isRecording = false
     @Published var transcriptionResult: String?
     @Published var interimText: String = ""
     @Published var errorMessage: String?
     @Published var audioLevel: Float = 0.0
+    @Published var isModelLoaded = false
+    @Published var modelStatus: ParakeetModelStatus = .notChecked
+    @Published var downloadedFilesCount: Int = 0
+    @Published var totalFilesCount: Int = 0
 
     private var audioEngine: AVAudioEngine?
-    private var recognizer: SherpaOnnxRecognizer?
-    private var finalTranscript: String = ""
+    private var asrManager: AsrManager?
+    private var models: AsrModels?
 
-    // Round 2 Fix 1: NSLock для защиты finalTranscript от data race
-    private let transcriptLock = NSLock()
+    // Накопление аудио сэмплов (batch processing)
+    private var audioSamples: [Float] = []
+    private let samplesLock = NSLock()
 
-    // Fix: Флаг вместо семафора (protected by recognizerQueue)
-    private var isDecodingInProgress = false
-
-    // Fix 1: DispatchSourceTimer вместо Timer (без retain cycle)
-    private var decodeTimer: DispatchSourceTimer?
-
-    // Fix 3: Serial queue для thread-safe доступа к recognizer
-    private let recognizerQueue = DispatchQueue(label: "com.dictum.recognizer")
-
-    // Fix 4: Кешированный AVAudioConverter
+    // Кешированный AVAudioConverter для 16 kHz
     private var audioConverter: AVAudioConverter?
     private var outputFormat: AVAudioFormat?
-
-    // Round 2 Fix 8: Pre-allocated buffer для audio thread
     private var resampledBuffer: AVAudioPCMBuffer?
 
-    // Round 3 Fix: Pre-allocated samples array (избегаем allocation на audio thread)
-    private var samplesArray: [Float] = []
-
-    // Fix 19: Guard для предотвращения double stop
+    // Guard для предотвращения double stop
     private var isStopInProgress = false
 
     init() {
-        setupRecognizer()
+        // Сначала проверяем наличие модели, потом загружаем
+        Task {
+            await checkModelStatus()
+            if modelStatus == .notDownloaded {
+                // Если модель не скачана, ждём явного запроса пользователя
+                return
+            }
+            await initializeModelsIfNeeded()
+        }
     }
 
-    // Fix 7: Cleanup при уничтожении объекта
+    /// Проверка наличия модели без скачивания
+    func checkModelStatus() async {
+        await MainActor.run {
+            modelStatus = .checking
+        }
+
+        let cacheDir = AsrModels.defaultCacheDirectory(for: .v3)
+        let exists = AsrModels.modelsExist(at: cacheDir, version: .v3)
+
+        await MainActor.run {
+            if exists {
+                modelStatus = .loading  // Модель есть, нужно только загрузить
+            } else {
+                modelStatus = .notDownloaded
+            }
+        }
+    }
+
     deinit {
-        decodeTimer?.cancel()
-        decodeTimer = nil
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
         audioConverter = nil
         resampledBuffer = nil
-        recognizer = nil
-        NSLog("🗑️ SherpaASRProvider освобождён")
+        NSLog("🗑️ ParakeetASRProvider освобождён")
     }
 
-    private func setupRecognizer() {
-        // Путь к модели в Resources
-        guard let resourcePath = Bundle.main.resourcePath else {
-            NSLog("❌ Не найден resourcePath")
-            return
+    /// Удаление модели из кэша
+    func deleteModel() async {
+        // Останавливаем запись если идёт
+        if isRecording {
+            await stopRecordingAndTranscribe()
         }
 
-        let modelDir = "\(resourcePath)/models/sherpa-onnx-streaming-t-one-russian-2025-09-08"
-        let modelPath = "\(modelDir)/model.onnx"
-        let tokensPath = "\(modelDir)/tokens.txt"
+        // Очищаем загруженные модели из памяти
+        asrManager = nil
+        models = nil
 
-        // Проверяем наличие файлов
-        guard FileManager.default.fileExists(atPath: modelPath),
-              FileManager.default.fileExists(atPath: tokensPath) else {
-            NSLog("❌ Файлы модели не найдены: \(modelDir)")
-            return
+        await MainActor.run {
+            isModelLoaded = false
+            modelStatus = .notChecked
         }
 
-        NSLog("🧠 Инициализация T-ONE модели...")
+        // Удаляем файлы модели
+        let cacheDir = AsrModels.defaultCacheDirectory(for: .v3)
 
-        // Конфигурация T-ONE модели
-        let toneCtcConfig = sherpaOnnxOnlineToneCtcModelConfig(model: modelPath)
+        do {
+            // Удаляем папку parakeet-v3
+            if FileManager.default.fileExists(atPath: cacheDir.path) {
+                try FileManager.default.removeItem(at: cacheDir)
+                NSLog("🗑️ Удалена модель Parakeet v3: \(cacheDir.path)")
+            }
 
-        // 2 потока оптимально для Apple Silicon (efficiency cores)
-        // Больше потоков не даёт прироста для streaming ASR
-        let modelConfig = sherpaOnnxOnlineModelConfig(
-            tokens: tokensPath,
-            numThreads: 2,
-            toneCtc: toneCtcConfig
-        )
+            await MainActor.run {
+                modelStatus = .notDownloaded
+            }
+        } catch {
+            NSLog("❌ Ошибка удаления модели: \(error.localizedDescription)")
+            await MainActor.run {
+                modelStatus = .error("Не удалось удалить: \(error.localizedDescription)")
+            }
+        }
+    }
 
-        // T-ONE работает с 8kHz аудио
-        let featConfig = sherpaOnnxFeatureConfig(sampleRate: 8000, featureDim: 80)
+    /// Инициализация моделей (скачивает ~600 MB при первом запуске)
+    func initializeModelsIfNeeded() async {
+        guard !isModelLoaded else { return }
 
-        // Оптимизированные параметры endpoint detection для быстрого ввода:
-        // - rule1: тишина БЕЗ речи → endpoint (уменьшено с 2.4 до 1.5s)
-        // - rule2: тишина ПОСЛЕ речи → endpoint (уменьшено с 1.2 до 0.6s для быстрой реакции)
-        // - rule3: макс длина высказывания (60s достаточно)
-        var config = sherpaOnnxOnlineRecognizerConfig(
-            featConfig: featConfig,
-            modelConfig: modelConfig,
-            enableEndpoint: true,
-            rule1MinTrailingSilence: 1.5,
-            rule2MinTrailingSilence: 0.6,
-            rule3MinUtteranceLength: 60
-        )
+        do {
+            // Проверяем наличие модели
+            let cacheDir = AsrModels.defaultCacheDirectory(for: .v3)
+            let modelExists = AsrModels.modelsExist(at: cacheDir, version: .v3)
 
-        recognizer = SherpaOnnxRecognizer(config: &config)
-        NSLog("✅ T-ONE модель инициализирована")
+            if modelExists {
+                // Модель уже скачана — только загружаем
+                await MainActor.run { modelStatus = .loading }
+                NSLog("🧠 Загрузка Parakeet v3 из кэша...")
+            } else {
+                // Модель нужно скачать
+                await MainActor.run { modelStatus = .downloading }
+                NSLog("⬇️ Скачивание Parakeet v3 (~600 MB)...")
+            }
+
+            // downloadAndLoad: скачивает если нужно, потом загружает
+            let downloadedModels = try await AsrModels.downloadAndLoad(version: .v3)
+
+            await MainActor.run { modelStatus = .loading }
+            NSLog("🧠 Компиляция CoreML моделей...")
+
+            let manager = AsrManager(config: .default)
+            try await manager.initialize(models: downloadedModels)
+
+            self.models = downloadedModels
+            self.asrManager = manager
+
+            await MainActor.run {
+                isModelLoaded = true
+                modelStatus = .ready
+            }
+
+            NSLog("✅ Parakeet v3 модель готова (25 языков, ~190x real-time)")
+        } catch {
+            NSLog("❌ Ошибка загрузки модели: \(error.localizedDescription)")
+            await MainActor.run {
+                modelStatus = .error(error.localizedDescription)
+                errorMessage = "Ошибка загрузки модели: \(error.localizedDescription)"
+            }
+        }
     }
 
     func startRecording() async {
-        // Fix 2: Guard против двойного вызова
+        // Guard против двойного вызова
         guard !isRecording else {
             NSLog("⚠️ Локальная запись уже идёт")
             return
         }
 
-        guard recognizer != nil else {
+        // Проверить модель
+        guard isModelLoaded, asrManager != nil else {
             await MainActor.run {
-                errorMessage = "Локальная модель не инициализирована"
+                errorMessage = "Модель не загружена. Подождите или откройте Настройки для загрузки."
             }
             return
         }
@@ -966,14 +1959,9 @@ class SherpaASRProvider: ObservableObject, @unchecked Sendable {
             return
         }
 
-        // Round 2 Fix 1: Защита finalTranscript локом
-        transcriptLock.withLock {
-            finalTranscript = ""
-        }
-
-        // Round 2 Fix 9: Async вместо sync (не блокирует main thread)
-        recognizerQueue.async { [weak self] in
-            self?.recognizer?.reset()
+        // Сброс накопленных сэмплов
+        samplesLock.withLock {
+            audioSamples.removeAll()
         }
 
         await MainActor.run {
@@ -983,15 +1971,15 @@ class SherpaASRProvider: ObservableObject, @unchecked Sendable {
             audioLevel = 0.0
         }
 
-        // Уменьшить громкость
-        VolumeManager.shared.saveAndReduceVolume(targetVolume: 15)
+        // Уменьшить громкость до настроенного уровня
+        VolumeManager.shared.saveAndReduceVolume(targetVolume: SettingsManager.shared.volumeLevel)
 
-        // Fix 6: Создаём engine локально, присваиваем только после успешного start
+        // Создаём audio engine
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
 
-        // Round 2 Fix 10: Валидация inputFormat
+        // Валидация inputFormat
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             await MainActor.run {
                 errorMessage = "Неверный формат входного аудио"
@@ -1000,8 +1988,8 @@ class SherpaASRProvider: ObservableObject, @unchecked Sendable {
             return
         }
 
-        // Fix 4: Кешируем outputFormat и converter
-        guard let outFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 8000, channels: 1, interleaved: false) else {
+        // Parakeet требует 16 kHz mono Float32
+        guard let outFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false) else {
             await MainActor.run {
                 errorMessage = "Ошибка формата аудио"
                 isRecording = false
@@ -1010,7 +1998,7 @@ class SherpaASRProvider: ObservableObject, @unchecked Sendable {
         }
         self.outputFormat = outFmt
 
-        // Fix 4: Создаём converter один раз
+        // Создаём converter
         guard let converter = AVAudioConverter(from: inputFormat, to: outFmt) else {
             await MainActor.run {
                 errorMessage = "Ошибка создания аудио-конвертера"
@@ -1020,12 +2008,9 @@ class SherpaASRProvider: ObservableObject, @unchecked Sendable {
         }
         self.audioConverter = converter
 
-        // Round 2 Fix 8: Pre-allocated buffer (200ms capacity)
+        // Pre-allocated buffer (200ms capacity)
         let maxOutputFrames = AVAudioFrameCount(outFmt.sampleRate * 0.2)
         self.resampledBuffer = AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: maxOutputFrames)
-
-        // Round 3 Fix: Pre-allocate samples array
-        self.samplesArray = [Float](repeating: 0, count: Int(maxOutputFrames))
 
         engine.prepare()
 
@@ -1037,21 +2022,15 @@ class SherpaASRProvider: ObservableObject, @unchecked Sendable {
 
         do {
             try engine.start()
-            // Fix 6: Присваиваем ТОЛЬКО после успешного start
             self.audioEngine = engine
-            NSLog("🎤 Локальный ASR запущен (T-ONE)")
+            NSLog("🎤 Локальный ASR запущен (Parakeet v3)")
 
-            // Fix 1: Используем DispatchSourceTimer вместо Timer (без retain cycle)
-            let timer = DispatchSource.makeTimerSource(queue: .main)
-            timer.schedule(deadline: .now(), repeating: .milliseconds(100))
-            timer.setEventHandler { [weak self] in
-                self?.decodeAudio()
+            // Показываем "Слушаю..." пока идёт запись (нет streaming у Parakeet)
+            await MainActor.run {
+                interimText = "Слушаю..."
             }
-            timer.resume()
-            self.decodeTimer = timer
 
         } catch {
-            // Fix 6: При ошибке освобождаем ресурсы
             inputNode.removeTap(onBus: 0)
             self.audioConverter = nil
             self.outputFormat = nil
@@ -1064,7 +2043,7 @@ class SherpaASRProvider: ObservableObject, @unchecked Sendable {
     }
 
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
-        // Рассчитать уровень громкости
+        // 1. Рассчитать уровень громкости (RMS)
         if let channelData = buffer.floatChannelData {
             let frameLength = Int(buffer.frameLength)
             var sum: Float = 0.0
@@ -1073,27 +2052,27 @@ class SherpaASRProvider: ObservableObject, @unchecked Sendable {
                 sum += sample * sample
             }
             let rms = sqrt(sum / Float(max(1, frameLength)))
-            let level = min(1.0, rms * 8.0)
+            // Логарифмическая шкала + высокая чувствительность для шепота
+            let normalizedRms = rms * 50.0
+            let level = min(1.0, log10(1 + normalizedRms * 9))
 
             DispatchQueue.main.async { [weak self] in
                 self?.audioLevel = level
             }
         }
 
-        // Fix 4: Используем кешированный converter
+        // 2. Ресэмплирование в 16 kHz
         guard let converter = audioConverter,
               let outFmt = outputFormat,
               let outputBuffer = resampledBuffer else {
             return
         }
 
-        // Round 2 Fix 11: Валидация sampleRate
         guard buffer.format.sampleRate > 0 else { return }
 
         let ratio = outFmt.sampleRate / Double(buffer.format.sampleRate)
         let outputFrameCount = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
 
-        // Round 2 Fix 8: Используем pre-allocated buffer
         guard outputFrameCount <= outputBuffer.frameCapacity else {
             NSLog("⚠️ Buffer overflow: need \(outputFrameCount), have \(outputBuffer.frameCapacity)")
             return
@@ -1113,64 +2092,22 @@ class SherpaASRProvider: ObservableObject, @unchecked Sendable {
             return nil
         }
 
-        // Fix 5: Error handling для конвертации
         if let error = conversionError {
             NSLog("❌ Audio conversion error: \(error.localizedDescription)")
             return
         }
 
-        // Fix 3: Thread-safe отправка сэмплов в recognizer
+        // 3. Накопление сэмплов (batch processing - НЕ streaming)
         if let channelData = outputBuffer.floatChannelData {
             let samples = Array(UnsafeBufferPointer(start: channelData[0], count: Int(outputBuffer.frameLength)))
-            recognizerQueue.async { [weak self] in
-                self?.recognizer?.acceptWaveform(samples: samples, sampleRate: 8000)
-            }
-        }
-    }
-
-    private func decodeAudio() {
-        // Fix: Используем флаг вместо семафора (предотвращает параллельные decode)
-        recognizerQueue.async { [weak self] in
-            guard let self = self else { return }
-            guard !self.isDecodingInProgress else { return }  // Skip if already decoding
-            self.isDecodingInProgress = true
-            defer { self.isDecodingInProgress = false }
-
-            guard let recognizer = self.recognizer else { return }
-
-            // Round 2 Fix 7: Max iterations для предотвращения зависания
-            var iterations = 0
-            while recognizer.isReady() && iterations < 1000 {
-                recognizer.decode()
-                iterations += 1
-            }
-
-            // Получить результат
-            let result = recognizer.getResult()
-            let text = result.text
-
-            // Проверить endpoint (конец фразы)
-            let isEndpoint = recognizer.isEndpoint()
-            if isEndpoint && !text.isEmpty {
-                // Round 2 Fix 1: Защита finalTranscript локом
-                self.transcriptLock.withLock {
-                    self.finalTranscript += (self.finalTranscript.isEmpty ? "" : " ") + text
-                }
-                NSLog("📝 Final (local): \(text)")
-                recognizer.reset()
-            }
-
-            // Обновить UI на main thread
-            DispatchQueue.main.async { [weak self] in
-                if !text.isEmpty {
-                    self?.interimText = isEndpoint ? "" : text
-                }
+            samplesLock.withLock {
+                audioSamples.append(contentsOf: samples)
             }
         }
     }
 
     func stopRecordingAndTranscribe() async {
-        // Fix 19: Предотвращаем double stop
+        // Предотвращаем double stop
         guard !isStopInProgress else {
             NSLog("⚠️ stopRecording already in progress, skipping")
             return
@@ -1178,72 +2115,72 @@ class SherpaASRProvider: ObservableObject, @unchecked Sendable {
         isStopInProgress = true
         defer { isStopInProgress = false }
 
-        // Fix 1: Остановить DispatchSourceTimer
-        decodeTimer?.cancel()
-        decodeTimer = nil
-
-        // Fix: Ждём завершения pending decodeAudio через serial queue
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            recognizerQueue.async {
-                continuation.resume()
-            }
-        }
-
         // Остановить аудио
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
 
-        // Round 2 Fix 6: Reset converter перед очисткой
         audioConverter?.reset()
         audioConverter = nil
         outputFormat = nil
         resampledBuffer = nil
 
-        // Fix 3: Финальное декодирование через serial queue
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            recognizerQueue.async { [weak self] in
-                guard let self = self, let recognizer = self.recognizer else {
-                    continuation.resume()
-                    return
+        await MainActor.run {
+            interimText = "Обрабатываю..."  // UI feedback
+        }
+
+        // Batch транскрибация накопленного аудио
+        let samplesToProcess = samplesLock.withLock { audioSamples }
+
+        guard let asrManager = asrManager, !samplesToProcess.isEmpty else {
+            await MainActor.run {
+                isRecording = false
+                interimText = ""
+            }
+            VolumeManager.shared.restoreVolume()
+            return
+        }
+
+        do {
+            NSLog("🔄 Транскрибация \(samplesToProcess.count) сэмплов (~\(String(format: "%.1f", Double(samplesToProcess.count) / 16000))s аудио)...")
+
+            let result = try await asrManager.transcribe(samplesToProcess)
+            let text = result.text.trimmingCharacters(in: .whitespaces)
+
+            await MainActor.run {
+                transcriptionResult = text.isEmpty ? nil : text
+                isRecording = false
+                interimText = ""
+            }
+
+            NSLog("✅ Результат (Parakeet): \(text)")
+
+        } catch {
+            let errorDesc = error.localizedDescription
+            NSLog("❌ Ошибка транскрибации: \(errorDesc)")
+
+            // Не показываем ошибку "слишком короткое аудио" — это нормальная ситуация
+            if !errorDesc.contains("Must be at least 1 second") {
+                await MainActor.run {
+                    errorMessage = "Ошибка транскрибации: \(errorDesc)"
+                    isRecording = false
+                    interimText = ""
                 }
-
-                recognizer.inputFinished()
-
-                // Round 2 Fix 7: Max iterations для предотвращения зависания
-                var iterations = 0
-                while recognizer.isReady() && iterations < 1000 {
-                    recognizer.decode()
-                    iterations += 1
+            } else {
+                NSLog("ℹ️ Запись слишком короткая, пропускаем")
+                await MainActor.run {
+                    isRecording = false
+                    interimText = ""
                 }
-
-                // Получить финальный результат
-                let result = recognizer.getResult()
-                let text = result.text
-                if !text.isEmpty {
-                    // Round 2 Fix 1: Защита finalTranscript локом
-                    self.transcriptLock.withLock {
-                        self.finalTranscript += (self.finalTranscript.isEmpty ? "" : " ") + text
-                    }
-                }
-
-                continuation.resume()
             }
         }
 
-        // Round 2 Fix 1: Читаем finalTranscript под локом
-        let finalText = transcriptLock.withLock { finalTranscript }
-
-        await MainActor.run {
-            isRecording = false
-            if !finalText.isEmpty {
-                transcriptionResult = finalText.trimmingCharacters(in: .whitespaces)
-            }
-            interimText = ""
+        // Очистка
+        samplesLock.withLock {
+            audioSamples.removeAll()
         }
 
         VolumeManager.shared.restoreVolume()
-        NSLog("✅ Результат (local): \(finalText)")
     }
 
     private func requestMicrophonePermission() async -> Bool {
@@ -1255,8 +2192,11 @@ class SherpaASRProvider: ObservableObject, @unchecked Sendable {
     }
 }
 
+// MARK: - Alias for backward compatibility
+typealias SherpaASRProvider = ParakeetASRProvider
+
 // MARK: - Real-time Streaming Audio Manager (WebSocket)
-class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDelegate {
+class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDelegate, @unchecked Sendable {
     @Published var isRecording = false
     @Published var isTranscribing = false
     @Published var errorMessage: String?
@@ -1281,6 +2221,9 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
 
     // Fix 9: Флаг для предотвращения использования закрывающегося WebSocket
     private var isClosingWebSocket: Bool = false
+
+    // Fix 11: Флаг получения финального ответа от Deepgram (speech_final или UtteranceEnd)
+    private var finalResponseReceived: Bool = false
 
     // C1: WorkItem для отмены timeout при успешном подключении
     private var connectionTimeoutWorkItem: DispatchWorkItem?
@@ -1332,6 +2275,8 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
         // Fix 5: Защита audioBuffer через serial queue
         audioBufferQueue.sync { audioBuffer.removeAll() }
         webSocketConnected = false
+        // Fix 11: Сброс флага финального ответа
+        finalResponseReceived = false
 
         await MainActor.run {
             appendMode = isAppend
@@ -1342,12 +2287,15 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
         }
 
         // Save current volume and reduce for recording
-        VolumeManager.shared.saveAndReduceVolume(targetVolume: 15)
+        VolumeManager.shared.saveAndReduceVolume(targetVolume: SettingsManager.shared.volumeLevel)
 
         // WebSocket URL
         let language = SettingsManager.shared.preferredLanguage
         let model = SettingsManager.shared.deepgramModel
-        let wsURL = URL(string: "wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=\(model)&language=\(language)&interim_results=true&utterance_end_ms=2000&smart_format=true&punctuate=true")!
+        guard let wsURL = URL(string: "wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=\(model)&language=\(language)&interim_results=true&utterance_end_ms=2000&smart_format=true&punctuate=true") else {
+            await MainActor.run { errorMessage = "Ошибка создания WebSocket URL" }
+            return
+        }
 
         var request = URLRequest(url: wsURL)
         request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -1355,7 +2303,8 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
         webSocket = urlSession.webSocketTask(with: request)
         webSocket?.resume()
 
-        NSLog("🔌 Подключение к Deepgram WebSocket...")
+        NSLog("🔌 Подключение к Deepgram WebSocket... model=\(model), language=\(language)")
+        NSLog("🔌 URL: \(wsURL.absoluteString)")
 
         // Fix 6 + C1: Timeout для WebSocket подключения (5 секунд)
         connectionTimeoutWorkItem?.cancel()  // Отменить предыдущий если есть
@@ -1381,8 +2330,18 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
 
         // 1. СНАЧАЛА настроить аудио (до WebSocket для минимизации задержки)
         audioEngine = AVAudioEngine()
-        let inputNode = audioEngine!.inputNode
+        guard let engine = audioEngine else {
+            await MainActor.run { errorMessage = "Ошибка инициализации аудио" }
+            return
+        }
+        let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
+
+        // Проверяем валидность формата (как в LocalASR)
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+            await MainActor.run { errorMessage = "Аудио устройство недоступно" }
+            return
+        }
 
         // Конвертер: входной формат → 16kHz mono Int16
         guard let outputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true) else {
@@ -1425,7 +2384,9 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
                 sum += sample * sample
             }
             let rms = sqrt(sum / Float(max(1, frameLength)))
-            let level = min(1.0, rms * 8.0)  // Усиление для лучшей визуализации
+            // Логарифмическая шкала + высокая чувствительность для шепота
+            let normalizedRms = rms * 50.0
+            let level = min(1.0, log10(1 + normalizedRms * 9))  // log10(1..10) = 0..1
 
             DispatchQueue.main.async { [weak self] in
                 self?.audioLevel = level
@@ -1479,17 +2440,27 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
                     if !self.audioBuffer.isEmpty {
                         let count = self.audioBuffer.count
                         for bufferedData in self.audioBuffer {
-                            self.webSocket?.send(.data(bufferedData)) { _ in }
+                            self.webSocket?.send(.data(bufferedData)) { error in
+                                if let error = error {
+                                    NSLog("❌ Ошибка отправки буферизованного аудио: \(error.localizedDescription)")
+                                }
+                            }
                         }
                         self.audioBuffer.removeAll()
                         NSLog("📤 Отправлено \(count) буферизованных чанков")
                     }
                     // Отправить текущие данные
-                    self.webSocket?.send(.data(data)) { _ in }
+                    self.webSocket?.send(.data(data)) { error in
+                        if let error = error {
+                            NSLog("❌ Ошибка отправки аудио: \(error.localizedDescription)")
+                        }
+                    }
                 } else {
                     // Fix 35: Буферизируем (макс. 3 секунды = ~30 чанков по 100мс)
                     if self.audioBuffer.count < 30 {
                         self.audioBuffer.append(data)
+                    } else {
+                        NSLog("⚠️ Буфер аудио переполнен! WebSocket не подключается более 3 сек")
                     }
                 }
             }
@@ -1507,16 +2478,32 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
         cachedInputFormat = nil
         cachedOutputFormat = nil
 
-        // Fix 9: Устанавливаем флаг перед закрытием
-        isClosingWebSocket = true
-
-        // Закрыть WebSocket
+        // Отправляем сигнал закрытия потока (НЕ устанавливаем isClosingWebSocket ещё!)
         webSocket?.send(.string("{\"type\": \"CloseStream\"}")) { _ in }
-        try? await Task.sleep(nanoseconds: 300_000_000)  // 300ms для финальных результатов
+
+        // Fix 11: Ждём finalResponseReceived вместо фиксированной задержки
+        // isClosingWebSocket остаётся false, чтобы receiveMessages() продолжал работать
+        // Polling с таймаутом 2 сек (safety fallback)
+        let deadline = Date().addingTimeInterval(2.0)
+        while !finalResponseReceived && Date() < deadline {
+            try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms poll
+        }
+
+        if finalResponseReceived {
+            NSLog("✅ Получен финальный ответ от Deepgram (speech_final или UtteranceEnd)")
+        } else {
+            NSLog("⚠️ Timeout ожидания финального ответа (2 сек)")
+        }
+
+        // Fix 9: Только теперь устанавливаем флаг закрытия
+        isClosingWebSocket = true
         webSocket?.cancel(with: .goingAway, reason: nil)
         webSocket = nil
         webSocketConnected = false
-        isClosingWebSocket = false
+        // Fix: Сбрасываем флаг с задержкой, чтобы избежать race condition
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.isClosingWebSocket = false
+        }
 
         // Fix 4: Защита finalTranscript локом при чтении
         let finalText = transcriptLock.withLock { finalTranscript }
@@ -1536,9 +2523,10 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
     }
 
     private func receiveMessages() {
-        // Fix 3: Guard на состояние webSocket и isRecording
+        // Fix 3: Guard на состояние webSocket
         // Fix 9: Также проверяем isClosingWebSocket
-        guard let webSocket = webSocket, isRecording, !isClosingWebSocket else { return }
+        // Fix 10: НЕ проверяем isRecording — нужно получать финальные результаты после остановки записи!
+        guard let webSocket = webSocket, !isClosingWebSocket else { return }
 
         webSocket.receive { [weak self] result in
             guard let self = self, self.webSocket != nil, !self.isClosingWebSocket else { return }
@@ -1548,8 +2536,9 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
                 if case .string(let text) = message {
                     self.handleResponse(text)
                 }
-                // Продолжаем слушать только если ещё записываем и не закрываемся
-                if self.isRecording && !self.isClosingWebSocket {
+                // Продолжаем слушать пока WebSocket не закрывается
+                // (даже после остановки записи - чтобы получить финальные результаты)
+                if !self.isClosingWebSocket {
                     self.receiveMessages()
                 }
 
@@ -1561,21 +2550,52 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
                 self.isClosingWebSocket = true
                 self.webSocket?.cancel(with: .goingAway, reason: nil)
                 self.webSocket = nil
-                self.isClosingWebSocket = false
+                // Fix: Сбрасываем флаг с задержкой
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.isClosingWebSocket = false
+                }
             }
         }
     }
 
     private func handleResponse(_ text: String) {
+        // Логируем сырой ответ для диагностики
+        NSLog("📥 Deepgram: \(text.prefix(500))...")
+
         guard let data = text.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let channel = json["channel"] as? [String: Any],
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            NSLog("⚠️ Deepgram: не удалось распарсить JSON")
+            return
+        }
+
+        // Проверяем тип сообщения
+        let messageType = json["type"] as? String ?? "unknown"
+
+        // Обрабатываем служебные сообщения
+        if messageType == "Metadata" || messageType == "SpeechStarted" {
+            NSLog("📋 Deepgram: служебное сообщение типа \(messageType)")
+            return
+        }
+
+        // Fix 11: UtteranceEnd — fallback если speech_final не пришёл
+        if messageType == "UtteranceEnd" {
+            if !finalResponseReceived {
+                finalResponseReceived = true
+                NSLog("🎯 UtteranceEnd received (fallback для speech_final)")
+            }
+            return
+        }
+
+        // Парсим Results
+        guard let channel = json["channel"] as? [String: Any],
               let alternatives = channel["alternatives"] as? [[String: Any]],
               let transcript = alternatives.first?["transcript"] as? String else {
+            NSLog("⚠️ Deepgram: неизвестный формат ответа, type=\(messageType), keys=\(json.keys.joined(separator: ", "))")
             return
         }
 
         let isFinal = json["is_final"] as? Bool ?? false
+        let speechFinal = json["speech_final"] as? Bool ?? false  // Fix 11: Конец речи
 
         DispatchQueue.main.async {
             if isFinal && !transcript.isEmpty {
@@ -1587,6 +2607,13 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
                 NSLog("📝 Final: \(transcript)")
             } else if !transcript.isEmpty {
                 self.interimText = transcript
+                NSLog("📝 Interim: \(transcript)")
+            }
+
+            // Fix 11: speech_final=true означает конец речи — сигнал для stopRecording
+            if speechFinal {
+                self.finalResponseReceived = true
+                NSLog("🎯 Speech final received!")
             }
         }
     }
@@ -1618,7 +2645,11 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
             if !self.audioBuffer.isEmpty {
                 let bufferedCount = self.audioBuffer.count
                 for data in self.audioBuffer {
-                    self.webSocket?.send(.data(data)) { _ in }
+                    self.webSocket?.send(.data(data)) { error in
+                        if let error = error {
+                            NSLog("❌ Ошибка отправки буферизованного аудио: \(error.localizedDescription)")
+                        }
+                    }
                 }
                 self.audioBuffer.removeAll()
                 NSLog("📤 Отправлено \(bufferedCount) буферизованных чанков аудио")
@@ -1634,20 +2665,20 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
 
 // MARK: - ASR Provider Type
 enum ASRProviderType: String, CaseIterable {
-    case local = "local"     // Локальная модель (T-ONE)
+    case local = "local"     // Локальная модель (Parakeet v3)
     case deepgram = "deepgram"  // Deepgram (облако)
 
     var displayName: String {
         switch self {
-        case .local: return "Локальная модель"
+        case .local: return "Parakeet v3 (локальная)"
         case .deepgram: return "Deepgram (облако)"
         }
     }
 
     var description: String {
         switch self {
-        case .local: return "Работает офлайн, задержка ~100мс"
-        case .deepgram: return "Нужен API ключ Deepgram, задержка ~200мс"
+        case .local: return "25 языков, офлайн, ~190x real-time"
+        case .deepgram: return "Streaming в реальном времени"
         }
     }
 }
@@ -1828,13 +2859,24 @@ struct GeminiResponse: Codable {
 }
 
 // MARK: - Gemini Service
-class GeminiService: ObservableObject {
-    private let model = "gemini-2.0-flash-exp"
+class GeminiService: ObservableObject, @unchecked Sendable {
+    /// Модель для LLM-обработки после локального ASR
+    private var modelForSpeech: String {
+        SettingsManager.shared.selectedGeminiModel.rawValue
+    }
 
-    func generateContent(prompt: String, userText: String) async throws -> String {
+    /// Модель для AI функций (кнопки WB, RU, EN, CH)
+    private var modelForAI: String {
+        SettingsManager.shared.selectedGeminiModelForAI.rawValue
+    }
+
+    /// Генерация контента с указанием контекста использования
+    func generateContent(prompt: String, userText: String, forAI: Bool = true, systemPrompt: String? = nil) async throws -> String {
         guard let apiKey = GeminiKeyManager.shared.getAPIKey(), !apiKey.isEmpty else {
             throw GeminiError.noAPIKey
         }
+
+        let model = forAI ? modelForAI : modelForSpeech
 
         // Fix R4-M1: guard let вместо force unwrap
         let baseURL = "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
@@ -1847,16 +2889,24 @@ class GeminiService: ObservableObject {
             throw GeminiError.invalidResponse
         }
 
-        let requestBody: [String: Any] = [
+        // Формируем тело запроса
+        var requestBody: [String: Any] = [
             "contents": [
-                ["parts": [["text": "\(prompt)\n\n\(userText)"]]]
+                ["parts": [["text": "Инструкции: \(prompt)\n\nТекст:\n\(userText)"]]]
             ],
             "generationConfig": [
                 "temperature": 0.7,
-                "maxOutputTokens": 500,
+                "maxOutputTokens": SettingsManager.shared.maxOutputTokens,
                 "topP": 0.95
             ]
         ]
+
+        // Добавляем системный промпт если есть
+        if let systemPrompt = systemPrompt, !systemPrompt.isEmpty {
+            requestBody["systemInstruction"] = [
+                "parts": [["text": systemPrompt]]
+            ]
+        }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
             throw GeminiError.invalidResponse
@@ -1966,7 +3016,7 @@ struct DeepgramUsageResponse: Codable {
 }
 
 // MARK: - Deepgram Management Service
-class DeepgramManagementService {
+class DeepgramManagementService: @unchecked Sendable {
     private let baseURL = "https://api.deepgram.com/v1"
 
     // GET /v1/projects
@@ -2171,7 +3221,7 @@ class BillingManager: ObservableObject {
 // MARK: - Main View
 struct InputModalView: View {
     @StateObject private var audioManager = AudioRecordingManager()  // Deepgram
-    @StateObject private var localASRManager = SherpaASRProvider()   // Локальная модель T-ONE
+    @StateObject private var localASRManager = SherpaASRProvider()   // Локальная модель Parakeet v3
     @ObservedObject private var settings = SettingsManager.shared
 
     // Computed properties для текущего ASR провайдера
@@ -2203,8 +3253,23 @@ struct InputModalView: View {
     @State private var currentProcessingPrompt: CustomPrompt? = nil
     // Fix 25: Proper @State for alert instead of .constant()
     @State private var showASRErrorAlert: Bool = false
+    // Состояние: запись остановлена хоткеем (для 3-фазной логики)
+    @State private var recordingStoppedByHotkey: Bool = false
+    // Alert при отсутствии API ключа для AI функций
+    @State private var showAPIKeyAlert: Bool = false
     @StateObject private var geminiService = GeminiService()
     @ObservedObject private var promptsManager = PromptsManager.shared
+    @ObservedObject private var snippetsManager = SnippetsManager.shared
+
+    // Панели управления (mutual exclusivity с showHistory)
+    @State private var showAIPanel: Bool = false
+    @State private var showSnippetsPanel: Bool = false
+    @State private var showLeftPanel: Bool = false       // Sliding panel для промптов слева
+    @State private var showRightPanel: Bool = false      // Sliding panel для сниппетов справа
+    @State private var showAddSnippetSheet: Bool = false // Sheet для добавления сниппета
+    @State private var showAddPromptSheet: Bool = false  // Sheet для добавления промпта
+    @State private var editingPrompt: CustomPrompt? = nil  // Редактируемый промпт
+    @State private var editingSnippet: Snippet? = nil  // Редактируемый сниппет
 
     // Максимум 30 строк (~600px), минимум 40px
     private let lineHeight: CGFloat = 20
@@ -2221,21 +3286,63 @@ struct InputModalView: View {
     private var recordingOverlay: some View {
         if isRecording {
             VoiceOverlayView(audioLevel: audioLevel)
+                .frame(maxHeight: 70)  // Ограничиваем высоту оверлея
+                .clipped()  // Обрезаем если выходит за пределы
                 .background(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.95))
                 .clipShape(RoundedRectangle(cornerRadius: 24))
                 .allowsHitTesting(false)
         }
     }
 
+    // Константы для layout панелей
+    private let mainModalWidth: CGFloat = 680
+    private let panelWidth: CGFloat = 180
+    private let panelGap: CGFloat = 8
+
+    // Offset от центра: половина модалки + половина панели + отступ
+    private var panelOffset: CGFloat {
+        (mainModalWidth / 2) + (panelWidth / 2) + panelGap
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            // ВЕРХНЯЯ ЧАСТЬ: Ввод + Оверлеи
+        ZStack(alignment: .center) {
+            // СЛЕВА: Выезжающая панель промптов (под модалкой)
+            SlidingPromptPanel(
+                promptsManager: promptsManager,
+                onProcessWithGemini: { prompt in
+                    Task {
+                        await processWithGemini(prompt: prompt)
+                    }
+                },
+                currentProcessingPrompt: currentProcessingPrompt,
+                onAdd: { showAddPromptSheet = true },
+                editingPrompt: $editingPrompt
+            )
+            .offset(x: showLeftPanel ? -panelOffset : -panelOffset - 200)  // Скрыта слева
+            .opacity(showLeftPanel ? 1 : 0)
+            .zIndex(0)
+
+            // СПРАВА: Выезжающая панель сниппетов (под модалкой)
+            SlidingSnippetPanel(
+                snippetsManager: snippetsManager,
+                inputText: $inputText,
+                onAdd: { showAddSnippetSheet = true },
+                editingSnippet: $editingSnippet
+            )
+            .offset(x: showRightPanel ? panelOffset : panelOffset + 200)  // Скрыта справа
+            .opacity(showRightPanel ? 1 : 0)
+            .zIndex(0)
+
+            // ОСНОВНАЯ МОДАЛКА (поверх панелей)
             VStack(spacing: 0) {
+                // ВЕРХНЯЯ ЧАСТЬ: Ввод + Оверлеи
+                VStack(spacing: 0) {
                 // Поле ввода с динамической высотой
                 ZStack(alignment: .topLeading) {
                     CustomTextEditor(
                         text: $inputText,
-                        onSubmit: submitImmediate,
+                        // В аудио режиме: только копировать в буфер, без автовставки
+                        onSubmit: { submitImmediate(skipAutoPaste: settings.audioModeEnabled) },
                         onHeightChange: { height in
                             // Ограничиваем высоту до 30 строк
                             textEditorHeight = min(max(40, height), maxTextHeight)
@@ -2245,12 +3352,12 @@ struct InputModalView: View {
                     .font(.system(size: 16, weight: .regular))
                     .frame(height: textEditorHeight)
                     .padding(.leading, 20)
-                    .padding(.trailing, 20)
+                    .padding(.trailing, 50)  // Увеличено для иконки "Улучшить"
                     .padding(.top, 18)
                     .padding(.bottom, 12)
                     .background(Color.clear)
 
-                    if inputText.isEmpty {
+                    if inputText.isEmpty && !isRecording {
                         Text("Введите текст...")
                             .font(.system(size: 16, weight: .regular, design: .default))
                             .foregroundColor(Color.white.opacity(0.45))
@@ -2258,14 +3365,57 @@ struct InputModalView: View {
                             .padding(.top, 18)
                             .allowsHitTesting(false)
                     }
+
+                    // Live-transcription во время записи
+                    if isRecording && !interimText.isEmpty {
+                        Text(interimText)
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundColor(Color.white.opacity(0.7))
+                            .padding(.leading, 28)
+                            .padding(.trailing, 20)
+                            .padding(.top, 18)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .allowsHitTesting(false)
+                    }
+
+                    // Иконка "Улучшить через ИИ" - появляется когда есть текст и не идёт запись
+                    if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isRecording {
+                        Button(action: {
+                            Task {
+                                await enhanceText()
+                            }
+                        }) {
+                            Image(systemName: isProcessingAI ? "rays" : "sparkles")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(DesignSystem.Colors.accent)
+                                .padding(8)
+                                .background(Color.white.opacity(0.1))
+                                .clipShape(Circle())
+                                .rotationEffect(.degrees(isProcessingAI ? 360 : 0))
+                                .animation(
+                                    isProcessingAI
+                                        ? Animation.linear(duration: 1).repeatForever(autoreverses: false)
+                                        : .default,
+                                    value: isProcessingAI
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(isProcessingAI)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(.top, 16)
+                        .padding(.trailing, 16)
+                        .help(isProcessingAI ? "Обработка..." : "Улучшить через ИИ")
+                    }
                 }
 
                 // Список истории (упрощённый)
+                // Раскрывающиеся панели (mutual exclusivity)
                 if showHistory {
                     HistoryListView(
                         items: historyItems,
                         searchQuery: $searchQuery,
                         onSelect: { item in
+                            textEditorHeight = 40  // Сброс высоты перед вставкой текста
                             inputText = item.text
                             searchQuery = ""
                             showHistory = false
@@ -2275,179 +3425,180 @@ struct InputModalView: View {
                         }
                     )
                 }
+
             }
             .overlay(recordingOverlay)
 
-            // Разделитель
-            Rectangle()
-                .frame(height: 1)
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.clear, .white.opacity(0.1), .clear],
-                        startPoint: .leading,
-                        endPoint: .trailing
+            // НИЖНЯЯ ЧАСТЬ: Футер (2 строки)
+            VStack(spacing: 0) {
+                // ROW 1: Быстрый доступ (AI промпты слева + Сниппеты справа)
+                if settings.aiEnabled || !snippetsManager.snippets.isEmpty {
+                    // ROW 1: Только основная строка (панели вынесены в ZStack снаружи модалки)
+                    UnifiedQuickAccessRow(
+                        promptsManager: promptsManager,
+                        snippetsManager: snippetsManager,
+                        inputText: $inputText,
+                        showLeftPanel: $showLeftPanel,
+                        showRightPanel: $showRightPanel,
+                        onProcessWithGemini: { prompt in
+                            Task {
+                                await processWithGemini(prompt: prompt)
+                            }
+                        },
+                        currentProcessingPrompt: currentProcessingPrompt,
+                        editingPrompt: $editingPrompt,
+                        editingSnippet: $editingSnippet
                     )
-                )
 
-            // НИЖНЯЯ ЧАСТЬ: Футер
-            HStack {
-                HStack(spacing: 12) {
-                    // AI Processing buttons (WB, RU, EN, CH) - только если включено
-                    if settings.aiEnabled {
-                        HStack(spacing: 6) {
-                            ForEach(promptsManager.visiblePrompts) { prompt in
-                                LoadingLanguageButton(
-                                    label: prompt.label,
-                                    tooltip: prompt.description,
-                                    isLoading: currentProcessingPrompt?.id == prompt.id
-                                ) {
-                                    Task {
-                                        await processWithGemini(prompt: prompt)
+                    // Разделитель между ROW 1 и ROW 2
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.clear, .white.opacity(0.1), .clear],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                }
+
+                // ROW 2: Основные действия
+                HStack {
+                    HStack(spacing: 12) {
+                        // Кнопка Голос
+                        Button(action: {
+                            NSLog("🔘 Нажата кнопка записи, isRecording=\(isRecording), provider=\(settings.asrProviderType)")
+                            Task {
+                                if isRecording {
+                                    NSLog("⏹️ Останавливаем запись...")
+                                    await stopASR()
+                                } else {
+                                    // Проверить возможность записи
+                                    if !canStartASR() {
+                                        NSLog("❌ canStartASR() вернул false")
+                                        setASRError("API ключ не найден. Откройте Настройки (Cmd+,)")
+                                        return
                                     }
+                                    NSLog("▶️ Запускаем запись...")
+                                    // Передаём существующий текст для режима дозаписи
+                                    await startASR(existingText: inputText)
                                 }
                             }
+                        }) {
+                            HStack(spacing: 6) {
+                                if isRecording {
+                                    Image(systemName: "stop.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(Color(nsColor: .systemRed))
+                                } else {
+                                    Image(systemName: "waveform")
+                                        .font(.system(size: 14))
+                                }
+
+                                Text(isRecording ? "Stop" : "Запись")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 8)
+                            .background(isRecording ? Color(nsColor: .systemRed).opacity(0.15) : Color.clear)
+                            .foregroundColor(isRecording ? Color(nsColor: .systemRed) : Color.white.opacity(0.8))
+                            .cornerRadius(6)
                         }
+                        .buttonStyle(PlainButtonStyle())
 
                         Divider()
                             .frame(height: 16)
                             .background(Color.white.opacity(0.2))
+
+                        // Кнопка История
+                        Button(action: {
+                            // Закрыть sliding panels при открытии истории
+                            showLeftPanel = false
+                            showRightPanel = false
+                            if !showHistory {
+                                loadHistory(searchQuery: "")
+                            }
+                            showHistory.toggle()
+                            if !showHistory {
+                                searchQuery = ""
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "clock")
+                                Text("История")
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 8)
+                            .background(showHistory ? Color.white.opacity(0.15) : Color.clear)
+                            .foregroundColor(showHistory ? .white : Color.white.opacity(0.8))
+                            .cornerRadius(6)
+                        }
+                        .buttonStyle(PlainButtonStyle())
                     }
 
-                    // Кнопка Голос
+                    Spacer()
+
+                    // Кнопка режима Текст/Аудио — только иконки
                     Button(action: {
-                        NSLog("🔘 Нажата кнопка записи, isRecording=\(isRecording), provider=\(settings.asrProviderType)")
-                        Task {
-                            if isRecording {
-                                NSLog("⏹️ Останавливаем запись...")
+                        // Если переключаемся с Аудио на Текст И идёт запись - остановить
+                        if settings.audioModeEnabled && isRecording {
+                            Task {
                                 await stopASR()
-                            } else {
-                                // Проверить возможность записи
-                                if !canStartASR() {
-                                    NSLog("❌ canStartASR() вернул false")
-                                    setASRError("API ключ не найден. Откройте Настройки (Cmd+,)")
-                                    return
-                                }
-                                NSLog("▶️ Запускаем запись...")
-                                // Передаём существующий текст для режима дозаписи
-                                await startASR(existingText: inputText)
                             }
                         }
+                        settings.audioModeEnabled.toggle()
                     }) {
-                        HStack(spacing: 6) {
-                            if isRecording {
-                                Image(systemName: "stop.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(Color(nsColor: .systemRed))
-                            } else {
-                                Image(systemName: "waveform")
-                                    .font(.system(size: 14))
-                            }
+                        Image(systemName: settings.audioModeEnabled ? "mic.fill" : "text.cursor")
+                            .font(.system(size: 14))
+                            .frame(width: 28, height: 28)
+                            .background(settings.audioModeEnabled
+                                ? DesignSystem.Colors.accent.opacity(0.2)
+                                : Color.white.opacity(0.1))
+                            .foregroundColor(settings.audioModeEnabled
+                                ? DesignSystem.Colors.accent
+                                : Color.white.opacity(0.8))
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .help(settings.audioModeEnabled ? "Режим: Аудио (нажмите для Текст)" : "Режим: Текст (нажмите для Аудио)")
 
-                            Text(isRecording ? "Stop" : "Запись")
+                    // Кнопка Отправить (активная) - зелёный #19af87
+                    // В аудио режиме: только копировать в буфер, без автовставки
+                    Button(action: { submitImmediate(skipAutoPaste: settings.audioModeEnabled) }) {
+                        HStack(spacing: 6) {
+                            Text("Отправить")
                                 .font(.system(size: 12, weight: .medium))
+                            Text("↵")
+                                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                .foregroundColor(Color.white.opacity(0.9))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.white.opacity(0.15))
+                                .cornerRadius(4)
                         }
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 8)
-                        .background(isRecording ? Color(nsColor: .systemRed).opacity(0.15) : Color.clear)
-                        .foregroundColor(isRecording ? Color(nsColor: .systemRed) : Color.white.opacity(0.8))
-                        .cornerRadius(6)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 12)
+                        .background(!canSubmit
+                            ? Color.white.opacity(0.1)
+                            : DesignSystem.Colors.accent)  // #19af87
+                        .foregroundColor(!canSubmit
+                            ? Color.white.opacity(0.5)
+                            : .white)
+                        .cornerRadius(8)
                     }
                     .buttonStyle(PlainButtonStyle())
-
-                    Divider()
-                        .frame(height: 16)
-                        .background(Color.white.opacity(0.2))
-
-                    // Кнопка История
-                    Button(action: {
-                        if !showHistory {
-                            loadHistory(searchQuery: "")
-                        }
-                        showHistory.toggle()
-                        if !showHistory {
-                            searchQuery = ""
-                        }
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "clock")
-                            Text("История")
-                        }
-                        .font(.system(size: 12, weight: .medium))
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 8)
-                        .background(showHistory ? Color.white.opacity(0.15) : Color.clear)
-                        .foregroundColor(showHistory ? .white : Color.white.opacity(0.8))
-                        .cornerRadius(6)
-                    }
-                    .buttonStyle(PlainButtonStyle())
+                    .disabled(!canSubmit)
                 }
-
-                Spacer()
-
-                // Кнопка режима Текст/Аудио - показывает ДЕЙСТВИЕ (куда переключиться)
-                Button(action: {
-                    // Если переключаемся с Аудио на Текст И идёт запись - остановить
-                    if settings.audioModeEnabled && isRecording {
-                        Task {
-                            await stopASR()
-                        }
-                    }
-                    settings.audioModeEnabled.toggle()
-                }) {
-                    HStack(spacing: 4) {
-                        // Показываем куда переключиться (инвертировано)
-                        Image(systemName: settings.audioModeEnabled ? "text.cursor" : "mic")
-                            .font(.system(size: 12))
-                        Text(settings.audioModeEnabled ? "Текст" : "Аудио")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 10)
-                    // Подсветка когда НЕ в этом режиме (т.е. кнопка активна для переключения)
-                    .background(!settings.audioModeEnabled
-                        ? DesignSystem.Colors.accent.opacity(0.2)
-                        : Color.white.opacity(0.1))
-                    .foregroundColor(!settings.audioModeEnabled
-                        ? DesignSystem.Colors.accent
-                        : Color.white.opacity(0.8))
-                    .cornerRadius(6)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .help(settings.audioModeEnabled ? "Переключить на Текст" : "Переключить на Аудио")
-
-                // Кнопка Отправить (активная) - зелёный #19af87
-                Button(action: submitImmediate) {
-                    HStack(spacing: 6) {
-                        Text("Отправить")
-                            .font(.system(size: 12, weight: .medium))
-                        Text("↵")
-                            .font(.system(size: 11, weight: .regular, design: .monospaced))
-                            .foregroundColor(Color.white.opacity(0.9))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.white.opacity(0.15))
-                            .cornerRadius(4)
-                    }
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 12)
-                    .background(!canSubmit
-                        ? Color.white.opacity(0.1)
-                        : DesignSystem.Colors.accent)  // #19af87
-                    .foregroundColor(!canSubmit
-                        ? Color.white.opacity(0.5)
-                        : .white)
-                    .cornerRadius(8)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .disabled(!canSubmit)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
             .background(DesignSystem.Colors.buttonAreaBackground)
         }
         .background(
             VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
                 .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.85))
+                .clipShape(RoundedRectangle(cornerRadius: 24))  // Скругление применяется к подложке
         )
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .overlay(
@@ -2456,28 +3607,24 @@ struct InputModalView: View {
         )
         .shadow(color: .black.opacity(0.65), radius: 27, x: 0, y: 24)
         .frame(width: 680)
+        .zIndex(1)  // Модалка поверх панелей
+        } // ZStack
+        .frame(width: 1060)  // Ширина окна: модалка + панели
+        .animation(.easeInOut(duration: 0.25), value: showLeftPanel)
+        .animation(.easeInOut(duration: 0.25), value: showRightPanel)
         .onAppear {
             resetView()
 
-            // Автозапуск записи в режиме Аудио
+            // Мгновенный автозапуск записи в режиме Аудио (без задержки!)
             if settings.audioModeEnabled && canStartASR() && !isRecording {
                 Task {
-                    // Небольшая задержка чтобы UI успел отрисоваться
-                    try? await Task.sleep(nanoseconds: 200_000_000)
                     await startASR(existingText: "")
                 }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .resetInputView)) { _ in
             resetView()
-
-            // Автозапуск при сбросе в режиме Аудио
-            if settings.audioModeEnabled && canStartASR() && !isRecording {
-                Task {
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                    await startASR(existingText: "")
-                }
-            }
+            // Автозапуск только в .onAppear чтобы избежать race condition
         }
         .onChange(of: settings.audioModeEnabled) { isAudioMode in
             // При включении режима Аудио - запустить запись
@@ -2521,25 +3668,118 @@ struct InputModalView: View {
         .onChange(of: asrErrorMessage) { error in
             showASRErrorAlert = error != nil
         }
-        .onReceive(NotificationCenter.default.publisher(for: .checkAndSubmit)) { _ in
-            // Закрытие по хоткею: если есть текст или идёт запись - отправить и вставить, иначе просто закрыть
-            let trimmedText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedText.isEmpty || isRecording {
-                submitImmediate()  // Остановит запись если нужно, отправит и вставит
-            } else {
-                // Просто закрыть без вставки
-                SoundManager.shared.playCloseSound()
-                NSApp.keyWindow?.close()
+        // Alert при отсутствии Gemini API ключа
+        .alert("Требуется Gemini API ключ", isPresented: $showAPIKeyAlert) {
+            Button("Открыть настройки") {
+                NotificationCenter.default.post(name: .openSettings, object: nil)
+                NotificationCenter.default.post(name: .openSettingsToAI, object: nil)
             }
+            Button("Отмена", role: .cancel) { }
+        } message: {
+            Text("Для использования AI функций необходимо добавить ключ в разделе Настройки → AI")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .checkAndSubmit)) { _ in
+            if settings.audioModeEnabled {
+                // Режим аудио: 3-фазная логика хоткея
+                if isRecording {
+                    // Фаза 1→2: Остановить запись, НЕ закрывать модалку
+                    Task {
+                        await stopASR()
+                        recordingStoppedByHotkey = true
+                    }
+                    SoundManager.shared.playStopSound()
+                } else {
+                    // Фаза 2→3: Запись уже остановлена → закрыть без вставки
+                    SoundManager.shared.playCloseSound()
+                    NSApp.keyWindow?.close()
+                }
+            } else {
+                // Текстовый режим: оригинальная логика
+                let trimmedText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedText.isEmpty {
+                    submitImmediate()
+                } else {
+                    SoundManager.shared.playCloseSound()
+                    NSApp.keyWindow?.close()
+                }
+            }
+        }
+        // Sheet для редактирования промпта (из UnifiedQuickAccessRow)
+        .sheet(item: $editingPrompt) { prompt in
+            PromptEditView(
+                prompt: prompt,
+                onSave: { updatedPrompt in
+                    promptsManager.updatePrompt(updatedPrompt)
+                    editingPrompt = nil
+                },
+                onCancel: {
+                    editingPrompt = nil
+                }
+            )
+        }
+        // Sheet для редактирования сниппета (из UnifiedQuickAccessRow)
+        .sheet(item: $editingSnippet) { snippet in
+            SnippetEditView(
+                snippet: snippet,
+                onSave: { updatedSnippet in
+                    snippetsManager.updateSnippet(updatedSnippet)
+                    editingSnippet = nil
+                },
+                onCancel: {
+                    editingSnippet = nil
+                }
+            )
+        }
+        // Sheet для добавления сниппета (из SlidingSnippetPanel)
+        .sheet(isPresented: $showAddSnippetSheet) {
+            SnippetAddView(
+                onSave: { newSnippet in
+                    snippetsManager.addSnippet(newSnippet)
+                    showAddSnippetSheet = false
+                },
+                onCancel: {
+                    showAddSnippetSheet = false
+                }
+            )
+        }
+        // Sheet для добавления промпта (из SlidingPromptPanel)
+        .sheet(isPresented: $showAddPromptSheet) {
+            PromptAddView(
+                onSave: { newPrompt in
+                    promptsManager.addPrompt(newPrompt)
+                    showAddPromptSheet = false
+                },
+                onCancel: {
+                    showAddPromptSheet = false
+                }
+            )
+        }
+        // Sheet для редактирования промпта (из SlidingPromptPanel)
+        .sheet(item: $editingPrompt) { prompt in
+            PromptEditView(
+                prompt: prompt,
+                onSave: { updatedPrompt in
+                    promptsManager.updatePrompt(updatedPrompt)
+                    editingPrompt = nil
+                },
+                onCancel: {
+                    editingPrompt = nil
+                }
+            )
         }
     }
 
     private func resetView() {
         inputText = ""
         showHistory = false
+        showLeftPanel = false
+        showRightPanel = false
         searchQuery = ""
         historyItems = []
         textEditorHeight = 40
+        recordingStoppedByHotkey = false
+        editingPrompt = nil
+        editingSnippet = nil
     }
 
     private func loadHistory(searchQuery: String) {
@@ -2563,7 +3803,8 @@ struct InputModalView: View {
     }
 
     /// Немедленная отправка - работает даже во время записи
-    private func submitImmediate() {
+    /// skipAutoPaste: если true - только копировать в буфер, не вставлять автоматически (для аудио режима)
+    private func submitImmediate(skipAutoPaste: Bool = false) {
         Task {
             // Если идёт запись - остановить и подождать результат
             if isRecording {
@@ -2590,7 +3831,7 @@ struct InputModalView: View {
 
                 guard !textToSubmit.isEmpty else { return }
 
-                // Копировать и отправить
+                // Копировать в буфер
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 pasteboard.setString(textToSubmit, forType: .string)
@@ -2598,7 +3839,64 @@ struct InputModalView: View {
                 HistoryManager.shared.addNote(textToSubmit)
                 inputText = ""
 
-                NotificationCenter.default.post(name: .submitAndPaste, object: nil)
+                if skipAutoPaste {
+                    // Только копирование - без автовставки (для аудио режима)
+                    SoundManager.shared.playCopySound()
+                    NSApp.keyWindow?.close()
+                } else {
+                    // Обычное поведение - копировать и вставить
+                    NotificationCenter.default.post(name: .submitAndPaste, object: nil)
+                }
+            }
+        }
+    }
+
+    /// Process text with LLM after local ASR (automatic post-processing)
+    private func processWithLLMPostASR() async {
+        let trimmedText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Validate input
+        guard !trimmedText.isEmpty else {
+            NSLog("⚠️ No text to process with LLM")
+            return
+        }
+
+        // Check Gemini API key
+        guard SettingsManager.shared.hasGeminiKey() else {
+            await MainActor.run {
+                setASRError("Для LLM-обработки нужен Gemini API ключ. Откройте Настройки → AI")
+            }
+            return
+        }
+
+        await MainActor.run {
+            isProcessingAI = true
+        }
+
+        NSLog("🤖 Auto-processing with LLM after local ASR...")
+
+        // Собираем полный промпт
+        var fullPrompt = settings.llmProcessingPrompt
+        if !settings.llmAdditionalInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            fullPrompt += "\n\nДополнительные инструкции:\n" + settings.llmAdditionalInstructions
+        }
+
+        do {
+            // forAI: false — используем модель из настроек Речи
+            let result = try await geminiService.generateContent(prompt: fullPrompt, userText: trimmedText, forAI: false)
+
+            await MainActor.run {
+                inputText = result
+                isProcessingAI = false
+            }
+
+            NSLog("✅ LLM post-processing complete")
+        } catch {
+            NSLog("❌ LLM processing error: \(error.localizedDescription)")
+
+            await MainActor.run {
+                setASRError("Ошибка LLM: \(error.localizedDescription)")
+                isProcessingAI = false
             }
         }
     }
@@ -2613,10 +3911,10 @@ struct InputModalView: View {
             return
         }
 
-        // Check API key
+        // Check API key - показать Alert вместо ошибки
         guard SettingsManager.shared.hasGeminiKey() else {
             await MainActor.run {
-                setASRError("Gemini API ключ не найден. Откройте Настройки (AI → Добавить ключ)")
+                showAPIKeyAlert = true
             }
             return
         }
@@ -2645,6 +3943,45 @@ struct InputModalView: View {
                 setASRError("Ошибка Gemini: \(error.localizedDescription)")
                 isProcessingAI = false
                 currentProcessingPrompt = nil
+            }
+        }
+    }
+
+    // MARK: - Enhance Text (улучшение текста через ИИ)
+
+    /// Улучшает текст через ИИ используя системный промпт из настроек
+    private func enhanceText() async {
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        guard SettingsManager.shared.hasGeminiKey() else {
+            await MainActor.run { showAPIKeyAlert = true }
+            return
+        }
+
+        await MainActor.run { isProcessingAI = true }
+
+        NSLog("✨ Enhancing text with AI...")
+
+        do {
+            let result = try await geminiService.generateContent(
+                prompt: "Улучши этот текст",
+                userText: text,
+                forAI: true,
+                systemPrompt: SettingsManager.shared.enhanceSystemPrompt
+            )
+
+            await MainActor.run {
+                inputText = result
+                isProcessingAI = false
+            }
+
+            NSLog("✅ Enhance complete")
+        } catch {
+            NSLog("❌ Enhance error: \(error.localizedDescription)")
+            await MainActor.run {
+                setASRError("Ошибка AI: \(error.localizedDescription)")
+                isProcessingAI = false
             }
         }
     }
@@ -2794,7 +4131,7 @@ struct HistoryListView: View {
                         }
                     }
                 }
-                .frame(height: min(CGFloat(items.count) * 44, 10 * 44)) // max 10 строк видно
+                .frame(height: min(CGFloat(items.count) * 44, 5 * 44)) // max 5 строк видно
                 .padding(.bottom, 8)
             }
         }
@@ -2883,7 +4220,7 @@ struct VoiceOverlayView: View {
             heightMultiplier = 1.0
         }
 
-        let maxHeight: CGFloat = 80
+        let maxHeight: CGFloat = 50  // Ограничено чтобы не выходить за пределы поля ввода
         let animatedHeight = maxHeight * CGFloat(audioLevel) * heightMultiplier * randomFactors[index]
         return max(baseHeight, animatedHeight)
     }
@@ -2947,6 +4284,9 @@ struct LoadingLanguageButton: View {
     let tooltip: String
     let isLoading: Bool
     let action: () -> Void
+    var onEdit: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
+    var isSystem: Bool = false  // Системные промпты нельзя удалить
 
     @State private var trimOffset: CGFloat = 0
 
@@ -2993,6 +4333,23 @@ struct LoadingLanguageButton: View {
         .buttonStyle(PlainButtonStyle())
         .disabled(isLoading)
         .help(tooltip)
+        .contextMenu {
+            if let onEdit = onEdit {
+                Button {
+                    onEdit()
+                } label: {
+                    Label("Редактировать", systemImage: "pencil")
+                }
+            }
+            if let onDelete = onDelete, !isSystem {
+                Divider()
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Удалить", systemImage: "trash")
+                }
+            }
+        }
         .onChange(of: isLoading) { loading in
             if loading {
                 trimOffset = 0
@@ -3005,6 +4362,987 @@ struct LoadingLanguageButton: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Snippet Button
+struct SnippetButton: View {
+    let shortcut: String
+    let tooltip: String
+    let action: () -> Void
+    var onEdit: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(shortcut)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.8))
+                .frame(minWidth: 28)
+                .frame(height: 24)
+                .padding(.horizontal, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(DesignSystem.Colors.accent.opacity(isHovered ? 0.25 : 0.15))
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .help(tooltip)
+        .contextMenu {
+            if let onEdit = onEdit {
+                Button {
+                    onEdit()
+                } label: {
+                    Label("Редактировать", systemImage: "pencil")
+                }
+            }
+            if let onDelete = onDelete {
+                Divider()
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Удалить", systemImage: "trash")
+                }
+            }
+        }
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+}
+
+// MARK: - Unified Quick Access Row (промпты слева, сниппеты справа)
+struct UnifiedQuickAccessRow: View {
+    @ObservedObject var promptsManager: PromptsManager
+    @ObservedObject var snippetsManager: SnippetsManager
+    @Binding var inputText: String
+    @Binding var showLeftPanel: Bool      // Панель промптов слева
+    @Binding var showRightPanel: Bool     // Панель сниппетов справа
+    let onProcessWithGemini: (CustomPrompt) -> Void
+    let currentProcessingPrompt: CustomPrompt?
+
+    // Для редактирования
+    @Binding var editingPrompt: CustomPrompt?
+    @Binding var editingSnippet: Snippet?
+
+    // Только избранные элементы для быстрого доступа
+    private var favoritePrompts: [CustomPrompt] {
+        promptsManager.prompts.filter { $0.isFavorite }.sorted { $0.order < $1.order }
+    }
+
+    private var favoriteSnippets: [Snippet] {
+        snippetsManager.snippets.filter { $0.isFavorite }.sorted { $0.order < $1.order }
+    }
+
+    private var hasNonFavoritePrompts: Bool {
+        promptsManager.prompts.contains { !$0.isFavorite }
+    }
+
+    private var hasNonFavoriteSnippets: Bool {
+        snippetsManager.snippets.contains { !$0.isFavorite }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            // LEFT: Кнопка раскрытия панели промптов "<"
+            if hasNonFavoritePrompts {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showLeftPanel.toggle()
+                        if showLeftPanel { showRightPanel = false }
+                    }
+                }) {
+                    Image(systemName: showLeftPanel ? "chevron.right" : "chevron.left")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.6))
+                        .frame(width: 24, height: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(showLeftPanel ? Color.white.opacity(0.15) : Color.white.opacity(0.1))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Дополнительные промпты")
+            }
+
+            // Избранные промпты
+            ForEach(favoritePrompts) { prompt in
+                LoadingLanguageButton(
+                    label: prompt.label,
+                    tooltip: prompt.description,
+                    isLoading: currentProcessingPrompt?.id == prompt.id,
+                    action: {
+                        onProcessWithGemini(prompt)
+                    },
+                    onEdit: {
+                        editingPrompt = prompt
+                    },
+                    onDelete: prompt.isSystem ? nil : {
+                        promptsManager.deletePrompt(prompt)
+                    },
+                    isSystem: prompt.isSystem
+                )
+            }
+
+            Spacer()
+
+            // Избранные сниппеты
+            ForEach(favoriteSnippets) { snippet in
+                SnippetButton(
+                    shortcut: snippet.shortcut,
+                    tooltip: snippet.title,
+                    action: {
+                        inputText += snippet.content
+                    },
+                    onEdit: {
+                        editingSnippet = snippet
+                    },
+                    onDelete: {
+                        snippetsManager.deleteSnippet(snippet)
+                    }
+                )
+            }
+
+            // RIGHT: Кнопка раскрытия панели сниппетов ">"
+            if hasNonFavoriteSnippets {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showRightPanel.toggle()
+                        if showRightPanel { showLeftPanel = false }
+                    }
+                }) {
+                    Image(systemName: showRightPanel ? "chevron.left" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.6))
+                        .frame(width: 24, height: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(showRightPanel ? Color.white.opacity(0.15) : Color.white.opacity(0.1))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Дополнительные сниппеты")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Sliding Prompt Panel (левая панель с non-favorite промптами)
+struct SlidingPromptPanel: View {
+    @ObservedObject var promptsManager: PromptsManager
+    let onProcessWithGemini: (CustomPrompt) -> Void
+    let currentProcessingPrompt: CustomPrompt?
+    let onAdd: () -> Void
+    @Binding var editingPrompt: CustomPrompt?
+
+    private var nonFavoritePrompts: [CustomPrompt] {
+        promptsManager.prompts.filter { !$0.isFavorite }.sorted { $0.order < $1.order }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Заголовок с кнопкой добавления
+            HStack {
+                Text("Промпты")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.6))
+                Spacer()
+                Button(action: onAdd) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Добавить промпт")
+            }
+
+            // Список non-favorite промптов
+            if nonFavoritePrompts.isEmpty {
+                Text("Нет дополнительных промптов")
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(nonFavoritePrompts) { prompt in
+                        LoadingLanguageButton(
+                            label: prompt.label,
+                            tooltip: prompt.description,
+                            isLoading: currentProcessingPrompt?.id == prompt.id,
+                            action: {
+                                onProcessWithGemini(prompt)
+                            },
+                            onEdit: {
+                                editingPrompt = prompt
+                            },
+                            onDelete: prompt.isSystem ? nil : {
+                                promptsManager.deletePrompt(prompt)
+                            },
+                            isSystem: prompt.isSystem
+                        )
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 180)
+        .background(Color.black.opacity(0.85))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Sliding Snippet Panel (правая панель с non-favorite сниппетами)
+struct SlidingSnippetPanel: View {
+    @ObservedObject var snippetsManager: SnippetsManager
+    @Binding var inputText: String
+    let onAdd: () -> Void
+    @Binding var editingSnippet: Snippet?
+
+    private var nonFavoriteSnippets: [Snippet] {
+        snippetsManager.snippets.filter { !$0.isFavorite }.sorted { $0.order < $1.order }
+    }
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            // Заголовок с кнопкой добавления
+            HStack {
+                Button(action: onAdd) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Добавить сниппет")
+                Spacer()
+                Text("Сниппеты")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+
+            // Список non-favorite сниппетов
+            if nonFavoriteSnippets.isEmpty {
+                Text("Нет дополнительных сниппетов")
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
+            } else {
+                VStack(alignment: .trailing, spacing: 4) {
+                    ForEach(nonFavoriteSnippets) { snippet in
+                        SnippetButton(
+                            shortcut: snippet.shortcut,
+                            tooltip: snippet.title,
+                            action: {
+                                inputText += snippet.content
+                            },
+                            onEdit: {
+                                editingSnippet = snippet
+                            },
+                            onDelete: {
+                                snippetsManager.deleteSnippet(snippet)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 180)
+        .background(Color.black.opacity(0.85))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - FlowLayout (для автоматического переноса кнопок)
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
+        for (index, position) in result.positions.enumerated() {
+            subviews[index].place(at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y), proposal: .unspecified)
+        }
+    }
+
+    private func arrangeSubviews(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
+        let maxWidth = proposal.width ?? .infinity
+        var positions: [CGPoint] = []
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+
+            if currentX + size.width > maxWidth && currentX > 0 {
+                currentX = 0
+                currentY += lineHeight + spacing
+                lineHeight = 0
+            }
+
+            positions.append(CGPoint(x: currentX, y: currentY))
+            lineHeight = max(lineHeight, size.height)
+            currentX += size.width + spacing
+            totalWidth = max(totalWidth, currentX - spacing)
+        }
+
+        return (CGSize(width: totalWidth, height: currentY + lineHeight), positions)
+    }
+}
+
+// MARK: - AI Prompts Panel (раскрывающаяся панель управления промптами)
+struct AIPromptsPanel: View {
+    @ObservedObject var promptsManager: PromptsManager
+    @Binding var inputText: String
+    let onProcessWithGemini: (CustomPrompt) -> Void
+    let currentProcessingPrompt: CustomPrompt?
+
+    @State private var editingPrompt: CustomPrompt? = nil
+    @State private var showAddSheet: Bool = false
+
+    private let maxVisibleRows = 5
+    private let rowHeight: CGFloat = 44
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Заголовок с кнопкой добавления
+            HStack {
+                Text("AI ПРОМПТЫ")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color.white.opacity(0.5))
+
+                Spacer()
+
+                Button(action: { showAddSheet = true }) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Добавить промпт")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+
+            Divider()
+                .background(Color.white.opacity(0.1))
+
+            // Список промптов
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(promptsManager.prompts.sorted { $0.order < $1.order }) { prompt in
+                        PromptRowView(
+                            prompt: prompt,
+                            isProcessing: currentProcessingPrompt?.id == prompt.id,
+                            onToggleFavorite: {
+                                promptsManager.toggleFavorite(prompt)
+                            },
+                            onEdit: {
+                                editingPrompt = prompt
+                            },
+                            onDelete: {
+                                if !prompt.isSystem {
+                                    promptsManager.deletePrompt(prompt)
+                                }
+                            },
+                            onTap: {
+                                onProcessWithGemini(prompt)
+                            }
+                        )
+                    }
+                }
+            }
+            .frame(maxHeight: CGFloat(maxVisibleRows) * rowHeight)
+        }
+        .background(Color.black.opacity(0.2))
+        .sheet(item: $editingPrompt) { prompt in
+            PromptEditView(
+                prompt: prompt,
+                onSave: { updated in
+                    promptsManager.updatePrompt(updated)
+                    editingPrompt = nil
+                },
+                onCancel: {
+                    editingPrompt = nil
+                }
+            )
+        }
+        .sheet(isPresented: $showAddSheet) {
+            PromptAddView(
+                onSave: { newPrompt in
+                    promptsManager.addPrompt(newPrompt)
+                    showAddSheet = false
+                },
+                onCancel: {
+                    showAddSheet = false
+                }
+            )
+        }
+    }
+}
+
+// MARK: - Prompt Row View
+struct PromptRowView: View {
+    let prompt: CustomPrompt
+    let isProcessing: Bool
+    let onToggleFavorite: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    let onTap: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Звезда избранного
+            Button(action: onToggleFavorite) {
+                Image(systemName: prompt.isFavorite ? "star.fill" : "star")
+                    .font(.system(size: 12))
+                    .foregroundColor(prompt.isFavorite ? .yellow : .gray)
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // Label badge
+            Text(prompt.label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white)
+                .frame(width: 32, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.white.opacity(0.1))
+                )
+
+            // Description
+            Text(prompt.description)
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.8))
+                .lineLimit(1)
+
+            Spacer()
+
+            // Actions (показываются при наведении)
+            if isHovered {
+                HStack(spacing: 8) {
+                    Button(action: onEdit) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .foregroundColor(.gray)
+
+                    if !prompt.isSystem {
+                        Button(action: onDelete) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .foregroundColor(.red.opacity(0.7))
+                    }
+                }
+            }
+
+            // Loading indicator
+            if isProcessing {
+                ProgressView()
+                    .scaleEffect(0.6)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(isHovered ? Color.white.opacity(0.05) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+}
+
+// MARK: - Prompt Edit View (Sheet)
+struct PromptEditView: View {
+    let prompt: CustomPrompt
+    let onSave: (CustomPrompt) -> Void
+    let onCancel: () -> Void
+
+    @State private var editedLabel: String
+    @State private var editedDescription: String
+    @State private var editedPrompt: String
+
+    init(prompt: CustomPrompt, onSave: @escaping (CustomPrompt) -> Void, onCancel: @escaping () -> Void) {
+        self.prompt = prompt
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _editedLabel = State(initialValue: prompt.label)
+        _editedDescription = State(initialValue: prompt.description)
+        _editedPrompt = State(initialValue: prompt.prompt)
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Редактировать промпт")
+                .font(.system(size: 16, weight: .semibold))
+
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Label (2-4 символа)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("WB", text: $editedLabel)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .disabled(prompt.isSystem)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Описание")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("Описание промпта", text: $editedDescription)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Текст промпта")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextEditor(text: $editedPrompt)
+                        .font(.system(size: 13))
+                        .frame(height: 120)
+                        .border(Color.gray.opacity(0.3), width: 1)
+                }
+            }
+
+            HStack {
+                Button("Отмена") { onCancel() }
+                    .keyboardShortcut(.escape)
+                Spacer()
+                Button("Сохранить") {
+                    var updated = prompt
+                    updated.label = editedLabel
+                    updated.description = editedDescription
+                    updated.prompt = editedPrompt
+                    onSave(updated)
+                }
+                .keyboardShortcut(.return)
+                .disabled(editedLabel.isEmpty || editedPrompt.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 400)
+    }
+}
+
+// MARK: - Prompt Add View (Sheet)
+struct PromptAddView: View {
+    let onSave: (CustomPrompt) -> Void
+    let onCancel: () -> Void
+
+    @State private var label: String = ""
+    @State private var description: String = ""
+    @State private var promptText: String = ""
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Новый AI промпт")
+                .font(.system(size: 16, weight: .semibold))
+
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Label (2-4 символа)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("FIX", text: $label)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Описание")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("Исправить ошибки", text: $description)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Текст промпта")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextEditor(text: $promptText)
+                        .font(.system(size: 13))
+                        .frame(height: 120)
+                        .border(Color.gray.opacity(0.3), width: 1)
+                }
+            }
+
+            HStack {
+                Button("Отмена") { onCancel() }
+                    .keyboardShortcut(.escape)
+                Spacer()
+                Button("Добавить") {
+                    let newPrompt = CustomPrompt(
+                        id: UUID(),
+                        label: label,
+                        description: description,
+                        prompt: promptText,
+                        isVisible: true,
+                        isFavorite: false,
+                        isSystem: false,
+                        order: 0
+                    )
+                    onSave(newPrompt)
+                }
+                .keyboardShortcut(.return)
+                .disabled(label.isEmpty || promptText.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 400)
+    }
+}
+
+// MARK: - Snippets Panel (раскрывающаяся панель управления сниппетами)
+struct SnippetsPanel: View {
+    @ObservedObject var snippetsManager: SnippetsManager
+    @Binding var inputText: String
+
+    @State private var editingSnippet: Snippet? = nil
+    @State private var showAddSheet: Bool = false
+
+    private let maxVisibleRows = 5
+    private let rowHeight: CGFloat = 44
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Заголовок с кнопкой добавления
+            HStack {
+                Text("СНИППЕТЫ")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color.white.opacity(0.5))
+
+                Spacer()
+
+                Button(action: { showAddSheet = true }) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Добавить сниппет")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+
+            Divider()
+                .background(Color.white.opacity(0.1))
+
+            if snippetsManager.snippets.isEmpty {
+                // Пустое состояние
+                VStack(spacing: 8) {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 24))
+                        .foregroundColor(.gray)
+                    Text("Нет сниппетов")
+                        .font(.system(size: 13))
+                        .foregroundColor(.gray)
+                    Text("Нажмите + чтобы создать")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray.opacity(0.7))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 30)
+            } else {
+                // Список сниппетов
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(snippetsManager.allSnippets) { snippet in
+                            SnippetRowView(
+                                snippet: snippet,
+                                onToggleFavorite: {
+                                    snippetsManager.toggleFavorite(snippet)
+                                },
+                                onEdit: {
+                                    editingSnippet = snippet
+                                },
+                                onDelete: {
+                                    snippetsManager.deleteSnippet(snippet)
+                                },
+                                onInsert: {
+                                    inputText += snippet.content
+                                }
+                            )
+                        }
+                    }
+                }
+                .frame(maxHeight: CGFloat(maxVisibleRows) * rowHeight)
+            }
+        }
+        .background(Color.black.opacity(0.2))
+        .sheet(item: $editingSnippet) { snippet in
+            SnippetEditView(
+                snippet: snippet,
+                onSave: { updated in
+                    snippetsManager.updateSnippet(updated)
+                    editingSnippet = nil
+                },
+                onCancel: {
+                    editingSnippet = nil
+                }
+            )
+        }
+        .sheet(isPresented: $showAddSheet) {
+            SnippetAddView(
+                onSave: { newSnippet in
+                    snippetsManager.addSnippet(newSnippet)
+                    showAddSheet = false
+                },
+                onCancel: {
+                    showAddSheet = false
+                }
+            )
+        }
+    }
+}
+
+// MARK: - Snippet Row View
+struct SnippetRowView: View {
+    let snippet: Snippet
+    let onToggleFavorite: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    let onInsert: () -> Void
+
+    @State private var isHovered = false
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                // Звезда избранного
+                Button(action: onToggleFavorite) {
+                    Image(systemName: snippet.isFavorite ? "star.fill" : "star")
+                        .font(.system(size: 12))
+                        .foregroundColor(snippet.isFavorite ? .yellow : .gray)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Shortcut badge
+                Text(snippet.shortcut)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(DesignSystem.Colors.accent.opacity(0.2))
+                    )
+
+                // Title
+                Text(snippet.title)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.8))
+                    .lineLimit(1)
+
+                Spacer()
+
+                // Expand/collapse
+                Button(action: { isExpanded.toggle() }) {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Actions
+                if isHovered {
+                    HStack(spacing: 8) {
+                        Button(action: onEdit) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 11))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .foregroundColor(.gray)
+
+                        Button(action: onDelete) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .foregroundColor(.red.opacity(0.7))
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .background(isHovered ? Color.white.opacity(0.05) : Color.clear)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onInsert)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+
+            // Expanded content
+            if isExpanded {
+                Text(snippet.content)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .lineLimit(3)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+            }
+        }
+    }
+}
+
+// MARK: - Snippet Edit View (Sheet)
+struct SnippetEditView: View {
+    let snippet: Snippet
+    let onSave: (Snippet) -> Void
+    let onCancel: () -> Void
+
+    @State private var editedShortcut: String
+    @State private var editedTitle: String
+    @State private var editedContent: String
+
+    init(snippet: Snippet, onSave: @escaping (Snippet) -> Void, onCancel: @escaping () -> Void) {
+        self.snippet = snippet
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _editedShortcut = State(initialValue: snippet.shortcut)
+        _editedTitle = State(initialValue: snippet.title)
+        _editedContent = State(initialValue: snippet.content)
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Редактировать сниппет")
+                .font(.system(size: 16, weight: .semibold))
+
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Shortcut (2-6 символов)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("addr", text: $editedShortcut)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Название")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("Домашний адрес", text: $editedTitle)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Текст сниппета")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextEditor(text: $editedContent)
+                        .font(.system(size: 13))
+                        .frame(height: 120)
+                        .border(Color.gray.opacity(0.3), width: 1)
+                }
+            }
+
+            HStack {
+                Button("Отмена") { onCancel() }
+                    .keyboardShortcut(.escape)
+                Spacer()
+                Button("Сохранить") {
+                    var updated = snippet
+                    updated.shortcut = editedShortcut
+                    updated.title = editedTitle
+                    updated.content = editedContent
+                    onSave(updated)
+                }
+                .keyboardShortcut(.return)
+                .disabled(editedShortcut.isEmpty || editedContent.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 400)
+    }
+}
+
+// MARK: - Snippet Add View (Sheet)
+struct SnippetAddView: View {
+    let onSave: (Snippet) -> Void
+    let onCancel: () -> Void
+
+    @State private var shortcut: String = ""
+    @State private var title: String = ""
+    @State private var content: String = ""
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Новый сниппет")
+                .font(.system(size: 16, weight: .semibold))
+
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Shortcut (2-6 символов)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("addr", text: $shortcut)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Название")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("Домашний адрес", text: $title)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Текст сниппета")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextEditor(text: $content)
+                        .font(.system(size: 13))
+                        .frame(height: 120)
+                        .border(Color.gray.opacity(0.3), width: 1)
+                }
+            }
+
+            HStack {
+                Button("Отмена") { onCancel() }
+                    .keyboardShortcut(.escape)
+                Spacer()
+                Button("Добавить") {
+                    let newSnippet = Snippet.create(
+                        shortcut: shortcut,
+                        title: title,
+                        content: content
+                    )
+                    onSave(newSnippet)
+                }
+                .keyboardShortcut(.return)
+                .disabled(shortcut.isEmpty || content.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 400)
     }
 }
 
@@ -3253,8 +5591,6 @@ struct VisualEffectBackground: NSViewRepresentable {
         view.blendingMode = blendingMode
         view.state = .active
         view.wantsLayer = true
-        view.layer?.cornerRadius = 24
-        view.layer?.masksToBounds = true
         return view
     }
 
@@ -3277,28 +5613,102 @@ func createMenuBarIcon() -> NSImage {
 
     image.lockFocus()
 
-    let font = NSFont.systemFont(ofSize: 14, weight: .bold)
-    let attributes: [NSAttributedString.Key: Any] = [
-        .font: font,
-        .foregroundColor: NSColor.white
-    ]
+    let scale = size / 100.0
 
-    let text = "D"
-    let textSize = text.size(withAttributes: attributes)
-    let textRect = NSRect(
-        x: (size - textSize.width) / 2 - 1,
-        y: (size - textSize.height) / 2,
-        width: textSize.width,
-        height: textSize.height
+    // Хелпер для конвертации SVG координат в Core Graphics
+    func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+        return NSPoint(x: x * scale, y: size - y * scale)
+    }
+
+    // Создаём путь буквы D
+    func createDPath() -> NSBezierPath {
+        let path = NSBezierPath()
+
+        // Внешний контур
+        path.move(to: point(20, 20))
+        path.line(to: point(50, 20))
+        path.curve(to: point(80, 50),
+                   controlPoint1: point(67, 20),
+                   controlPoint2: point(80, 33))
+        path.curve(to: point(50, 80),
+                   controlPoint1: point(80, 67),
+                   controlPoint2: point(67, 80))
+        path.line(to: point(20, 80))
+        path.close()
+
+        // Внутреннее отверстие
+        path.move(to: point(37, 35))
+        path.line(to: point(37, 65))
+        path.line(to: point(47, 65))
+        path.curve(to: point(62, 50),
+                   controlPoint1: point(55, 65),
+                   controlPoint2: point(62, 58))
+        path.curve(to: point(47, 35),
+                   controlPoint1: point(62, 42),
+                   controlPoint2: point(55, 35))
+        path.close()
+
+        path.windingRule = .evenOdd
+        return path
+    }
+
+    // Clipping path для верхней части
+    func createTopClip() -> NSBezierPath {
+        let clip = NSBezierPath()
+        clip.move(to: point(-10, -10))
+        clip.line(to: point(110, -10))
+        clip.line(to: point(110, 34))
+        clip.line(to: point(-10, 60))
+        clip.close()
+        return clip
+    }
+
+    // Clipping path для нижней части
+    func createBottomClip() -> NSBezierPath {
+        let clip = NSBezierPath()
+        clip.move(to: point(-10, 68))
+        clip.line(to: point(110, 42))
+        clip.line(to: point(110, 110))
+        clip.line(to: point(-10, 110))
+        clip.close()
+        return clip
+    }
+
+    // Рисуем верхнюю часть (белая, сдвинутая)
+    NSGraphicsContext.saveGraphicsState()
+    createTopClip().addClip()
+
+    let transform1 = AffineTransform(translationByX: -1.5 * scale, byY: 1.5 * scale)
+    let upperPath = createDPath()
+    upperPath.transform(using: transform1)
+
+    NSColor.white.setFill()
+    upperPath.fill()
+    NSGraphicsContext.restoreGraphicsState()
+
+    // Рисуем нижнюю часть (серая, сдвинутая)
+    NSGraphicsContext.saveGraphicsState()
+    createBottomClip().addClip()
+
+    let transform2 = AffineTransform(translationByX: 1.5 * scale, byY: -1.5 * scale)
+    let lowerPath = createDPath()
+    lowerPath.transform(using: transform2)
+
+    NSColor(red: 0x9a / 255.0, green: 0x9a / 255.0, blue: 0x9c / 255.0, alpha: 1.0).setFill()
+    lowerPath.fill()
+    NSGraphicsContext.restoreGraphicsState()
+
+    // Красная точка (такие же пропорции как в основной иконке)
+    let dotRadius = 8 * scale
+    let dotCenter = point(82, 17)
+    let dotRect = NSRect(
+        x: dotCenter.x - dotRadius,
+        y: dotCenter.y - dotRadius,
+        width: dotRadius * 2,
+        height: dotRadius * 2
     )
-    text.draw(in: textRect, withAttributes: attributes)
-
-    let dotSize: CGFloat = 5
-    let dotX = size - dotSize - 1
-    let dotY = size - dotSize - 2
-    let dotRect = NSRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
     let dotPath = NSBezierPath(ovalIn: dotRect)
-    NSColor(red: 1.0, green: 0.4, blue: 0.2, alpha: 1.0).setFill()
+    NSColor(red: 0xd9 / 255.0, green: 0x3f / 255.0, blue: 0x41 / 255.0, alpha: 1.0).setFill()
     dotPath.fill()
 
     image.unlockFocus()
@@ -3307,7 +5717,7 @@ func createMenuBarIcon() -> NSImage {
 }
 
 // MARK: - Launch At Login Manager
-class LaunchAtLoginManager {
+class LaunchAtLoginManager: @unchecked Sendable {
     static let shared = LaunchAtLoginManager()
 
     private let launchAgentPath: String
@@ -3405,6 +5815,7 @@ extension Notification.Name {
     static let disableGlobalHotkeys = Notification.Name("disableGlobalHotkeys")
     static let enableGlobalHotkeys = Notification.Name("enableGlobalHotkeys")
     static let accessibilityStatusChanged = Notification.Name("accessibilityStatusChanged")
+    static let openSettingsToAI = Notification.Name("openSettingsToAI")
 }
 
 // MARK: - Hotkey Recorder View
@@ -3486,9 +5897,11 @@ class HotkeyRecorderNSView: NSView {
 enum SettingsTab: String, CaseIterable {
     case general = "Основные"
     case hotkeys = "Хоткеи"
-    case features = "Фитчи"
-    case speech = "Речь"
+    case features = "Инструменты"
+    case speech = "Диктовка"
     case ai = "AI"
+    case snippets = "Сниппеты"
+    case updates = "Обновления"
 
     var icon: String {
         switch self {
@@ -3497,6 +5910,8 @@ enum SettingsTab: String, CaseIterable {
         case .features: return "camera.fill"
         case .speech: return "waveform"
         case .ai: return "sparkles"
+        case .snippets: return "text.quote"
+        case .updates: return "arrow.triangle.2.circlepath"
         }
     }
 }
@@ -3553,6 +5968,19 @@ struct GreenToggleStyle: ToggleStyle {
     }
 }
 
+// MARK: - Checkbox Toggle Style (для экспорта настроек)
+struct CheckboxToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: configuration.isOn ? "checkmark.square.fill" : "square")
+                .font(.system(size: 16))
+                .foregroundColor(configuration.isOn ? DesignSystem.Colors.accent : .gray.opacity(0.5))
+                .onTapGesture { configuration.isOn.toggle() }
+            configuration.label
+        }
+    }
+}
+
 struct SettingsView: View {
     @State private var selectedTab: SettingsTab = {
         let savedTab = SettingsManager.shared.lastSettingsTab
@@ -3569,6 +5997,11 @@ struct SettingsView: View {
     @State private var screenshotHotkey: HotkeyConfig = SettingsManager.shared.screenshotHotkey
     // Fix 13: Removed @State aiEnabled duplicate - use settings.aiEnabled directly
     @ObservedObject private var settings = SettingsManager.shared
+    // Config export/import (все опции включены по умолчанию)
+    @State private var exportHistory: Bool = true         // История заметок
+    @State private var exportAIFunctions: Bool = true     // AI промпты
+    @State private var exportSnippets: Bool = true        // Сниппеты (WB/RU/EN/CH + кастомные)
+    @State private var exportMessage: String = ""
 
     private static func checkMicrophonePermission() -> Bool {
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -3576,9 +6009,7 @@ struct SettingsView: View {
     }
 
     private static func checkScreenRecordingPermission() -> Bool {
-        // Screen Recording permission проверяется косвенно
-        // Возвращаем true если уже запрашивали ранее
-        return UserDefaults.standard.bool(forKey: "screenRecordingRequested")
+        return AccessibilityHelper.hasScreenRecordingPermission()
     }
 
     var body: some View {
@@ -3661,6 +6092,9 @@ struct SettingsView: View {
             hasMicrophonePermission = Self.checkMicrophonePermission()
             hasScreenRecordingPermission = Self.checkScreenRecordingPermission()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettingsToAI)) { _ in
+            selectedTab = .ai
+        }
     }
 
     @ViewBuilder
@@ -3671,6 +6105,8 @@ struct SettingsView: View {
         case .features: featuresTabContent
         case .speech: speechTabContent
         case .ai: aiTabContent
+        case .snippets: snippetsTabContent
+        case .updates: updatesTabContent
         }
     }
 
@@ -3688,8 +6124,11 @@ struct SettingsView: View {
                         isGranted: hasAccessibility,
                         action: {
                             AccessibilityHelper.requestAccessibility()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                                hasAccessibility = AccessibilityHelper.checkAccessibility()
+                            // Polling каждую секунду в течение 10 секунд
+                            for delay in stride(from: 1.0, through: 10.0, by: 1.0) {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                                    hasAccessibility = AccessibilityHelper.checkAccessibility()
+                                }
                             }
                         }
                     )
@@ -3708,6 +6147,12 @@ struct SettingsView: View {
                                     hasMicrophonePermission = granted
                                 }
                             }
+                            // Polling если юзер даст разрешение через System Settings
+                            for delay in stride(from: 1.0, through: 10.0, by: 1.0) {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                                    hasMicrophonePermission = Self.checkMicrophonePermission()
+                                }
+                            }
                         }
                     )
 
@@ -3724,7 +6169,12 @@ struct SettingsView: View {
                                 // Открыть System Preferences
                                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
                                 UserDefaults.standard.set(true, forKey: "screenRecordingRequested")
-                                hasScreenRecordingPermission = true
+                                // Polling для проверки реального статуса разрешения
+                                for delay in stride(from: 1.0, through: 15.0, by: 1.0) {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                                        hasScreenRecordingPermission = Self.checkScreenRecordingPermission()
+                                    }
+                                }
                             }
                         )
                     }
@@ -3770,6 +6220,22 @@ struct SettingsView: View {
                 }
             }
 
+            // Секция: Громкость при записи
+            SettingsSection(title: "ГРОМКОСТЬ ПРИ ЗАПИСИ") {
+                SettingsRow(
+                    title: "Снижать громкость ПК",
+                    subtitle: "Автоматически уменьшать громкость системы во время записи"
+                ) {
+                    Picker("", selection: $settings.volumeLevel) {
+                        Text("10%").tag(10)
+                        Text("20%").tag(20)
+                        Text("30%").tag(30)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 150)
+                }
+            }
+
             // Секция: Подсветка текста
             SettingsSection(title: "ТЕКСТОВЫЙ РЕДАКТОР") {
                 SettingsRow(
@@ -3783,6 +6249,93 @@ struct SettingsView: View {
                         .toggleStyle(GreenToggleStyle())
                         .labelsHidden()
                 }
+            }
+
+            // Секция: Бекап конфигурации (ПОСЛЕДНЯЯ)
+            SettingsSection(title: "БЕКАП КОНФИГУРАЦИИ") {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Экспортируйте конфигурацию в JSON-файл. Основные настройки и хоткеи всегда включены. API ключи не сохраняются.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.6))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    // Чекбоксы для дополнительных секций
+                    VStack(alignment: .leading, spacing: 10) {
+                        Toggle("История заметок", isOn: $exportHistory)
+                            .toggleStyle(CheckboxToggleStyle())
+                        Toggle("AI функции", isOn: $exportAIFunctions)
+                            .toggleStyle(CheckboxToggleStyle())
+                        Toggle("Сниппеты", isOn: $exportSnippets)
+                            .toggleStyle(CheckboxToggleStyle())
+                    }
+                    .font(.system(size: 13))
+
+                    HStack(spacing: 12) {
+                        Button(action: {
+                            if let url = settings.saveConfigToFile(
+                                includeHistory: exportHistory,
+                                includeAIFunctions: exportAIFunctions,
+                                includeSnippets: exportSnippets
+                            ) {
+                                exportMessage = "✓ Сохранено: \(url.lastPathComponent)"
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                                    exportMessage = ""
+                                }
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "square.and.arrow.up")
+                                Text("Экспорт")
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(DesignSystem.Colors.accent)
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        Button(action: {
+                            if settings.loadConfigFromFile() {
+                                exportMessage = "✓ Конфигурация загружена"
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                                    exportMessage = ""
+                                }
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "square.and.arrow.down")
+                                Text("Импорт")
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        Spacer()
+
+                        if !exportMessage.isEmpty {
+                            Text(exportMessage)
+                                .font(.system(size: 11))
+                                .foregroundColor(DesignSystem.Colors.accent)
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.white.opacity(0.03))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                )
             }
         }
     }
@@ -3943,11 +6496,7 @@ struct SettingsView: View {
     var speechTabContent: some View {
         VStack(spacing: 0) {
             ASRProviderSection()
-
-            // Показываем настройки Deepgram только если выбран Deepgram провайдер
-            if settings.asrProviderType == .deepgram {
-                DeepgramAPISection()
-            }
+            // Настройки API ключа Deepgram теперь внутри DeepgramSettingsPanel (оранжевая плашка)
         }
     }
 
@@ -3960,6 +6509,155 @@ struct SettingsView: View {
                 AIPromptsSection()
             }
         }
+    }
+
+    // === TAB: СНИППЕТЫ ===
+    var snippetsTabContent: some View {
+        VStack(spacing: 0) {
+            SnippetsSettingsSection()
+        }
+    }
+
+    // === TAB: ОБНОВЛЕНИЯ ===
+    var updatesTabContent: some View {
+        VStack(spacing: 0) {
+            UpdatesSettingsSection()
+        }
+    }
+}
+
+// MARK: - Updates Settings Section
+struct UpdatesSettingsSection: View {
+    @ObservedObject private var updateManager = UpdateManager.shared
+    @ObservedObject private var settings = SettingsManager.shared
+
+    var body: some View {
+        SettingsSection(title: "ОБНОВЛЕНИЯ") {
+            VStack(alignment: .leading, spacing: 16) {
+                // Текущая версия
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Текущая версия")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white)
+                        Text("Dictum v\(AppConfig.version) (build \(AppConfig.build))")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                    }
+
+                    Spacer()
+
+                    // Кнопка проверки
+                    Button(action: {
+                        updateManager.checkForUpdates(force: true)
+                    }) {
+                        HStack(spacing: 6) {
+                            if updateManager.isChecking {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                    .frame(width: 14, height: 14)
+                            } else {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 12))
+                            }
+                            Text(updateManager.isChecking ? "Проверка..." : "Проверить")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(DesignSystem.Colors.accent)
+                        .foregroundColor(.white)
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(updateManager.isChecking)
+                }
+
+                Divider().background(Color.white.opacity(0.1))
+
+                // Статус обновления
+                if updateManager.updateAvailable, let latestVersion = updateManager.latestVersion {
+                    HStack(spacing: 12) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(DesignSystem.Colors.accent)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Доступна новая версия \(latestVersion)")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.white)
+                            Text("Нажмите чтобы скачать")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray)
+                        }
+
+                        Spacer()
+
+                        Button("Скачать") {
+                            updateManager.openDownloadPage()
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(DesignSystem.Colors.accent)
+                        .foregroundColor(.white)
+                        .cornerRadius(6)
+                    }
+                    .padding(12)
+                    .background(DesignSystem.Colors.accent.opacity(0.15))
+                    .cornerRadius(8)
+                } else if let error = updateManager.checkError {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(.orange)
+                        Text(error)
+                            .font(.system(size: 12))
+                            .foregroundColor(.orange)
+                    }
+                } else if updateManager.lastCheckDate != nil {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle")
+                            .foregroundColor(DesignSystem.Colors.accent)
+                        Text("Установлена последняя версия")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                    }
+                }
+
+                Divider().background(Color.white.opacity(0.1))
+
+                // Автопроверка
+                SettingsRow(
+                    title: "Автоматически проверять обновления",
+                    subtitle: "Проверять раз в день при запуске"
+                ) {
+                    Toggle("", isOn: $settings.autoCheckUpdates)
+                        .toggleStyle(GreenToggleStyle())
+                        .labelsHidden()
+                }
+
+                // Последняя проверка
+                if let lastCheck = updateManager.lastCheckDate {
+                    HStack {
+                        Text("Последняя проверка:")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                        Spacer()
+                        Text(formatDate(lastCheck))
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+            .padding(.vertical, 8)
+        }
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 
@@ -3987,6 +6685,568 @@ struct HotkeyDisplayRow: View {
     }
 }
 
+// MARK: - ASR Provider Card
+struct ASRProviderCard: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    let badge: String?
+    let isSelected: Bool
+    let accentColor: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: icon)
+                        .font(.system(size: 18))
+                        .foregroundColor(isSelected ? accentColor : .gray)
+
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    // Радио-индикатор
+                    ZStack {
+                        Circle()
+                            .stroke(isSelected ? accentColor : Color.gray.opacity(0.5), lineWidth: 2)
+                            .frame(width: 16, height: 16)
+
+                        if isSelected {
+                            Circle()
+                                .fill(accentColor)
+                                .frame(width: 10, height: 10)
+                        }
+                    }
+                }
+
+                Text(subtitle)
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray)
+                    .lineLimit(2)
+
+                if let badge = badge {
+                    Text(badge)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(accentColor.opacity(0.8))
+                        .cornerRadius(4)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
+            .background(isSelected ? accentColor.opacity(0.15) : Color.white.opacity(0.03))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? accentColor.opacity(0.5) : Color.white.opacity(0.1), lineWidth: 1)
+            )
+            .cornerRadius(8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Parakeet Model Status View
+struct ParakeetModelStatusView: View {
+    @StateObject private var localASRManager = ParakeetASRProvider()
+    @State private var showDeleteConfirmation = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                // Иконка статуса
+                statusIcon
+
+                // Текст статуса
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(statusTitle)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+
+                    Text(statusSubtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                }
+
+                Spacer()
+
+                // Кнопка скачивания
+                if case .notDownloaded = localASRManager.modelStatus {
+                    Button(action: {
+                        Task {
+                            await localASRManager.initializeModelsIfNeeded()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 12))
+                            Text("Скачать")
+                        }
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(DesignSystem.Colors.accent)
+                    .cornerRadius(6)
+                }
+
+                // Кнопка удаления (когда модель готова)
+                if case .ready = localASRManager.modelStatus {
+                    Button(action: {
+                        showDeleteConfirmation = true
+                    }) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12))
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(8)
+                    .background(DesignSystem.Colors.accent.opacity(0.3))
+                    .cornerRadius(6)
+                    .buttonStyle(PlainButtonStyle())
+                    .help("Удалить модель")
+                }
+
+                // Повторить при ошибке
+                if case .error = localASRManager.modelStatus {
+                    Button("Повторить") {
+                        Task {
+                            await localASRManager.initializeModelsIfNeeded()
+                        }
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.red.opacity(0.8))
+                    .cornerRadius(6)
+                }
+            }
+        }
+        .padding(14)
+        .background(statusBackgroundColor.opacity(0.05))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(statusBackgroundColor.opacity(0.3), lineWidth: 1)
+        )
+        .cornerRadius(8)
+        // Диалог подтверждения удаления
+        .alert("Удалить модель Parakeet?", isPresented: $showDeleteConfirmation) {
+            Button("Отмена", role: .cancel) { }
+            Button("Удалить", role: .destructive) {
+                Task {
+                    await localASRManager.deleteModel()
+                }
+            }
+        } message: {
+            Text("Модель (~600 MB) будет удалена из кэша.\nВы сможете скачать её снова в любой момент.")
+        }
+    }
+
+    // MARK: - Computed Properties
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch localASRManager.modelStatus {
+        case .notChecked, .checking:
+            ProgressView()
+                .scaleEffect(0.7)
+                .progressViewStyle(CircularProgressViewStyle(tint: .gray))
+
+        case .notDownloaded:
+            Image(systemName: "arrow.down.circle")
+                .font(.system(size: 18))
+                .foregroundColor(.orange)
+
+        case .downloading:
+            // Анимированный индикатор загрузки
+            ProgressView()
+                .scaleEffect(0.8)
+                .progressViewStyle(CircularProgressViewStyle(tint: DesignSystem.Colors.accent))
+
+        case .loading:
+            // Пульсирующий индикатор компиляции
+            ProgressView()
+                .scaleEffect(0.8)
+                .progressViewStyle(CircularProgressViewStyle(tint: .cyan))
+
+        case .ready:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 18))
+                .foregroundColor(DesignSystem.Colors.accent)
+
+        case .error:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 18))
+                .foregroundColor(.red)
+        }
+    }
+
+    private var statusTitle: String {
+        switch localASRManager.modelStatus {
+        case .notChecked, .checking:
+            return "Проверка..."
+        case .notDownloaded:
+            return "Модель не установлена"
+        case .downloading:
+            return "Скачивание модели..."
+        case .loading:
+            return "Компиляция для Neural Engine..."
+        case .ready:
+            return "Parakeet v3 готова"
+        case .error(let msg):
+            return "Ошибка: \(msg.prefix(40))"
+        }
+    }
+
+    private var statusSubtitle: String {
+        switch localASRManager.modelStatus {
+        case .notChecked, .checking:
+            return "Проверяем наличие модели..."
+        case .notDownloaded:
+            return "Нажмите «Скачать» (~600 MB)"
+        case .downloading:
+            return "~600 MB • HuggingFace → ~/.cache/fluidaudio/"
+        case .loading:
+            return "Оптимизация под Apple Neural Engine..."
+        case .ready:
+            return "25 языков • Офлайн • ~190× real-time"
+        case .error:
+            return "Проверьте интернет-соединение"
+        }
+    }
+
+    private var statusBackgroundColor: Color {
+        switch localASRManager.modelStatus {
+        case .ready:
+            return DesignSystem.Colors.accent
+        case .downloading, .loading:
+            return DesignSystem.Colors.accent
+        case .notDownloaded:
+            return .orange
+        case .error:
+            return .red
+        default:
+            return .gray
+        }
+    }
+}
+
+// MARK: - Deepgram Settings Panel (оранжевая рамка)
+struct DeepgramSettingsPanel: View {
+    @ObservedObject private var settings = SettingsManager.shared
+    @State private var apiKeyInput: String = ""
+    @State private var showKeyInput: Bool = false
+    @State private var showSuccess: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // API Key статус
+            HStack {
+                if settings.hasDeepgramAPIKey {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(DesignSystem.Colors.deepgramOrange)
+                    Text("API ключ установлен")
+                        .font(.system(size: 11))
+                        .foregroundColor(DesignSystem.Colors.deepgramOrange)
+                    Text("•")
+                        .foregroundColor(.gray)
+                    Text(settings.getDeepgramAPIKeyMasked())
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.gray)
+                } else {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("Требуется API ключ")
+                        .font(.system(size: 11))
+                        .foregroundColor(.orange)
+                }
+
+                Spacer()
+
+                Button(settings.hasDeepgramAPIKey ? "Изменить" : "Добавить") {
+                    showKeyInput.toggle()
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(DesignSystem.Colors.deepgramOrange.opacity(0.3))
+                .cornerRadius(6)
+                .buttonStyle(PlainButtonStyle())
+            }
+
+            if showKeyInput {
+                HStack(spacing: 8) {
+                    TextField("Введите Deepgram API ключ...", text: $apiKeyInput)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 11, design: .monospaced))
+                        .padding(8)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(6)
+
+                    Button("Сохранить") {
+                        if settings.saveDeepgramAPIKey(apiKeyInput) {
+                            showSuccess = true
+                            apiKeyInput = ""
+                            showKeyInput = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                showSuccess = false
+                            }
+                        }
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(apiKeyInput.isEmpty ? Color.gray : DesignSystem.Colors.deepgramOrange)
+                    .cornerRadius(6)
+                    .disabled(apiKeyInput.isEmpty)
+                }
+            }
+
+            if showSuccess {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(DesignSystem.Colors.deepgramOrange)
+                    Text("Ключ сохранён")
+                        .font(.system(size: 11))
+                        .foregroundColor(DesignSystem.Colors.deepgramOrange)
+                }
+            }
+
+            Link("Получить API ключ Deepgram →", destination: URL(string: "https://console.deepgram.com/signup")!)
+                .font(.system(size: 11))
+                .foregroundColor(.gray)
+
+            // Только если ключ установлен
+            if settings.hasDeepgramAPIKey {
+                Divider().background(Color.white.opacity(0.1))
+
+                // Модель Deepgram
+                HStack {
+                    Text("Модель")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white)
+
+                    Spacer()
+
+                    Picker("", selection: Binding(
+                        get: { DeepgramModelType(rawValue: settings.deepgramModel) ?? .nova3 },
+                        set: { settings.deepgramModel = $0.rawValue }
+                    )) {
+                        ForEach(DeepgramModelType.allCases, id: \.self) { model in
+                            Text(model.menuDisplayName + (model.isRecommended ? " ✓" : ""))
+                                .tag(model)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 200)
+                }
+
+                Divider().background(Color.white.opacity(0.1))
+
+                // Язык распознавания
+                HStack {
+                    Text("Язык")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white)
+
+                    Spacer()
+
+                    Picker("", selection: $settings.preferredLanguage) {
+                        Text("Русский").tag("ru")
+                        Text("English").tag("en")
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 120)
+                }
+            }
+        }
+        .padding(14)
+        .background(DesignSystem.Colors.deepgramOrange.opacity(0.05))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(DesignSystem.Colors.deepgramOrange.opacity(0.3), lineWidth: 1)
+        )
+        .cornerRadius(8)
+    }
+}
+
+// MARK: - Deepgram Billing Panel (серая плашка со статистикой)
+struct DeepgramBillingPanel: View {
+    @ObservedObject private var settings = SettingsManager.shared
+    @State private var balance: Double?
+    @State private var totalDuration: Double = 0
+    @State private var totalCost: Double = 0
+    @State private var requestCount: Int = 0
+    @State private var isLoading = false
+    @State private var error: String?
+    @State private var lastUpdated: Date?
+
+    private let service = DeepgramManagementService()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Заголовок + кнопка обновить
+            HStack {
+                Text("Статистика")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .frame(width: 16, height: 16)
+                } else {
+                    Button {
+                        Task { await loadStats() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+
+            if let error = error {
+                Text(error)
+                    .font(.system(size: 10))
+                    .foregroundColor(.orange)
+                    .lineLimit(3)
+            } else {
+                // Баланс
+                HStack {
+                    Text("Баланс")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    Spacer()
+                    if let balance = balance {
+                        Text(String(format: "$%.2f", balance))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white)
+                    } else {
+                        Text("—")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                    }
+                }
+
+                Divider().background(Color.white.opacity(0.1))
+
+                // Последние запросы: количество
+                HStack {
+                    Text("Запросов")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text("\(requestCount)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white)
+                }
+
+                // Общая длительность
+                HStack {
+                    Text("Распознано")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text(formatDuration(totalDuration))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white)
+                }
+
+                // Общая стоимость
+                HStack {
+                    Text("Потрачено")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text(String(format: "$%.4f", totalCost))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white)
+                }
+
+                // Последнее обновление
+                if let lastUpdated = lastUpdated {
+                    HStack {
+                        Spacer()
+                        Text("Обновлено: \(formatTime(lastUpdated))")
+                            .font(.system(size: 9))
+                            .foregroundColor(.gray.opacity(0.6))
+                    }
+                }
+            }
+        }
+        .onAppear {
+            Task { await loadStats() }
+        }
+    }
+
+    private func loadStats() async {
+        guard let apiKey = SettingsManager.shared.getAPIKey(), !apiKey.isEmpty else {
+            error = "API ключ не найден"
+            return
+        }
+
+        isLoading = true
+        error = nil
+
+        do {
+            // Получаем проекты
+            let projects = try await service.getProjects(apiKey: apiKey)
+            guard let project = projects.first else {
+                error = "Проект не найден"
+                isLoading = false
+                return
+            }
+
+            // Получаем баланс
+            let balances = try await service.getBalances(apiKey: apiKey, projectId: project.project_id)
+            balance = balances.first?.amount
+
+            // Получаем последние запросы
+            let requests = try await service.getUsageRequests(apiKey: apiKey, projectId: project.project_id, limit: 100)
+            requestCount = requests.count
+            totalDuration = requests.compactMap { $0.response.duration_seconds }.reduce(0, +)
+            totalCost = requests.compactMap { $0.response.details?.usd }.reduce(0, +)
+
+            lastUpdated = Date()
+        } catch let err as DeepgramManagementError {
+            error = err.errorDescription ?? "Ошибка загрузки"
+        } catch {
+            self.error = "Ошибка: \(error.localizedDescription)"
+        }
+
+        isLoading = false
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        if mins > 0 {
+            return "\(mins) мин \(secs) сек"
+        } else {
+            return "\(secs) сек"
+        }
+    }
+
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+}
+
 // MARK: - ASR Provider Section
 struct ASRProviderSection: View {
     @ObservedObject private var settings = SettingsManager.shared
@@ -3994,35 +7254,49 @@ struct ASRProviderSection: View {
     var body: some View {
         SettingsSection(title: "РАСПОЗНАВАНИЕ РЕЧИ") {
             VStack(alignment: .leading, spacing: 16) {
-                // Локальная модель (T-ONE)
-                ASRProviderRow(
-                    title: "Локальная модель (T-ONE)",
-                    subtitle: "Работает офлайн, задержка ~100мс",
-                    icon: "cpu",
-                    isSelected: settings.asrProviderType == .local,
-                    action: {
-                        settings.asrProviderType = .local
-                    }
-                )
-
-                Divider().background(Color.white.opacity(0.1))
-
-                // Deepgram (облако)
-                VStack(alignment: .leading, spacing: 8) {
-                    ASRProviderRow(
-                        title: "Deepgram (облако)",
-                        subtitle: "Нужен API ключ Deepgram, задержка ~200мс",
-                        icon: "cloud",
-                        isSelected: settings.asrProviderType == .deepgram,
-                        action: {
-                            settings.asrProviderType = .deepgram
-                        }
+                // Горизонтальные карточки провайдеров
+                HStack(spacing: 12) {
+                    // Parakeet v3 (локальная модель)
+                    ASRProviderCard(
+                        icon: "cpu",
+                        title: "Parakeet v3",
+                        subtitle: "25 языков • ~190× RT",
+                        badge: "Офлайн",
+                        isSelected: settings.asrProviderType == .local,
+                        accentColor: DesignSystem.Colors.accent,
+                        action: { settings.asrProviderType = .local }
                     )
 
-                    Link("Получить API ключ Deepgram →", destination: URL(string: "https://console.deepgram.com/signup")!)
-                        .font(.system(size: 11))
-                        .foregroundColor(DesignSystem.Colors.accent)
-                        .padding(.leading, 44)
+                    // Deepgram (облако)
+                    ASRProviderCard(
+                        icon: "cloud.fill",
+                        title: "Deepgram",
+                        subtitle: "Streaming • ~200мс",
+                        badge: nil,
+                        isSelected: settings.asrProviderType == .deepgram,
+                        accentColor: DesignSystem.Colors.deepgramOrange,
+                        action: { settings.asrProviderType = .deepgram }
+                    )
+                }
+
+                // Настройки выбранного провайдера
+                if settings.asrProviderType == .local {
+                    LLMSettingsInlineView()
+                } else {
+                    DeepgramSettingsPanel()
+
+                    // Статистика Deepgram (отдельная серая плашка)
+                    if settings.hasDeepgramAPIKey {
+                        DeepgramBillingPanel()
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 16)
+                            .background(Color.white.opacity(0.03))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                            )
+                            .cornerRadius(8)
+                    }
                 }
             }
             .padding(.vertical, 8)
@@ -4030,53 +7304,337 @@ struct ASRProviderSection: View {
     }
 }
 
-// MARK: - ASR Provider Row
-struct ASRProviderRow: View {
-    let title: String
-    let subtitle: String
-    let icon: String
-    let isSelected: Bool
-    let action: () -> Void
+// MARK: - LLM Settings Inline View (в рамке под локальной моделью)
+struct LLMSettingsInlineView: View {
+    @ObservedObject private var settings = SettingsManager.shared
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                // Иконка
-                Image(systemName: icon)
-                    .font(.system(size: 20))
-                    .foregroundColor(isSelected ? DesignSystem.Colors.accent : .gray)
-                    .frame(width: 32, height: 32)
+        VStack(spacing: 12) {
+            // === ПЛАШКА 0: Статус модели Parakeet (если не загружена) ===
+            ParakeetModelStatusView()
 
-                // Текст
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 13, weight: .medium))
+            // === ПЛАШКА 1: API ключ + Модель (зелёная рамка) ===
+            VStack(alignment: .leading, spacing: 14) {
+                // API Key Status
+                GeminiAPIKeyStatus()
+
+                // Model Picker (только если ключ есть)
+                if settings.hasGeminiAPIKey {
+                    Divider().background(Color.white.opacity(0.1))
+                    GeminiModelPicker(selection: $settings.selectedGeminiModel, label: "Модель")
+                }
+            }
+            .padding(14)
+            .background(DesignSystem.Colors.accent.opacity(0.05))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(DesignSystem.Colors.accent.opacity(0.3), lineWidth: 1)
+            )
+            .cornerRadius(8)
+
+            // === ПЛАШКА 2: Системный промпт + Инструкции (нейтральная рамка) ===
+            VStack(alignment: .leading, spacing: 16) {
+                // Системный промпт
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Системный промпт")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white)
+                        Text("— инструкции для LLM обработки")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                        Spacer()
+                        if settings.llmProcessingPrompt != SettingsManager.defaultLLMPrompt {
+                            Button("Сбросить") {
+                                settings.llmProcessingPrompt = SettingsManager.defaultLLMPrompt
+                            }
+                            .font(.system(size: 11))
+                            .foregroundColor(DesignSystem.Colors.accent)
+                        }
+                    }
+
+                    TextEditor(text: $settings.llmProcessingPrompt)
+                        .font(.system(size: 11, design: .monospaced))
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 80, maxHeight: 220)
+                        .padding(8)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(6)
+                }
+
+                Divider().background(Color.white.opacity(0.1))
+
+                // Дополнительные инструкции
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Дополнительные инструкции")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white)
+                        Text("— добавляются к системному промпту")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                    }
+
+                    TextEditor(text: $settings.llmAdditionalInstructions)
+                        .font(.system(size: 11, design: .monospaced))
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 44, maxHeight: 132)
+                        .padding(8)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(6)
+                }
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.white.opacity(0.03))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+            )
+
+            // === ПЛАШКА 3: Промпт "Улучшить через ИИ" (нейтральная рамка) ===
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Image(systemName: "wand.and.stars")
+                        .foregroundColor(DesignSystem.Colors.accent)
+                        .font(.system(size: 12))
+                    Text("Улучшить через ИИ")
+                        .font(.system(size: 14))
                         .foregroundColor(.white)
-
-                    Text(subtitle)
+                    Text("— инструкции для кнопки ✨")
                         .font(.system(size: 11))
                         .foregroundColor(.gray)
+                    Spacer()
+                    if settings.enhanceSystemPrompt != SettingsManager.defaultEnhanceSystemPrompt {
+                        Button("Сбросить") {
+                            settings.enhanceSystemPrompt = SettingsManager.defaultEnhanceSystemPrompt
+                        }
+                        .font(.system(size: 11))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                    }
+                }
+
+                TextEditor(text: $settings.enhanceSystemPrompt)
+                    .font(.system(size: 11, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 80, maxHeight: 220)
+                    .padding(8)
+                    .background(Color.black.opacity(0.3))
+                    .cornerRadius(6)
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.white.opacity(0.03))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+            )
+        }
+    }
+}
+
+// MARK: - Gemini Model Picker (Dropdown)
+struct GeminiModelPicker: View {
+    @Binding var selection: GeminiModel
+    var label: String = "Модель Gemini"
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.white)
+
+            Spacer()
+
+            Picker("", selection: $selection) {
+                ForEach(GeminiModel.allCases, id: \.self) { model in
+                    Text(model.menuDisplayName + (model.isNew ? " ✦" : ""))
+                        .tag(model)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 336)  // 280 × 1.2 = 336 (на 20% шире)
+        }
+    }
+}
+
+// MARK: - Gemini API Key Status
+struct GeminiAPIKeyStatus: View {
+    @ObservedObject private var settings = SettingsManager.shared
+    @State private var apiKeyInput: String = ""
+    @State private var showKeyInput: Bool = false
+    @State private var showSuccess: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // API Key статус
+            HStack {
+                if settings.hasGeminiAPIKey {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(DesignSystem.Colors.accent)
+                    Text("API ключ установлен")
+                        .font(.system(size: 11))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                    Text("•")
+                        .foregroundColor(.gray)
+                    Text(settings.getGeminiAPIKeyMasked())
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.gray)
+                } else {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("Требуется API ключ")
+                        .font(.system(size: 11))
+                        .foregroundColor(.orange)
                 }
 
                 Spacer()
 
-                // Индикатор выбора
-                ZStack {
-                    Circle()
-                        .stroke(isSelected ? DesignSystem.Colors.accent : Color.gray.opacity(0.5), lineWidth: 2)
-                        .frame(width: 20, height: 20)
+                Button(settings.hasGeminiAPIKey ? "Изменить" : "Добавить") {
+                    showKeyInput.toggle()
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(DesignSystem.Colors.accent.opacity(0.3))
+                .cornerRadius(6)
+                .buttonStyle(PlainButtonStyle())
+            }
 
-                    if isSelected {
-                        Circle()
-                            .fill(DesignSystem.Colors.accent)
-                            .frame(width: 12, height: 12)
+            if showKeyInput {
+                HStack(spacing: 8) {
+                    TextField("Введите Gemini API ключ...", text: $apiKeyInput)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 11, design: .monospaced))
+                        .padding(8)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(6)
+
+                    Button("Сохранить") {
+                        if settings.saveGeminiAPIKey(apiKeyInput) {
+                            showSuccess = true
+                            apiKeyInput = ""
+                            showKeyInput = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                showSuccess = false
+                            }
+                        }
                     }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(apiKeyInput.isEmpty ? Color.gray : DesignSystem.Colors.accent)
+                    .cornerRadius(6)
+                    .disabled(apiKeyInput.isEmpty)
                 }
             }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+
+            if showSuccess {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(DesignSystem.Colors.accent)
+                    Text("Ключ сохранён")
+                        .font(.system(size: 11))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                }
+            }
+
+            Link("Получить API ключ Google AI Studio →", destination: URL(string: "https://aistudio.google.com/apikey")!)
+                .font(.system(size: 11))
+                .foregroundColor(.gray)
         }
-        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - LLM Processing Section
+struct LLMProcessingSection: View {
+    @ObservedObject private var settings = SettingsManager.shared
+    @State private var isEditingPrompt: Bool = false
+
+    var body: some View {
+        SettingsSection(title: "LLM-ОБРАБОТКА") {
+            VStack(alignment: .leading, spacing: 16) {
+                // API Key Status
+                GeminiAPIKeyStatus()
+
+                Divider().background(Color.white.opacity(0.1))
+
+                // Model Picker
+                GeminiModelPicker(selection: $settings.selectedGeminiModel, label: "Модель для обработки")
+
+                Divider().background(Color.white.opacity(0.1))
+
+                // Описание
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .foregroundColor(DesignSystem.Colors.accent)
+                    Text("После распознавания текст автоматически обрабатывается выбранной моделью")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                }
+
+                // Основной промпт
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Системный промпт")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.white)
+
+                        Spacer()
+
+                        if settings.llmProcessingPrompt != SettingsManager.defaultLLMPrompt {
+                            Button("Сбросить") {
+                                settings.llmProcessingPrompt = SettingsManager.defaultLLMPrompt
+                            }
+                            .font(.system(size: 10))
+                            .foregroundColor(DesignSystem.Colors.accent)
+                        }
+                    }
+
+                    TextEditor(text: $settings.llmProcessingPrompt)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(height: 120)
+                        .padding(8)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                }
+
+                // Дополнительные инструкции
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Дополнительные инструкции")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white)
+
+                    Text("Добавляются к системному промпту")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
+
+                    TextEditor(text: $settings.llmAdditionalInstructions)
+                        .font(.system(size: 11))
+                        .frame(height: 60)
+                        .padding(8)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                }
+            }
+            .padding(.vertical, 8)
+        }
     }
 }
 
@@ -4116,7 +7674,7 @@ struct DeepgramAPISection: View {
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 6)
-                                    .background(Color.white.opacity(0.15))
+                                    .background(DesignSystem.Colors.deepgramOrange.opacity(0.3))
                                     .cornerRadius(6)
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -4461,7 +8019,7 @@ struct AISettingsSection: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.15))
+                        .background(DesignSystem.Colors.accent.opacity(0.3))
                         .cornerRadius(6)
                         .buttonStyle(PlainButtonStyle())
                     }
@@ -4517,9 +8075,61 @@ struct AISettingsSection: View {
                         .foregroundColor(.blue)
                     }
                     .buttonStyle(PlainButtonStyle())
+
+                    Divider().background(Color.white.opacity(0.1))
+
+                    // Model Picker для AI функций
+                    GeminiModelPicker(selection: $settings.selectedGeminiModelForAI, label: "Модель для AI")
+
+                    Divider().background(Color.white.opacity(0.1))
+
+                    // Max Output Tokens Slider
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Макс. длина ответа")
+                                .font(.system(size: 13))
+                                .foregroundColor(.white)
+                            Spacer()
+                            Text("\(settings.maxOutputTokens) токенов")
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(.gray)
+                        }
+
+                        HStack(spacing: 12) {
+                            Text("512")
+                                .font(.system(size: 10))
+                                .foregroundColor(.gray)
+
+                            Slider(
+                                value: Binding(
+                                    get: { Double(settings.maxOutputTokens) },
+                                    set: { settings.maxOutputTokens = Int($0) }
+                                ),
+                                in: 512...20000
+                            )
+                            .tint(DesignSystem.Colors.accent)
+
+                            Text("20K")
+                                .font(.system(size: 10))
+                                .foregroundColor(.gray)
+                        }
+
+                        Text("Больше токенов = длиннее ответы AI, но медленнее и дороже")
+                            .font(.system(size: 10))
+                            .foregroundColor(.gray.opacity(0.7))
+                    }
                 }
             }
             .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.white.opacity(0.03))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+            )
         }
     }
 }
@@ -4527,31 +8137,28 @@ struct AISettingsSection: View {
 // MARK: - AI Prompts Section
 struct AIPromptsSection: View {
     @ObservedObject private var promptsManager = PromptsManager.shared
-    @State private var selectedPrompt: CustomPrompt? = nil
+    @State private var editingPrompt: CustomPrompt? = nil
     @State private var showAddSheet: Bool = false
-    @State private var editedPromptText: String = ""
 
     var body: some View {
         SettingsSection(title: "AI ПРОМПТЫ") {
             VStack(alignment: .leading, spacing: 12) {
+                // Описание
+                Text("Промпты для обработки текста. Избранные отображаются в главном окне.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .padding(.bottom, 4)
+
                 // Список промптов с drag-n-drop
                 VStack(spacing: 4) {
                     ForEach(promptsManager.prompts.sorted { $0.order < $1.order }) { prompt in
-                        PromptRowView(
+                        SettingsPromptRowView(
                             prompt: prompt,
-                            isSelected: selectedPrompt?.id == prompt.id,
-                            onSelect: {
-                                selectedPrompt = prompt
-                                editedPromptText = prompt.prompt
+                            onToggleFavorite: {
+                                promptsManager.toggleFavorite(prompt)
                             },
-                            onToggleVisibility: {
-                                promptsManager.toggleVisibility(prompt)
-                            },
-                            onDelete: prompt.isSystem ? nil : {
-                                promptsManager.deletePrompt(prompt)
-                                if selectedPrompt?.id == prompt.id {
-                                    selectedPrompt = nil
-                                }
+                            onEdit: {
+                                editingPrompt = prompt
                             }
                         )
                     }
@@ -4560,76 +8167,31 @@ struct AIPromptsSection: View {
                     }
                 }
 
-                // Кнопка добавления
-                Button(action: { showAddSheet = true }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 12))
-                        Text("Добавить промпт")
-                            .font(.system(size: 11))
+                // Кнопки добавления и восстановления
+                HStack(spacing: 16) {
+                    Button(action: { showAddSheet = true }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 12))
+                            Text("Добавить промпт")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(DesignSystem.Colors.accent)
                     }
-                    .foregroundColor(DesignSystem.Colors.accent)
+                    .buttonStyle(PlainButtonStyle())
+
+                    Button(action: { promptsManager.restoreDefaultPrompts() }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 11))
+                            Text("Восстановить базовые")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(.gray)
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
                 .padding(.top, 4)
-
-                // Редактор выбранного промпта
-                if let prompt = selectedPrompt {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Divider()
-                            .background(Color.white.opacity(0.1))
-                            .padding(.vertical, 4)
-
-                        // Заголовок
-                        HStack {
-                            Text("\(prompt.label): \(prompt.description)")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.white)
-
-                            if prompt.isSystem {
-                                Image(systemName: "lock.fill")
-                                    .font(.system(size: 9))
-                                    .foregroundColor(.gray.opacity(0.5))
-                            }
-                        }
-
-                        // Редактор текста промпта
-                        TextEditor(text: $editedPromptText)
-                            .font(.system(size: 12))
-                            .frame(height: 100)
-                            .padding(8)
-                            .background(DesignSystem.Colors.cardBackground)
-                            .cornerRadius(DesignSystem.CornerRadius.card)
-                            .onChange(of: editedPromptText) { newValue in
-                                // Автосохранение при изменении
-                                if var updated = selectedPrompt {
-                                    updated.prompt = newValue
-                                    promptsManager.updatePrompt(updated)
-                                }
-                            }
-
-                        // Кнопки
-                        HStack {
-                            if prompt.isSystem {
-                                Button(action: {
-                                    // Сброс к дефолту
-                                    if let defaultPrompt = CustomPrompt.defaultSystemPrompts.first(where: { $0.label == prompt.label }) {
-                                        editedPromptText = defaultPrompt.prompt
-                                        var updated = prompt
-                                        updated.prompt = defaultPrompt.prompt
-                                        promptsManager.updatePrompt(updated)
-                                    }
-                                }) {
-                                    Text("Сбросить по умолчанию")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.gray)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                            Spacer()
-                        }
-                    }
-                }
             }
             .padding(.vertical, 8)
         }
@@ -4638,69 +8200,69 @@ struct AIPromptsSection: View {
                 promptsManager.addPrompt(newPrompt)
             }
         }
+        .sheet(item: $editingPrompt) { prompt in
+            EditPromptSheet(
+                prompt: prompt,
+                onSave: { updatedPrompt in
+                    promptsManager.updatePrompt(updatedPrompt)
+                },
+                onDelete: {
+                    promptsManager.deletePrompt(prompt)
+                    editingPrompt = nil
+                }
+            )
+        }
     }
 }
 
-// MARK: - Prompt Row View
-struct PromptRowView: View {
+// MARK: - Settings Prompt Row View (для настроек)
+struct SettingsPromptRowView: View {
     let prompt: CustomPrompt
-    let isSelected: Bool
-    let onSelect: () -> Void
-    let onToggleVisibility: () -> Void
-    let onDelete: (() -> Void)?
+    let onToggleFavorite: () -> Void
+    let onEdit: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            // Иконка видимости (глаз)
-            Button(action: onToggleVisibility) {
-                Image(systemName: prompt.isVisible ? "eye.fill" : "eye.slash")
+            // Иконка избранного (звезда)
+            Button(action: onToggleFavorite) {
+                Image(systemName: prompt.isFavorite ? "star.fill" : "star")
                     .font(.system(size: 11))
-                    .foregroundColor(prompt.isVisible ? DesignSystem.Colors.accent : .gray.opacity(0.5))
+                    .foregroundColor(prompt.isFavorite ? DesignSystem.Colors.accent : .gray.opacity(0.5))
                     .frame(width: 16)
             }
             .buttonStyle(PlainButtonStyle())
 
-            // Label кнопки
+            // Label кнопки (растягивается по содержимому)
             Text(prompt.label)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundColor(isSelected ? .white : .gray)
-                .frame(width: 32)
-                .padding(.horizontal, 6)
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(isSelected ? DesignSystem.Colors.selectedBackground : DesignSystem.Colors.cardBackground)
+                .background(DesignSystem.Colors.cardBackground)
                 .cornerRadius(DesignSystem.CornerRadius.button)
 
             // Описание
             Text(prompt.description)
                 .font(.system(size: 11))
-                .foregroundColor(isSelected ? .white : .gray)
+                .foregroundColor(.gray)
                 .lineLimit(1)
 
             Spacer()
 
-            // Иконка системного промпта
-            if prompt.isSystem {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 9))
-                    .foregroundColor(.gray.opacity(0.4))
+            // Кнопка редактирования
+            Button(action: onEdit) {
+                Image(systemName: "pencil")
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
             }
-
-            // Кнопка удаления (только для кастомных)
-            if let onDelete = onDelete {
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 11))
-                        .foregroundColor(DesignSystem.Colors.destructive.opacity(0.7))
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
+            .buttonStyle(PlainButtonStyle())
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(isSelected ? Color.white.opacity(0.05) : Color.clear)
+        .background(Color.white.opacity(0.02))
         .cornerRadius(4)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
     }
 }
 
@@ -4714,7 +8276,7 @@ struct AddPromptSheet: View {
     @State private var promptText: String = ""
 
     private var isValid: Bool {
-        !label.isEmpty && label.count >= 2 && label.count <= 4 &&
+        !label.isEmpty && label.count >= 1 && label.count <= 10 &&
         !description.isEmpty &&
         !promptText.isEmpty
     }
@@ -4725,27 +8287,148 @@ struct AddPromptSheet: View {
                 .font(.headline)
                 .foregroundColor(.white)
 
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 // Label
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Кнопка (2-4 символа)")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Кнопка (до 10 символов)")
                         .font(.system(size: 11))
                         .foregroundColor(.gray)
                     TextField("", text: $label)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 80)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .padding(10)
+                        .background(Color(hex: "#1a1a1b"))
+                        .cornerRadius(6)
+                        .frame(width: 140)
                         .onChange(of: label) { newValue in
-                            label = String(newValue.prefix(4)).uppercased()
+                            label = String(newValue.prefix(10)).uppercased()
                         }
                 }
 
                 // Description
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Описание")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("", text: $description)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .padding(10)
+                        .background(Color(hex: "#1a1a1b"))
+                        .cornerRadius(6)
+                }
+
+                // Prompt text
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Текст промпта")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextEditor(text: $promptText)
+                        .font(.system(size: 12))
+                        .frame(height: 160)
+                        .padding(6)
+                        .scrollContentBackground(.hidden)
+                        .background(Color(hex: "#1a1a1b"))
+                        .cornerRadius(6)
+                }
+            }
+
+            HStack {
+                Spacer()
+
+                Button("Отмена") {
+                    dismiss()
+                }
+                .buttonStyle(.bordered)
+
+                Button("Добавить") {
+                    let newPrompt = CustomPrompt(
+                        id: UUID(),
+                        label: label,
+                        description: description,
+                        prompt: promptText,
+                        isVisible: true,
+                        isFavorite: true,
+                        isSystem: false,
+                        order: 0
+                    )
+                    onAdd(newPrompt)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(DesignSystem.Colors.accent)
+                .disabled(!isValid)
+            }
+        }
+        .padding(24)
+        .frame(width: 520, height: 455)
+        .background(Color(red: 30/255, green: 30/255, blue: 32/255))
+    }
+}
+
+// MARK: - Edit Prompt Sheet
+struct EditPromptSheet: View {
+    let prompt: CustomPrompt
+    let onSave: (CustomPrompt) -> Void
+    let onDelete: (() -> Void)?
+    @Environment(\.dismiss) var dismiss
+
+    @State private var label: String
+    @State private var description: String
+    @State private var promptText: String
+    @State private var isFavorite: Bool
+    @State private var showDeleteConfirmation: Bool = false
+
+    init(prompt: CustomPrompt, onSave: @escaping (CustomPrompt) -> Void, onDelete: (() -> Void)? = nil) {
+        self.prompt = prompt
+        self.onSave = onSave
+        self.onDelete = onDelete
+        _label = State(initialValue: prompt.label)
+        _description = State(initialValue: prompt.description)
+        _promptText = State(initialValue: prompt.prompt)
+        _isFavorite = State(initialValue: prompt.isFavorite)
+    }
+
+    private var isValid: Bool {
+        !label.isEmpty && label.count >= 1 && label.count <= 10 &&
+        !description.isEmpty &&
+        !promptText.isEmpty
+    }
+
+    // Цвет фона полей ввода
+    private let fieldBackground = Color(red: 26/255, green: 26/255, blue: 27/255)  // #1a1a1b
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Редактировать промпт")
+                .font(.headline)
+                .foregroundColor(.white)
+
+            VStack(alignment: .leading, spacing: 14) {
+                // Label (редактируется для всех промптов)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Кнопка (до 10 символов)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("", text: $label)
+                        .font(.system(size: 13))
+                        .padding(10)
+                        .background(fieldBackground)
+                        .cornerRadius(6)
+                        .frame(width: 140)
+                        .onChange(of: label) { newValue in
+                            label = String(newValue.prefix(10)).uppercased()
+                        }
+                }
+
+                // Description (редактируется для всех промптов)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Описание")
                         .font(.system(size: 11))
                         .foregroundColor(.gray)
                     TextField("", text: $description)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.system(size: 13))
+                        .padding(10)
+                        .background(fieldBackground)
+                        .cornerRadius(6)
                 }
 
                 // Prompt text
@@ -4754,12 +8437,344 @@ struct AddPromptSheet: View {
                         .font(.system(size: 11))
                         .foregroundColor(.gray)
                     TextEditor(text: $promptText)
+                        .font(.system(size: 12, design: .monospaced))
+                        .scrollContentBackground(.hidden)
+                        .padding(8)
+                        .background(fieldBackground)
+                        .cornerRadius(6)
+                        .frame(minHeight: 200)
+                }
+
+                // Favorite toggle
+                Toggle(isOn: $isFavorite) {
+                    Text("Показывать в быстром доступе")
                         .font(.system(size: 12))
+                        .foregroundColor(.white)
+                }
+                .toggleStyle(GreenToggleStyle())
+
+                // Reset button for system prompts
+                if prompt.isSystem {
+                    Button(action: {
+                        if let defaultPrompt = CustomPrompt.defaultSystemPrompts.first(where: { $0.label == prompt.label }) {
+                            promptText = defaultPrompt.prompt
+                            label = defaultPrompt.label
+                            description = defaultPrompt.description
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("Сбросить по умолчанию")
+                        }
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+
+            // Кнопки: [Удалить] — Spacer — [Отмена] [Сохранить]
+            HStack {
+                // Кнопка удаления (если есть callback)
+                if onDelete != nil {
+                    Button(action: {
+                        showDeleteConfirmation = true
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash")
+                            Text("Удалить")
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.destructive)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(DesignSystem.Colors.destructive.opacity(0.15))
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                Spacer()
+
+                Button("Отмена") {
+                    dismiss()
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.1))
+                .cornerRadius(6)
+                .buttonStyle(PlainButtonStyle())
+
+                Button(action: {
+                    var updated = prompt
+                    updated.label = label
+                    updated.description = description
+                    updated.prompt = promptText
+                    updated.isFavorite = isFavorite
+                    onSave(updated)
+                    dismiss()
+                }) {
+                    Text("Сохранить")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(isValid ? DesignSystem.Colors.accent : Color.gray)
+                        .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(!isValid)
+            }
+        }
+        .padding(24)
+        .frame(width: 520, height: 580)  // +30% от 400x450
+        .background(Color(red: 30/255, green: 30/255, blue: 32/255))
+        .alert("Удалить промпт?", isPresented: $showDeleteConfirmation) {
+            Button("Отмена", role: .cancel) { }
+            Button("Да, удалить", role: .destructive) {
+                onDelete?()
+                dismiss()
+            }
+        } message: {
+            Text("Промпт \"\(prompt.label)\" будет удалён")
+        }
+    }
+}
+
+// MARK: - Snippets Settings Section
+struct SnippetsSettingsSection: View {
+    @ObservedObject private var snippetsManager = SnippetsManager.shared
+    @State private var editingSnippet: Snippet? = nil
+    @State private var showAddSheet: Bool = false
+
+    var body: some View {
+        SettingsSection(title: "СНИППЕТЫ") {
+            VStack(alignment: .leading, spacing: 12) {
+                // Описание
+                Text("Быстрые текстовые вставки. Избранные отображаются в главном окне.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .padding(.bottom, 4)
+
+                // Список сниппетов
+                if snippetsManager.snippets.isEmpty {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 8) {
+                            Image(systemName: "text.quote")
+                                .font(.system(size: 24))
+                                .foregroundColor(.gray.opacity(0.5))
+                            Text("Нет сниппетов")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                        }
+                        .padding(.vertical, 20)
+                        Spacer()
+                    }
+                } else {
+                    VStack(spacing: 4) {
+                        ForEach(snippetsManager.snippets.sorted { $0.order < $1.order }) { snippet in
+                            SettingsSnippetRowView(
+                                snippet: snippet,
+                                onToggleFavorite: {
+                                    snippetsManager.toggleFavorite(snippet)
+                                },
+                                onEdit: {
+                                    editingSnippet = snippet
+                                },
+                                onDelete: {
+                                    snippetsManager.deleteSnippet(snippet)
+                                }
+                            )
+                        }
+                        .onMove { from, to in
+                            snippetsManager.moveSnippet(from: from, to: to)
+                        }
+                    }
+                }
+
+                // Кнопка добавления
+                Button(action: { showAddSheet = true }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 12))
+                        Text("Добавить сниппет")
+                            .font(.system(size: 11))
+                    }
+                    .foregroundColor(DesignSystem.Colors.accent)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .padding(.top, 4)
+            }
+            .padding(.vertical, 8)
+        }
+        .sheet(isPresented: $showAddSheet) {
+            AddSnippetSheet { newSnippet in
+                snippetsManager.addSnippet(newSnippet)
+            }
+        }
+        .sheet(item: $editingSnippet) { snippet in
+            EditSnippetSheet(snippet: snippet) { updatedSnippet in
+                snippetsManager.updateSnippet(updatedSnippet)
+            }
+        }
+    }
+}
+
+// MARK: - Settings Snippet Row View
+struct SettingsSnippetRowView: View {
+    let snippet: Snippet
+    let onToggleFavorite: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    @State private var isExpanded: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                // Иконка избранного (звезда)
+                Button(action: onToggleFavorite) {
+                    Image(systemName: snippet.isFavorite ? "star.fill" : "star")
+                        .font(.system(size: 11))
+                        .foregroundColor(snippet.isFavorite ? DesignSystem.Colors.accent : .gray.opacity(0.5))
+                        .frame(width: 16)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Shortcut
+                Text(snippet.shortcut)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(DesignSystem.Colors.cardBackground)
+                    .cornerRadius(DesignSystem.CornerRadius.button)
+
+                // Title
+                Text(snippet.title)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .lineLimit(1)
+
+                Spacer()
+
+                // Expand/Collapse
+                Button(action: { isExpanded.toggle() }) {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Edit
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Delete
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundColor(DesignSystem.Colors.destructive.opacity(0.7))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color.white.opacity(0.02))
+            .cornerRadius(4)
+
+            // Expanded content preview
+            if isExpanded {
+                Text(snippet.content)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.gray)
+                    .lineLimit(5)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.black.opacity(0.2))
+                    .cornerRadius(4)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 4)
+            }
+        }
+    }
+}
+
+// MARK: - Add Snippet Sheet
+struct AddSnippetSheet: View {
+    let onAdd: (Snippet) -> Void
+    @Environment(\.dismiss) var dismiss
+
+    @State private var shortcut: String = ""
+    @State private var title: String = ""
+    @State private var content: String = ""
+    @State private var isFavorite: Bool = true
+
+    private var isValid: Bool {
+        shortcut.count >= 2 && shortcut.count <= 6 &&
+        !title.isEmpty &&
+        !content.isEmpty
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Новый сниппет")
+                .font(.headline)
+                .foregroundColor(.white)
+
+            VStack(alignment: .leading, spacing: 12) {
+                // Shortcut
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Код (2-6 символов)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("", text: $shortcut)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .frame(width: 100)
+                        .onChange(of: shortcut) { newValue in
+                            shortcut = String(newValue.prefix(6)).lowercased()
+                        }
+                }
+
+                // Title
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Название")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("", text: $title)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+
+                // Content
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Текст сниппета")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextEditor(text: $content)
+                        .font(.system(size: 11, design: .monospaced))
                         .frame(height: 120)
                         .padding(4)
                         .background(Color.white.opacity(0.1))
                         .cornerRadius(6)
                 }
+
+                // Favorite toggle
+                Toggle(isOn: $isFavorite) {
+                    Text("Показывать в быстром доступе")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white)
+                }
+                .toggleStyle(GreenToggleStyle())
             }
 
             HStack {
@@ -4771,16 +8786,14 @@ struct AddPromptSheet: View {
                 Spacer()
 
                 Button("Добавить") {
-                    let newPrompt = CustomPrompt(
-                        id: UUID(),
-                        label: label,
-                        description: description,
-                        prompt: promptText,
-                        isVisible: true,
-                        isSystem: false,
-                        order: 0
+                    let newSnippet = Snippet.create(
+                        shortcut: shortcut,
+                        title: title,
+                        content: content
                     )
-                    onAdd(newPrompt)
+                    var snippet = newSnippet
+                    snippet.isFavorite = isFavorite
+                    onAdd(snippet)
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
@@ -4788,7 +8801,111 @@ struct AddPromptSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 400, height: 350)
+        .frame(width: 400, height: 400)
+        .background(Color(red: 30/255, green: 30/255, blue: 32/255))
+    }
+}
+
+// MARK: - Edit Snippet Sheet
+struct EditSnippetSheet: View {
+    let snippet: Snippet
+    let onSave: (Snippet) -> Void
+    @Environment(\.dismiss) var dismiss
+
+    @State private var shortcut: String
+    @State private var title: String
+    @State private var content: String
+    @State private var isFavorite: Bool
+
+    init(snippet: Snippet, onSave: @escaping (Snippet) -> Void) {
+        self.snippet = snippet
+        self.onSave = onSave
+        _shortcut = State(initialValue: snippet.shortcut)
+        _title = State(initialValue: snippet.title)
+        _content = State(initialValue: snippet.content)
+        _isFavorite = State(initialValue: snippet.isFavorite)
+    }
+
+    private var isValid: Bool {
+        shortcut.count >= 2 && shortcut.count <= 6 &&
+        !title.isEmpty &&
+        !content.isEmpty
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Редактировать сниппет")
+                .font(.headline)
+                .foregroundColor(.white)
+
+            VStack(alignment: .leading, spacing: 12) {
+                // Shortcut
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Код (2-6 символов)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("", text: $shortcut)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .frame(width: 100)
+                        .onChange(of: shortcut) { newValue in
+                            shortcut = String(newValue.prefix(6)).lowercased()
+                        }
+                }
+
+                // Title
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Название")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextField("", text: $title)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+
+                // Content
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Текст сниппета")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    TextEditor(text: $content)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(height: 120)
+                        .padding(4)
+                        .background(Color.white.opacity(0.1))
+                        .cornerRadius(6)
+                }
+
+                // Favorite toggle
+                Toggle(isOn: $isFavorite) {
+                    Text("Показывать в быстром доступе")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white)
+                }
+                .toggleStyle(GreenToggleStyle())
+            }
+
+            HStack {
+                Button("Отмена") {
+                    dismiss()
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+
+                Button("Сохранить") {
+                    var updated = snippet
+                    updated.shortcut = shortcut
+                    updated.title = title
+                    updated.content = content
+                    updated.isFavorite = isFavorite
+                    onSave(updated)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!isValid)
+            }
+        }
+        .padding(20)
+        .frame(width: 400, height: 400)
         .background(Color(red: 30/255, green: 30/255, blue: 32/255))
     }
 }
@@ -4939,7 +9056,7 @@ struct HotkeyRow: View {
 }
 
 // MARK: - App Delegate
-class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unchecked Sendable {
     var statusItem: NSStatusItem?
     var window: NSWindow?
     var settingsWindow: NSWindow?
@@ -4992,12 +9109,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             object: nil
         )
 
-        // Показываем окно при первом запуске
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        // Показываем окно при первом запуске (уменьшена задержка для быстрого старта)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             if SettingsManager.shared.settingsWindowWasOpen {
                 self?.openSettings()
             } else {
                 self?.showWindow()
+            }
+        }
+
+        // Автоматическая проверка обновлений при запуске (если включена)
+        if SettingsManager.shared.autoCheckUpdates {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                UpdateManager.shared.checkForUpdates()
             }
         }
 
@@ -5031,30 +9155,35 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
-        NSLog("📸 Screenshot hotkey pressed")
+        // Проверяем Screen Recording permission
+        if !AccessibilityHelper.hasScreenRecordingPermission() {
+            NSLog("❌ Screen Recording permission not granted")
 
-        // Создаём директорию если не существует
-        let screenshotsDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library")
-            .appendingPathComponent("Screenshots")
+            DispatchQueue.main.async {
+                let alert = NSAlert()
+                alert.messageText = "Нужно разрешение"
+                alert.informativeText = "Для создания скриншотов нужно разрешение Screen Recording.\n\nОткройте Системные настройки → Конфиденциальность → Запись экрана и включите Dictum."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Открыть настройки")
+                alert.addButton(withTitle: "Отмена")
 
-        do {
-            try FileManager.default.createDirectory(
-                at: screenshotsDir,
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-        } catch {
-            NSLog("❌ Failed to create screenshots directory: \(error)")
+                if alert.runModal() == .alertFirstButtonReturn {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
             return
         }
 
-        // Генерируем AI-friendly имя файла
+        NSLog("📸 Screenshot hotkey pressed")
+
+        // Используем /tmp/ — гарантированно доступна для записи на всех версиях macOS
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
         let timestamp = dateFormatter.string(from: Date())
-        let filename = "screenshot-\(timestamp).png"
-        let filepath = screenshotsDir.appendingPathComponent(filename).path
+        let filename = "dictum-screenshot-\(timestamp).png"
+        let filepath = "/tmp/\(filename)"
 
         // Запускаем screencapture с интерактивным выбором
         // Fix R4-H1: Выполняем в background thread чтобы не блокировать UI
@@ -5065,11 +9194,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
                 try process.run()
-                process.waitUntilExit()  // Теперь блокирует только background thread
+                process.waitUntilExit()
 
                 DispatchQueue.main.async {
+                    // Диагностика
+                    NSLog("📸 screencapture exit status: \(process.terminationStatus)")
+                    NSLog("📸 Expected file: \(filepath)")
+                    NSLog("📸 File exists: \(FileManager.default.fileExists(atPath: filepath))")
+
                     if process.terminationStatus == 0 {
-                        // Проверяем что файл создан (пользователь мог отменить)
                         if FileManager.default.fileExists(atPath: filepath) {
                             NSLog("✅ Screenshot saved: \(filepath)")
 
@@ -5078,10 +9211,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                             pasteboard.clearContents()
                             pasteboard.setString(filepath, forType: .string)
 
-                            // Показываем временное уведомление
-                            self?.showScreenshotNotification()
+                            // Показываем уведомление
+                            Task { @MainActor [weak self] in
+                                self?.showScreenshotNotification()
+                            }
                         } else {
-                            NSLog("⚠️ Screenshot cancelled by user")
+                            NSLog("⚠️ Screenshot cancelled by user (file not created)")
                         }
                     } else {
                         NSLog("❌ screencapture failed with status: \(process.terminationStatus)")
@@ -5093,7 +9228,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    @MainActor
     func showScreenshotNotification() {
+        // @MainActor гарантирует выполнение на main thread
+
         // Закрываем предыдущее уведомление если оно еще видимо
         if let existingWindow = screenshotNotificationWindow {
             existingWindow.orderOut(nil)
@@ -5113,6 +9251,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         notification.backgroundColor = .clear
         notification.level = .floating
         notification.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        notification.isReleasedWhenClosed = false  // Предотвращает краш при закрытии
 
         // SwiftUI контент
         let hostingView = NSHostingView(rootView: ScreenshotNotificationView())
@@ -5203,24 +9342,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func simulatePaste() {
-        // CGEvent метод (как Raycast) - требует только Accessibility
-        let source = CGEventSource(stateID: .hidSystemState)
+        // AppleScript через System Events — надёжнее CGEvent для всех приложений
+        // + поддерживает undo stack целевого приложения
+        let script = """
+        tell application "System Events"
+            keystroke "v" using command down
+        end tell
+        """
 
-        // V key = 0x09
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false) else {
-            NSLog("❌ Не удалось создать CGEvent")
-            return
+        var error: NSDictionary?
+        if let appleScript = NSAppleScript(source: script) {
+            appleScript.executeAndReturnError(&error)
+            if let error = error {
+                NSLog("❌ AppleScript paste error: \(error)")
+            } else {
+                NSLog("✅ Paste выполнен через AppleScript")
+            }
+        } else {
+            NSLog("❌ Не удалось создать AppleScript")
         }
-
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
-
-        keyDown.post(tap: .cghidEventTap)
-        usleep(10000)  // 10ms между нажатием и отпусканием
-        keyUp.post(tap: .cghidEventTap)
-
-        NSLog("📋 Cmd+V отправлен через CGEvent")
     }
 
     func unregisterHotKeys() {
@@ -5263,7 +9403,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             openItem.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Open Dictum")
             menu.addItem(openItem)
 
-            // "Настройки..." with gear icon
+            // "Проверить обновления..." with arrow icon (перед настройками)
+            let updateItem = NSMenuItem(title: "Проверить обновления...", action: #selector(checkForUpdatesMenu), keyEquivalent: "")
+            updateItem.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "Check for Updates")
+            menu.addItem(updateItem)
+
+            // "Настройки..." with gear icon (под проверкой обновлений)
             let settingsItem = NSMenuItem(title: "Настройки...", action: #selector(openSettings), keyEquivalent: ",")
             settingsItem.image = NSImage(systemSymbolName: "gear", accessibilityDescription: "Settings")
             menu.addItem(settingsItem)
@@ -5374,12 +9519,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 return nil
             }
 
-            // Также проверяем § и ` без модификаторов (дефолт)
-            if (eventKeyCode == 10 || eventKeyCode == 50) && eventCarbonMods == 0 {
-                self?.hideWindow()
-                return nil
-            }
-
             return event
         }
 
@@ -5399,16 +9538,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
                 // Проверяем совпадение с настроенным хоткеем
                 if eventKeyCode == hotkeyKeyCode && eventCarbonMods == hotkeyMods {
-                    DispatchQueue.main.async {
+                    Task { @MainActor [weak self] in
                         self?.toggleWindow()
                     }
                     return
                 }
 
-                // Также проверяем § и ` без модификаторов (дефолт)
-                if (eventKeyCode == 10 || eventKeyCode == 50) && eventCarbonMods == 0 {
-                    DispatchQueue.main.async {
-                        self?.toggleWindow()
+                // ESC закрывает окно если оно видно (работает без фокуса)
+                if eventKeyCode == 53 && self?.window?.isVisible == true {
+                    Task { @MainActor [weak self] in
+                        self?.hideWindow()
                     }
                 }
             }
@@ -5444,8 +9583,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func setupWindow() {
         let contentView = InputModalView()
 
+        // Ширина: 680 (модалка) + 2*(180 + 8) (боковые панели + отступы)
+        let windowWidth: CGFloat = 1060
+
         let panel = FloatingPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 680, height: 150),
+            contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: 150),
             styleMask: [.nonactivatingPanel, .fullSizeContentView, .borderless],
             backing: .buffered,
             defer: false
@@ -5462,18 +9604,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let hostingView = NSHostingView(rootView: contentView)
         hostingView.wantsLayer = true
-        hostingView.layer?.cornerRadius = 24
-        hostingView.layer?.masksToBounds = true
+        // cornerRadius не нужен - модалка и панели имеют свои clipShape
+        hostingView.layer?.masksToBounds = false  // Не обрезать выезжающие панели
         panel.contentView = hostingView
 
         self.window = panel
-        panel.close()
+        panel.orderOut(nil)  // Скрыть, но НЕ закрывать (close() вызывает applicationShouldTerminateAfterLastWindowClosed)
     }
 
     func centerWindowOnActiveScreen() {
         guard let window = window else { return }
 
-        let width: CGFloat = 680
+        // Ширина включает боковые панели: 680 + 2*(180 + 8)
+        let width: CGFloat = 1060
         let height: CGFloat = 150
 
         // Находим экран с курсором мыши
@@ -5512,7 +9655,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func hideWindow() {
         guard let window = window else { return }
         SoundManager.shared.playCloseSound()
-        window.close()
+
+        // Сначала активируем предыдущее приложение (курсор вернётся в исходное поле)
+        if let prevApp = previousApp {
+            prevApp.activate(options: .activateIgnoringOtherApps)
+            previousApp = nil
+        }
+
+        // Потом закрываем окно (небольшая задержка для активации)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak window] in
+            window?.close()
+        }
     }
 
     @objc func showWindow() {
@@ -5607,6 +9760,35 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @objc func checkForUpdatesMenu() {
+        UpdateManager.shared.checkForUpdates(force: true)
+
+        // Показать уведомление через 2 секунды
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            let updateManager = UpdateManager.shared
+
+            if updateManager.updateAvailable, let version = updateManager.latestVersion {
+                let alert = NSAlert()
+                alert.messageText = "Доступна новая версия"
+                alert.informativeText = "Dictum \(version) доступна для скачивания.\nТекущая версия: \(AppConfig.version)"
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "Скачать")
+                alert.addButton(withTitle: "Позже")
+
+                if alert.runModal() == .alertFirstButtonReturn {
+                    updateManager.openDownloadPage()
+                }
+            } else if !updateManager.isChecking && updateManager.checkError == nil {
+                let alert = NSAlert()
+                alert.messageText = "Обновлений нет"
+                alert.informativeText = "Вы используете последнюю версию Dictum (\(AppConfig.version))."
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+        }
+    }
+
     // MARK: - NSApplicationDelegate
     // Не завершать приложение при закрытии последнего окна (приложение живёт в menubar)
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -5616,6 +9798,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - NSWindowDelegate
     func windowWillClose(_ notification: Notification) {
         guard let closedWindow = notification.object as? NSWindow else { return }
+
+        // Игнорируем закрытие screenshot notification window - это временное окно
+        if closedWindow == screenshotNotificationWindow {
+            screenshotNotificationWindow = nil
+            return
+        }
 
         if closedWindow == settingsWindow {
             // Сначала убираем delegate чтобы избежать повторных вызовов
@@ -5757,4 +9945,633 @@ struct DictumApp: App {
             EmptyView()
         }
     }
+}
+
+// MARK: - SwiftUI Previews
+
+// ==========================================
+// ГЛАВНЫЕ VIEWS
+// ==========================================
+
+#Preview("InputModalView") {
+    InputModalView()
+        .frame(width: 600, height: 300)
+        .background(VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow))
+}
+
+#Preview("SettingsView") {
+    SettingsView()
+        .frame(width: 650, height: 700)
+}
+
+// ==========================================
+// VOICE & AUDIO
+// ==========================================
+
+#Preview("VoiceOverlayView - Medium") {
+    VoiceOverlayView(audioLevel: 0.5)
+        .frame(width: 500, height: 60)
+        .background(Color.black.opacity(0.8))
+}
+
+#Preview("VoiceOverlayView - Low") {
+    VoiceOverlayView(audioLevel: 0.15)
+        .frame(width: 500, height: 60)
+        .background(Color.black.opacity(0.8))
+}
+
+#Preview("VoiceOverlayView - High") {
+    VoiceOverlayView(audioLevel: 0.95)
+        .frame(width: 500, height: 60)
+        .background(Color.black.opacity(0.8))
+}
+
+// ==========================================
+// HISTORY
+// ==========================================
+
+#Preview("HistoryListView") {
+    HistoryListView(
+        items: [
+            HistoryItem(text: "Привет, это тестовая заметка"),
+            HistoryItem(text: "Вторая заметка с более длинным текстом для проверки переноса строк"),
+            HistoryItem(text: "Третья заметка")
+        ],
+        searchQuery: .constant(""),
+        onSelect: { _ in },
+        onSearch: { _ in }
+    )
+    .frame(width: 500, height: 300)
+    .background(VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow))
+}
+
+#Preview("HistoryRowView") {
+    HistoryRowView(
+        item: HistoryItem(text: "Пример записи в истории"),
+        onTap: {}
+    )
+    .frame(width: 400)
+    .background(Color.black.opacity(0.8))
+}
+
+// ==========================================
+// NOTIFICATIONS
+// ==========================================
+
+#Preview("ScreenshotNotificationView") {
+    ScreenshotNotificationView()
+        .padding()
+        .background(Color.black.opacity(0.5))
+}
+
+// ==========================================
+// BUTTONS
+// ==========================================
+
+#Preview("LoadingLanguageButton - Normal") {
+    LoadingLanguageButton(
+        label: "WB",
+        tooltip: "Вежливый бот",
+        isLoading: false,
+        action: {}
+    )
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("LoadingLanguageButton - Loading") {
+    LoadingLanguageButton(
+        label: "RU",
+        tooltip: "Русификация",
+        isLoading: true,
+        action: {}
+    )
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("SnippetButton") {
+    SnippetButton(
+        shortcut: "addr",
+        tooltip: "Домашний адрес",
+        action: {}
+    )
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+// ==========================================
+// QUICK ACCESS ROW
+// ==========================================
+
+#Preview("UnifiedQuickAccessRow") {
+    UnifiedQuickAccessRow(
+        promptsManager: PromptsManager.shared,
+        snippetsManager: SnippetsManager.shared,
+        inputText: .constant("Пример текста"),
+        showLeftPanel: .constant(false),
+        showRightPanel: .constant(false),
+        onProcessWithGemini: { _ in },
+        currentProcessingPrompt: nil,
+        editingPrompt: .constant(nil),
+        editingSnippet: .constant(nil)
+    )
+    .frame(width: 550, height: 50)
+    .background(Color.black.opacity(0.3))
+}
+
+// ==========================================
+// PROMPTS
+// ==========================================
+
+#Preview("PromptRowView") {
+    let prompt = CustomPrompt(
+        id: UUID(),
+        label: "WB",
+        description: "Вежливый бот",
+        prompt: "Обработай текст вежливо",
+        isVisible: true,
+        isFavorite: true,
+        isSystem: true,
+        order: 0
+    )
+    return PromptRowView(
+        prompt: prompt,
+        isProcessing: false,
+        onToggleFavorite: {},
+        onEdit: {},
+        onDelete: {},
+        onTap: {}
+    )
+    .frame(width: 400)
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("PromptRowView - Processing") {
+    let prompt = CustomPrompt(
+        id: UUID(),
+        label: "EN",
+        description: "Английский",
+        prompt: "Translate to English",
+        isVisible: true,
+        isFavorite: true,
+        isSystem: true,
+        order: 1
+    )
+    return PromptRowView(
+        prompt: prompt,
+        isProcessing: true,
+        onToggleFavorite: {},
+        onEdit: {},
+        onDelete: {},
+        onTap: {}
+    )
+    .frame(width: 400)
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("PromptEditView") {
+    let prompt = CustomPrompt(
+        id: UUID(),
+        label: "WB",
+        description: "Вежливый бот",
+        prompt: "Обработай текст вежливо и грамотно",
+        isVisible: true,
+        isFavorite: true,
+        isSystem: false,
+        order: 0
+    )
+    return PromptEditView(
+        prompt: prompt,
+        onSave: { _ in },
+        onCancel: {}
+    )
+}
+
+#Preview("PromptAddView") {
+    PromptAddView(
+        onSave: { _ in },
+        onCancel: {}
+    )
+}
+
+#Preview("SettingsPromptRowView") {
+    let prompt = CustomPrompt(
+        id: UUID(),
+        label: "CH",
+        description: "Китайский перевод",
+        prompt: "Translate to Chinese",
+        isVisible: true,
+        isFavorite: false,
+        isSystem: false,
+        order: 3
+    )
+    return SettingsPromptRowView(
+        prompt: prompt,
+        onToggleFavorite: {},
+        onEdit: {}
+    )
+    .frame(width: 400)
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("AddPromptSheet") {
+    AddPromptSheet { _ in }
+}
+
+#Preview("EditPromptSheet") {
+    let prompt = CustomPrompt(
+        id: UUID(),
+        label: "TEST",
+        description: "Тестовый промпт",
+        prompt: "Это текст промпта для тестирования",
+        isVisible: true,
+        isFavorite: true,
+        isSystem: false,
+        order: 5
+    )
+    return EditPromptSheet(
+        prompt: prompt,
+        onSave: { _ in },
+        onDelete: {}
+    )
+}
+
+// ==========================================
+// SNIPPETS
+// ==========================================
+
+#Preview("SnippetRowView") {
+    let snippet = Snippet(
+        id: UUID(),
+        shortcut: "addr",
+        title: "Домашний адрес",
+        content: "ул. Пушкина, д. 10, кв. 5",
+        isFavorite: true,
+        order: 0
+    )
+    return SnippetRowView(
+        snippet: snippet,
+        onToggleFavorite: {},
+        onEdit: {},
+        onDelete: {},
+        onInsert: {}
+    )
+    .frame(width: 400)
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("SnippetEditView") {
+    let snippet = Snippet(
+        id: UUID(),
+        shortcut: "sig",
+        title: "Подпись",
+        content: "С уважением,\nИван Петров",
+        isFavorite: true,
+        order: 1
+    )
+    return SnippetEditView(
+        snippet: snippet,
+        onSave: { _ in },
+        onCancel: {}
+    )
+}
+
+#Preview("SnippetAddView") {
+    SnippetAddView(
+        onSave: { _ in },
+        onCancel: {}
+    )
+}
+
+#Preview("SettingsSnippetRowView") {
+    let snippet = Snippet(
+        id: UUID(),
+        shortcut: "phone",
+        title: "Номер телефона",
+        content: "+7 999 123-45-67",
+        isFavorite: false,
+        order: 2
+    )
+    return SettingsSnippetRowView(
+        snippet: snippet,
+        onToggleFavorite: {},
+        onEdit: {},
+        onDelete: {}
+    )
+    .frame(width: 450)
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("AddSnippetSheet") {
+    AddSnippetSheet { _ in }
+}
+
+#Preview("EditSnippetSheet") {
+    let snippet = Snippet(
+        id: UUID(),
+        shortcut: "email",
+        title: "Email",
+        content: "example@mail.ru",
+        isFavorite: true,
+        order: 0
+    )
+    return EditSnippetSheet(
+        snippet: snippet,
+        onSave: { _ in }
+    )
+}
+
+// ==========================================
+// SETTINGS TABS & SECTIONS
+// ==========================================
+
+#Preview("SettingsTabButton - Selected") {
+    SettingsTabButton(
+        tab: .general,
+        isSelected: true,
+        action: {}
+    )
+    .frame(width: 180)
+    .background(Color.black.opacity(0.9))
+}
+
+#Preview("SettingsTabButton - Not Selected") {
+    SettingsTabButton(
+        tab: .ai,
+        isSelected: false,
+        action: {}
+    )
+    .frame(width: 180)
+    .background(Color.black.opacity(0.9))
+}
+
+#Preview("UpdatesSettingsSection") {
+    UpdatesSettingsSection()
+        .frame(width: 500)
+        .background(Color.black.opacity(0.9))
+}
+
+#Preview("ASRProviderSection") {
+    ASRProviderSection()
+        .frame(width: 550)
+        .background(Color.black.opacity(0.9))
+}
+
+#Preview("AIPromptsSection") {
+    AIPromptsSection()
+        .frame(width: 500)
+        .background(Color.black.opacity(0.9))
+}
+
+#Preview("SnippetsSettingsSection") {
+    SnippetsSettingsSection()
+        .frame(width: 500)
+        .background(Color.black.opacity(0.9))
+}
+
+#Preview("LanguageSettingsSection") {
+    LanguageSettingsSection()
+        .frame(width: 500)
+        .background(Color.black.opacity(0.9))
+}
+
+// ==========================================
+// ASR PROVIDER CARDS
+// ==========================================
+
+#Preview("ASRProviderCard - Parakeet Selected") {
+    ASRProviderCard(
+        icon: "cpu",
+        title: "Parakeet v3",
+        subtitle: "25 языков • ~190× RT",
+        badge: "Офлайн",
+        isSelected: true,
+        accentColor: DesignSystem.Colors.accent,
+        action: {}
+    )
+    .frame(width: 260)
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("ASRProviderCard - Deepgram") {
+    ASRProviderCard(
+        icon: "cloud.fill",
+        title: "Deepgram",
+        subtitle: "Streaming • ~200мс",
+        badge: nil,
+        isSelected: false,
+        accentColor: DesignSystem.Colors.deepgramOrange,
+        action: {}
+    )
+    .frame(width: 260)
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("ParakeetModelStatusView") {
+    ParakeetModelStatusView()
+        .frame(width: 350)
+        .padding()
+        .background(Color.black.opacity(0.8))
+}
+
+// ==========================================
+// DEEPGRAM PANELS
+// ==========================================
+
+#Preview("DeepgramSettingsPanel") {
+    DeepgramSettingsPanel()
+        .frame(width: 400)
+        .padding()
+        .background(Color.black.opacity(0.8))
+}
+
+#Preview("DeepgramBillingPanel") {
+    DeepgramBillingPanel()
+        .frame(width: 350)
+        .padding()
+        .background(Color.black.opacity(0.8))
+}
+
+#Preview("DeepgramAPISection") {
+    DeepgramAPISection()
+        .frame(width: 500)
+        .background(Color.black.opacity(0.9))
+}
+
+#Preview("DeepgramModelSection") {
+    DeepgramModelSection()
+        .frame(width: 500)
+        .background(Color.black.opacity(0.9))
+}
+
+// ==========================================
+// LLM / GEMINI
+// ==========================================
+
+#Preview("LLMSettingsInlineView") {
+    LLMSettingsInlineView()
+        .frame(width: 450)
+        .padding()
+        .background(Color.black.opacity(0.8))
+}
+
+#Preview("GeminiAPIKeyStatus") {
+    GeminiAPIKeyStatus()
+        .frame(width: 400)
+        .padding()
+        .background(Color.black.opacity(0.8))
+}
+
+#Preview("GeminiModelPicker") {
+    GeminiModelPicker(
+        selection: .constant(.gemini25Flash),
+        label: "Модель Gemini"
+    )
+    .frame(width: 400)
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("LLMProcessingSection") {
+    LLMProcessingSection()
+        .frame(width: 500)
+        .background(Color.black.opacity(0.9))
+}
+
+#Preview("AISettingsSection") {
+    AISettingsSection(aiEnabled: .constant(true))
+        .frame(width: 500)
+        .background(Color.black.opacity(0.9))
+}
+
+// ==========================================
+// HELPER ROWS
+// ==========================================
+
+#Preview("HotkeyDisplayRow") {
+    HotkeyDisplayRow(
+        action: "Открыть модалку",
+        keys: "⌘ + `"
+    )
+    .frame(width: 350)
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("HotkeyRow") {
+    HotkeyRow(
+        action: "Вставить текст",
+        keys: ["⌘", "+", "Enter"],
+        note: nil
+    )
+    .frame(width: 400)
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("HotkeyRow - With Note") {
+    HotkeyRow(
+        action: "Скриншот области",
+        keys: ["⌘", "+", "⇧", "+", "4"],
+        note: "⚠️ Требуется разрешение"
+    )
+    .frame(width: 450)
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("ModelOptionRow - Selected") {
+    ModelOptionRow(
+        model: "nova-2",
+        title: "Nova 2",
+        description: "Самая точная модель, рекомендуется",
+        badge: "Рекомендуется",
+        isSelected: true,
+        onSelect: {}
+    )
+    .frame(width: 400)
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("ModelOptionRow - Not Selected") {
+    ModelOptionRow(
+        model: "base",
+        title: "Base",
+        description: "Быстрая базовая модель",
+        badge: nil,
+        isSelected: false,
+        onSelect: {}
+    )
+    .frame(width: 400)
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("LanguageOptionRow - Selected") {
+    LanguageOptionRow(
+        title: "Русский (рекомендуется)",
+        subtitle: "Оптимизировано для русского языка",
+        value: "ru",
+        isSelected: true,
+        action: {}
+    )
+    .frame(width: 400)
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("LanguageOptionRow - Not Selected") {
+    LanguageOptionRow(
+        title: "Английский",
+        subtitle: "Оптимизировано для английского языка",
+        value: "en",
+        isSelected: false,
+        action: {}
+    )
+    .frame(width: 400)
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("PermissionRow - Granted") {
+    PermissionRow(
+        icon: "keyboard",
+        title: "Accessibility",
+        subtitle: "Для вставки текста",
+        isGranted: true,
+        action: {}
+    )
+    .frame(width: 400)
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+#Preview("PermissionRow - Not Granted") {
+    PermissionRow(
+        icon: "mic.fill",
+        title: "Микрофон",
+        subtitle: "Для записи голоса",
+        isGranted: false,
+        action: {}
+    )
+    .frame(width: 400)
+    .padding()
+    .background(Color.black.opacity(0.8))
+}
+
+// ==========================================
+// BILLING
+// ==========================================
+
+#Preview("BillingErrorView") {
+    BillingErrorView(
+        message: "Не удалось загрузить данные биллинга. Проверьте подключение к интернету.",
+        retry: {}
+    )
+    .frame(width: 350, height: 200)
+    .background(Color.black.opacity(0.9))
 }
