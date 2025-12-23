@@ -24,8 +24,6 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>Dictum использует System Events для вставки текста в другие приложения (Cmd+V).</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Dictum нужен доступ к микрофону для записи голосовых заметок и транскрибации речи.</string>
 	<key>NSHighResolutionCapable</key>

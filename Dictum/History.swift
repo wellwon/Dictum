@@ -122,98 +122,185 @@ struct HistoryListView: View {
     let onSelect: (HistoryItem) -> Void
     let onSearch: (String) -> Void
 
-    var body: some View {
-        VStack(spacing: 0) {
-            Divider().background(Color.white.opacity(0.1))
+    @State private var selectedIndex: Int = 0
+    @FocusState private var isListFocused: Bool
 
-            // Поле поиска
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
+    // MARK: - Subviews (разбиты для ускорения компиляции)
 
-                TextField("Поиск в истории...", text: $searchQuery)
-                    .textFieldStyle(PlainTextFieldStyle())
-                    .font(.system(size: 14))
-                    .foregroundColor(.white)
-                    .onChange(of: searchQuery) { _, newValue in
-                        onSearch(newValue)
-                    }
+    private var searchFieldView: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15))
+                .foregroundColor(.white.opacity(0.2))
 
-                if !searchQuery.isEmpty {
-                    Button(action: {
-                        searchQuery = ""
-                        onSearch("")
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(PlainButtonStyle())
+            TextField("Поиск...", text: $searchQuery)
+                .textFieldStyle(PlainTextFieldStyle())
+                .font(.system(size: 15))
+                .foregroundColor(.white.opacity(0.9))
+                .onChange(of: searchQuery) { _, newValue in
+                    onSearch(newValue)
                 }
+
+            if !searchQuery.isEmpty {
+                Button(action: {
+                    searchQuery = ""
+                    onSearch("")
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.4))
+                        .padding(4)
+                        .background(Circle().fill(Color.white.opacity(0.1)))
+                }
+                .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-            .background(Color.white.opacity(0.05))
 
-            Divider().background(Color.white.opacity(0.1))
+            hotkeyBadge
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.05))
+                .overlay(Capsule().stroke(Color.white.opacity(0.1), lineWidth: 1))
+        )
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+    }
 
-            // Заголовок
-            HStack {
-                Text("НЕДАВНИЕ")
-                    .font(.system(size: 11, weight: .medium))
+    private var hotkeyBadge: some View {
+        HStack(spacing: 2) {
+            Text("⌘")
+                .font(.system(size: 11))
+            Text("K")
+                .font(.system(size: 10, weight: .medium))
+        }
+        .foregroundColor(.white.opacity(0.3))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(Color.white.opacity(0.05))
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
+        .cornerRadius(4)
+    }
+
+    private var headerView: some View {
+        HStack {
+            Text("НЕДАВНИЕ")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+
+            if !searchQuery.isEmpty {
+                Text("(\(items.count))")
+                    .font(.system(size: 11))
                     .foregroundColor(.secondary)
-
-                if !searchQuery.isEmpty {
-                    Text("(\(items.count))")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 10)
-            .padding(.bottom, 5)
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+        .padding(.bottom, 5)
+    }
 
-            // Результаты
-            if items.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: searchQuery.isEmpty ? "clock" : "magnifyingglass")
-                        .font(.system(size: 32))
-                        .foregroundColor(.secondary)
-                    Text(searchQuery.isEmpty ? "История пуста" : "Ничего не найдено")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
+    private var emptyStateView: some View {
+        VStack(spacing: 8) {
+            Image(systemName: searchQuery.isEmpty ? "clock" : "magnifyingglass")
+                .font(.system(size: 32))
+                .foregroundColor(.secondary)
+            Text(searchQuery.isEmpty ? "История пуста" : "Ничего не найдено")
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
+        }
+        .frame(height: 120)
+    }
+
+    @ViewBuilder
+    private func resultsView(proxy: ScrollViewProxy) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    HistoryRowView(
+                        item: item,
+                        isSelected: index == selectedIndex,
+                        onTap: { onSelect(item) }
+                    )
+                    .id(index)
                 }
-                .frame(height: 120)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(items) { item in
-                            HistoryRowView(item: item, onTap: {
-                                onSelect(item)
-                            })
-                        }
-                    }
-                }
-                .frame(height: min(CGFloat(items.count) * 44, 5 * 44))
-                .padding(.bottom, 8)
             }
         }
-        .background(Color.black.opacity(0.2))
+        .focusable()
+        .focusEffectDisabled()
+        .focused($isListFocused)
+        .onKeyPress(.downArrow) {
+            if selectedIndex < items.count - 1 {
+                selectedIndex += 1
+                proxy.scrollTo(selectedIndex, anchor: .center)
+            }
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            if selectedIndex > 0 {
+                selectedIndex -= 1
+                proxy.scrollTo(selectedIndex, anchor: .center)
+            }
+            return .handled
+        }
+        .onKeyPress(.return) {
+            if selectedIndex < items.count {
+                onSelect(items[selectedIndex])
+            }
+            return .handled
+        }
+        .frame(height: min(CGFloat(items.count) * 44, 5 * 44))
+        .padding(.bottom, 8)
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                searchFieldView
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.05))
+                    .frame(height: 1)
+                    .padding(.horizontal, 24)
+
+                if items.isEmpty {
+                    emptyStateView
+                } else {
+                    resultsView(proxy: proxy)
+                }
+            }
+            .background(Color.black.opacity(0.2))
+            .onChange(of: items) { _, _ in
+                selectedIndex = 0
+            }
+            .onAppear {
+                isListFocused = true
+            }
+        }
     }
 }
 
 // MARK: - History Row View
 struct HistoryRowView: View {
     let item: HistoryItem
+    var isSelected: Bool = false
     let onTap: () -> Void
     @State private var isHovered = false
+
+    private var isHighlighted: Bool {
+        isSelected || isHovered
+    }
 
     var body: some View {
         HStack {
             Image(systemName: "clock.arrow.circlepath")
-                .foregroundColor(isHovered ? .white : .gray)
+                .foregroundColor(isHighlighted ? .white : .gray)
                 .font(.system(size: 14))
 
             Text(item.text)
@@ -229,7 +316,7 @@ struct HistoryRowView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(isHovered ? Color.white.opacity(0.1) : Color.clear)
+        .background(isHighlighted ? Color.white.opacity(0.1) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture {
             onTap()
@@ -259,6 +346,7 @@ struct HistoryRowView: View {
 #Preview("HistoryRowView") {
     HistoryRowView(
         item: HistoryItem(text: "Пример записи в истории"),
+        isSelected: false,
         onTap: {}
     )
     .frame(width: 400)

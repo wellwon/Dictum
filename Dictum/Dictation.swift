@@ -68,12 +68,17 @@ class VolumeManager: @unchecked Sendable {
         }
     }
 
-    func saveAndReduceVolume(targetVolume: Int = 15) {
+    /// Сохраняет текущую громкость и снижает её на указанный процент
+    /// - Parameter reductionPercent: процент снижения (0 = не менять, 100 = тишина)
+    /// - Example: громкость 50%, reduction 50% → итоговая 25%
+    func saveAndReduceVolume(reductionPercent: Int) {
         savedVolume = getCurrentVolume()
         if let current = savedVolume {
             NSLog("💾 Saved volume: \(current)")
-            if current > targetVolume {
-                setVolume(targetVolume)
+            if reductionPercent > 0 {
+                // Рассчитываем новую громкость: текущая * (100 - процент снижения) / 100
+                let newVolume = current * (100 - reductionPercent) / 100
+                setVolume(newVolume)
             }
         }
     }
@@ -428,7 +433,7 @@ class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
             audioLevel = 0.0
         }
 
-        VolumeManager.shared.saveAndReduceVolume(targetVolume: SettingsManager.shared.volumeLevel)
+        VolumeManager.shared.saveAndReduceVolume(reductionPercent: SettingsManager.shared.volumeReduction)
 
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
@@ -711,7 +716,7 @@ class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDele
             audioLevel = 0.0
         }
 
-        VolumeManager.shared.saveAndReduceVolume(targetVolume: SettingsManager.shared.volumeLevel)
+        VolumeManager.shared.saveAndReduceVolume(reductionPercent: SettingsManager.shared.volumeReduction)
 
         let language = SettingsManager.shared.preferredLanguage
         let model = SettingsManager.shared.deepgramModel
@@ -1176,34 +1181,3 @@ class DeepgramService {
     }
 }
 
-// MARK: - SwiftUI Previews
-#Preview("ParakeetModelStatus") {
-    VStack(alignment: .leading, spacing: 8) {
-        Text(ParakeetModelStatus.notChecked.displayText)
-        Text(ParakeetModelStatus.notDownloaded.displayText)
-        Text(ParakeetModelStatus.downloading.displayText)
-        Text(ParakeetModelStatus.loading.displayText)
-        Text(ParakeetModelStatus.ready.displayText)
-        Text(ParakeetModelStatus.error("Test error").displayText)
-    }
-    .padding()
-    .background(Color.black)
-    .foregroundColor(.white)
-}
-
-#Preview("ASRProviderType") {
-    VStack(alignment: .leading, spacing: 8) {
-        ForEach(ASRProviderType.allCases, id: \.rawValue) { provider in
-            VStack(alignment: .leading) {
-                Text(provider.displayName)
-                    .font(.headline)
-                Text(provider.description)
-                    .font(.caption)
-                    .foregroundColor(.gray)
-            }
-        }
-    }
-    .padding()
-    .background(Color.black)
-    .foregroundColor(.white)
-}

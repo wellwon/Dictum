@@ -22,7 +22,7 @@
 | Название | HEX | RGB | Использование |
 |----------|-----|-----|---------------|
 | **Button Area Background** | `#272729` | `(39, 39, 41)` | Фон нижней части модалки (область кнопок) |
-| **Border Color** | `#4c4d4d` | `(76, 77, 77)` | Бордер модалки (2px) |
+| **Border Color** | `#4c4d4d` | `(76, 77, 77)` | Бордер модалки (1px, strokeBorder) |
 
 ### Text
 | Название | Значение | Использование |
@@ -134,9 +134,54 @@ DesignSystem.Typography.sectionHeader   // Font.system(size: 11, weight: .semibo
 
 ---
 
+## Тени
+
+### ⛔ НЕ использовать тени на модалках!
+
+Модалка Dictum — это floating panel без теней. Большие тени (radius > 10) создают визуальный мусор и расползаются в стороны.
+
+```swift
+// ❌ ЗАПРЕЩЕНО — тень расползается влево/вправо
+.shadow(color: .black.opacity(0.65), radius: 27, x: 0, y: 24)
+
+// ❌ ЗАПРЕЩЕНО — любые тени на главной модалке
+.shadow(...)
+
+// ✅ ПРАВИЛЬНО — модалка без теней
+// (просто не добавлять .shadow())
+```
+
+### Исключения
+
+Тени разрешены только для:
+- **Нотификации** (screenshot notification) — `.shadow(radius: 10, y: 5)`
+- **Glow-эффекты кнопок** — `.shadow(color: accent, radius: 4)` при загрузке
+
+---
+
+## Бордеры модалки
+
+```swift
+// ✅ ПРАВИЛЬНО — strokeBorder рисует внутри контура (равномерная толщина)
+.overlay(
+    RoundedRectangle(cornerRadius: 24)
+        .strokeBorder(DesignSystem.Colors.borderColor, lineWidth: 1)
+)
+
+// ❌ НЕПРАВИЛЬНО — stroke рисует по центру контура (неравномерно на углах)
+.overlay(
+    RoundedRectangle(cornerRadius: 24)
+        .stroke(DesignSystem.Colors.borderColor, lineWidth: 2)
+)
+```
+
+---
+
 ## Правила
 
 1. **Не использовать `.green`** — только `DesignSystem.Colors.accent`
 2. **Не хардкодить цвета** — всегда через `DesignSystem.Colors`
 3. **Единый зеленый** — `#1AAF87` для всех зеленых элементов
 4. **Проверять перед изменениями** — сначала глянуть этот файл
+5. **Не добавлять тени на модалки** — модалка без `.shadow()`
+6. **strokeBorder вместо stroke** — для равномерных бордеров

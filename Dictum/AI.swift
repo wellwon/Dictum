@@ -185,30 +185,3 @@ class GeminiService: ObservableObject, @unchecked Sendable {
     }
 }
 
-// MARK: - SwiftUI Previews
-#Preview("GeminiModel") {
-    VStack(alignment: .leading, spacing: 8) {
-        ForEach(GeminiModel.allCases, id: \.rawValue) { model in
-            HStack {
-                Text(model.displayName)
-                    .font(.headline)
-                Spacer()
-                Text(model.price)
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                if model.isNew {
-                    Text("NEW")
-                        .font(.caption2)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 2)
-                        .background(DesignSystem.Colors.accent)
-                        .foregroundColor(.white)
-                        .cornerRadius(4)
-                }
-            }
-        }
-    }
-    .padding()
-    .background(Color.black)
-    .foregroundColor(.white)
-}

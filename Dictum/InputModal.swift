@@ -55,8 +55,6 @@ struct InputModalView: View {
     // Панели управления (mutual exclusivity с showHistory)
     @State private var showAIPanel: Bool = false
     @State private var showSnippetsPanel: Bool = false
-    @State private var showLeftPanel: Bool = false       // Sliding panel для промптов слева
-    @State private var showRightPanel: Bool = false      // Sliding panel для сниппетов справа
     @State private var showAddSnippetSheet: Bool = false // Sheet для добавления сниппета
     @State private var showAddPromptSheet: Bool = false  // Sheet для добавления промпта
     @State private var editingPrompt: CustomPrompt? = nil  // Редактируемый промпт
@@ -85,47 +83,8 @@ struct InputModalView: View {
         }
     }
 
-    // Константы для layout панелей
-    private let mainModalWidth: CGFloat = 680
-    private let panelWidth: CGFloat = 180
-    private let panelGap: CGFloat = 8
-
-    // Offset от центра: половина модалки + половина панели + отступ
-    private var panelOffset: CGFloat {
-        (mainModalWidth / 2) + (panelWidth / 2) + panelGap
-    }
-
     var body: some View {
-        ZStack(alignment: .center) {
-            // СЛЕВА: Выезжающая панель промптов (под модалкой)
-            SlidingPromptPanel(
-                promptsManager: promptsManager,
-                onProcessWithGemini: { prompt in
-                    Task {
-                        await processWithGemini(prompt: prompt)
-                    }
-                },
-                currentProcessingPrompt: currentProcessingPrompt,
-                onAdd: { showAddPromptSheet = true },
-                editingPrompt: $editingPrompt
-            )
-            .offset(x: showLeftPanel ? -panelOffset : -panelOffset - 200)  // Скрыта слева
-            .opacity(showLeftPanel ? 1 : 0)
-            .zIndex(0)
-
-            // СПРАВА: Выезжающая панель сниппетов (под модалкой)
-            SlidingSnippetPanel(
-                snippetsManager: snippetsManager,
-                inputText: $inputText,
-                onAdd: { showAddSnippetSheet = true },
-                editingSnippet: $editingSnippet
-            )
-            .offset(x: showRightPanel ? panelOffset : panelOffset + 200)  // Скрыта справа
-            .opacity(showRightPanel ? 1 : 0)
-            .zIndex(0)
-
-            // ОСНОВНАЯ МОДАЛКА (поверх панелей)
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
                 // ВЕРХНЯЯ ЧАСТЬ: Ввод + Оверлеи
                 VStack(spacing: 0) {
                 // Поле ввода с динамической высотой
@@ -145,7 +104,7 @@ struct InputModalView: View {
                     .padding(.leading, 20)
                     .padding(.trailing, 50)  // Увеличено для иконки "Улучшить"
                     .padding(.top, 18)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 18)  // Увеличено чтобы текст не перекрывался футером
                     .background(Color.clear)
                     // FIX: Скрываем текст если идёт запись ИЛИ ожидаем старт записи
                     .opacity((isRecording || pendingAudioStart) ? 0 : 1)
@@ -200,6 +159,7 @@ struct InputModalView: View {
                         .help(isProcessingAI ? "Обработка..." : "Улучшить через ИИ")
                     }
                 }
+                .overlay(recordingOverlay)
 
                 // Список истории (упрощённый)
                 // Раскрывающиеся панели (mutual exclusivity)
@@ -220,7 +180,6 @@ struct InputModalView: View {
                 }
 
             }
-            .overlay(recordingOverlay)
 
             // НИЖНЯЯ ЧАСТЬ: Футер (2 строки)
             VStack(spacing: 0) {
@@ -231,8 +190,6 @@ struct InputModalView: View {
                         promptsManager: promptsManager,
                         snippetsManager: snippetsManager,
                         inputText: $inputText,
-                        showLeftPanel: $showLeftPanel,
-                        showRightPanel: $showRightPanel,
                         onProcessWithGemini: { prompt in
                             Task {
                                 await processWithGemini(prompt: prompt)
@@ -305,15 +262,13 @@ struct InputModalView: View {
 
                         // Кнопка История
                         Button(action: {
-                            // Закрыть sliding panels при открытии истории
-                            showLeftPanel = false
-                            showRightPanel = false
                             if !showHistory {
                                 loadHistory(searchQuery: "")
                             }
                             showHistory.toggle()
                             if !showHistory {
                                 searchQuery = ""
+                                textEditorHeight = 40  // Сбросить высоту при закрытии
                             }
                         }) {
                             HStack(spacing: 6) {
@@ -410,15 +365,9 @@ struct InputModalView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .overlay(
             RoundedRectangle(cornerRadius: 24)
-                .stroke(DesignSystem.Colors.borderColor, lineWidth: 2)
+                .strokeBorder(DesignSystem.Colors.borderColor, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.65), radius: 27, x: 0, y: 24)
         .frame(width: 680)
-        .zIndex(1)  // Модалка поверх панелей
-        } // ZStack
-        .frame(width: 1060)  // Ширина окна: модалка + панели
-        .animation(.easeInOut(duration: 0.25), value: showLeftPanel)
-        .animation(.easeInOut(duration: 0.25), value: showRightPanel)
         .onAppear {
             // FIX: Устанавливаем pendingAudioStart СИНХРОННО до resetView
             // Это скрывает текстовое поле мгновенно, до async запуска записи
@@ -586,8 +535,6 @@ struct InputModalView: View {
     private func resetView() {
         inputText = ""
         showHistory = false
-        showLeftPanel = false
-        showRightPanel = false
         searchQuery = ""
         historyItems = []
         textEditorHeight = 40
@@ -940,6 +887,13 @@ struct VoiceOverlayView: View {
     }
 }
 
+// MARK: - No Fade Button Style
+struct NoFadeButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+    }
+}
+
 // MARK: - Loading Language Button
 struct LoadingLanguageButton: View {
     let label: String
@@ -948,25 +902,28 @@ struct LoadingLanguageButton: View {
     let action: () -> Void
     var onEdit: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
-    var isSystem: Bool = false  // Системные промпты нельзя удалить
+    var isSystem: Bool = false
 
-    @State private var trimOffset: CGFloat = 0
+    // Trail configuration (как в React референсе)
+    private let trailLayers = 14
+    private let segmentLength: CGFloat = 0.12
+    private let delayStep: CGFloat = 0.04
+    private let cycleDuration: Double = 2.0
 
     var body: some View {
         Button(action: action) {
             ZStack {
-                // Фон кнопки
+                // Text with background
                 Text(label)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(isLoading ? DesignSystem.Colors.accent : .white.opacity(0.8))
                     .frame(width: 28, height: 24)
                     .background(
                         ZStack {
-                            // Основной фон
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(Color.white.opacity(isLoading ? 0.05 : 0.1))
 
-                            // Полупрозрачная рамка при загрузке (как "колея")
+                            // Полупрозрачная рамка-"колея" при загрузке
                             if isLoading {
                                 RoundedRectangle(cornerRadius: 4)
                                     .stroke(DesignSystem.Colors.accent.opacity(0.2), lineWidth: 1)
@@ -978,21 +935,75 @@ struct LoadingLanguageButton: View {
                         radius: 8
                     )
 
-                // Бегающая точка (индикатор загрузки)
+                // Animated fade trail (14 слоёв с затуханием)
                 if isLoading {
-                    RoundedRectangle(cornerRadius: 4)
-                        .trim(from: trimOffset, to: trimOffset + 0.12)
-                        .stroke(
-                            DesignSystem.Colors.accent,
-                            style: StrokeStyle(lineWidth: 2, lineCap: .round)
-                        )
+                    TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { timeline in
+                        let elapsed = timeline.date.timeIntervalSinceReferenceDate
+                        let progress = CGFloat(elapsed.truncatingRemainder(dividingBy: cycleDuration) / cycleDuration)
+
+                        Canvas { context, size in
+                            let rect = CGRect(origin: .zero, size: size)
+                            let path = RoundedRectangle(cornerRadius: 4).path(in: rect.insetBy(dx: 1, dy: 1))
+
+                            // Draw layers back to front (хвост → голова)
+                            for i in (0..<trailLayers).reversed() {
+                                let delay = CGFloat(i) * delayStep
+                                var start = progress - delay
+                                if start < 0 { start += 1.0 }
+                                let opacity = 1.0 - Double(i) / Double(trailLayers)
+
+                                // Main segment
+                                let end = min(start + segmentLength, 1.0)
+                                let trimmedPath = path.trimmedPath(from: start, to: end)
+
+                                // First layer gets glow
+                                if i == 0 {
+                                    context.drawLayer { ctx in
+                                        ctx.addFilter(.shadow(color: DesignSystem.Colors.accent.opacity(0.8), radius: 4))
+                                        ctx.addFilter(.shadow(color: DesignSystem.Colors.accent, radius: 2))
+                                        ctx.stroke(
+                                            trimmedPath,
+                                            with: .color(DesignSystem.Colors.accent),
+                                            style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                                        )
+                                    }
+                                } else {
+                                    context.stroke(
+                                        trimmedPath,
+                                        with: .color(DesignSystem.Colors.accent.opacity(opacity)),
+                                        style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                                    )
+                                }
+
+                                // Wrap-around (когда сегмент пересекает границу 0/1)
+                                let fullEnd = start + segmentLength
+                                if fullEnd > 1.0 {
+                                    let wrapPath = path.trimmedPath(from: 0, to: fullEnd - 1.0)
+                                    if i == 0 {
+                                        context.drawLayer { ctx in
+                                            ctx.addFilter(.shadow(color: DesignSystem.Colors.accent.opacity(0.8), radius: 4))
+                                            ctx.stroke(
+                                                wrapPath,
+                                                with: .color(DesignSystem.Colors.accent),
+                                                style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                                            )
+                                        }
+                                    } else {
+                                        context.stroke(
+                                            wrapPath,
+                                            with: .color(DesignSystem.Colors.accent.opacity(opacity)),
+                                            style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         .frame(width: 28, height: 24)
-                        .shadow(color: DesignSystem.Colors.accent.opacity(0.8), radius: 4)
-                        .shadow(color: DesignSystem.Colors.accent, radius: 2)
+                    }
                 }
             }
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(NoFadeButtonStyle())
         .disabled(isLoading)
         .help(tooltip)
         .contextMenu {
@@ -1009,18 +1020,6 @@ struct LoadingLanguageButton: View {
                     onDelete()
                 } label: {
                     Label("Удалить", systemImage: "trash")
-                }
-            }
-        }
-        .onChange(of: isLoading) { _, loading in
-            if loading {
-                trimOffset = 0
-                withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
-                    trimOffset = 1.0
-                }
-            } else {
-                withAnimation(.linear(duration: 0)) {
-                    trimOffset = 0
                 }
             }
         }
@@ -1080,8 +1079,6 @@ struct UnifiedQuickAccessRow: View {
     @ObservedObject var promptsManager: PromptsManager
     @ObservedObject var snippetsManager: SnippetsManager
     @Binding var inputText: String
-    @Binding var showLeftPanel: Bool      // Панель промптов слева
-    @Binding var showRightPanel: Bool     // Панель сниппетов справа
     let onProcessWithGemini: (CustomPrompt) -> Void
     let currentProcessingPrompt: CustomPrompt?
 
@@ -1098,37 +1095,8 @@ struct UnifiedQuickAccessRow: View {
         snippetsManager.snippets.filter { $0.isFavorite }.sorted { $0.order < $1.order }
     }
 
-    private var hasNonFavoritePrompts: Bool {
-        promptsManager.prompts.contains { !$0.isFavorite }
-    }
-
-    private var hasNonFavoriteSnippets: Bool {
-        snippetsManager.snippets.contains { !$0.isFavorite }
-    }
-
     var body: some View {
         HStack(spacing: 6) {
-            // LEFT: Кнопка раскрытия панели промптов "<"
-            if hasNonFavoritePrompts {
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showLeftPanel.toggle()
-                        if showLeftPanel { showRightPanel = false }
-                    }
-                }) {
-                    Image(systemName: showLeftPanel ? "chevron.right" : "chevron.left")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.6))
-                        .frame(width: 24, height: 24)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(showLeftPanel ? Color.white.opacity(0.15) : Color.white.opacity(0.1))
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-                .help("Дополнительные промпты")
-            }
-
             // Избранные промпты
             ForEach(favoritePrompts) { prompt in
                 LoadingLanguageButton(
@@ -1166,165 +1134,9 @@ struct UnifiedQuickAccessRow: View {
                     }
                 )
             }
-
-            // RIGHT: Кнопка раскрытия панели сниппетов ">"
-            if hasNonFavoriteSnippets {
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showRightPanel.toggle()
-                        if showRightPanel { showLeftPanel = false }
-                    }
-                }) {
-                    Image(systemName: showRightPanel ? "chevron.left" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.6))
-                        .frame(width: 24, height: 24)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(showRightPanel ? Color.white.opacity(0.15) : Color.white.opacity(0.1))
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-                .help("Дополнительные сниппеты")
-            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-    }
-}
-
-// MARK: - Sliding Prompt Panel (левая панель с non-favorite промптами)
-struct SlidingPromptPanel: View {
-    @ObservedObject var promptsManager: PromptsManager
-    let onProcessWithGemini: (CustomPrompt) -> Void
-    let currentProcessingPrompt: CustomPrompt?
-    let onAdd: () -> Void
-    @Binding var editingPrompt: CustomPrompt?
-
-    private var nonFavoritePrompts: [CustomPrompt] {
-        promptsManager.prompts.filter { !$0.isFavorite }.sorted { $0.order < $1.order }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Заголовок с кнопкой добавления
-            HStack {
-                Text("Промпты")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.6))
-                Spacer()
-                Button(action: onAdd) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(DesignSystem.Colors.accent)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .help("Добавить промпт")
-            }
-
-            // Список non-favorite промптов
-            if nonFavoritePrompts.isEmpty {
-                Text("Нет дополнительных промптов")
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 8)
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(nonFavoritePrompts) { prompt in
-                        LoadingLanguageButton(
-                            label: prompt.label,
-                            tooltip: prompt.description,
-                            isLoading: currentProcessingPrompt?.id == prompt.id,
-                            action: {
-                                onProcessWithGemini(prompt)
-                            },
-                            onEdit: {
-                                editingPrompt = prompt
-                            },
-                            onDelete: prompt.isSystem ? nil : {
-                                promptsManager.deletePrompt(prompt)
-                            },
-                            isSystem: prompt.isSystem
-                        )
-                    }
-                }
-            }
-        }
-        .padding(12)
-        .frame(width: 180)
-        .background(Color.black.opacity(0.85))
-        .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-        )
-    }
-}
-
-// MARK: - Sliding Snippet Panel (правая панель с non-favorite сниппетами)
-struct SlidingSnippetPanel: View {
-    @ObservedObject var snippetsManager: SnippetsManager
-    @Binding var inputText: String
-    let onAdd: () -> Void
-    @Binding var editingSnippet: Snippet?
-
-    private var nonFavoriteSnippets: [Snippet] {
-        snippetsManager.snippets.filter { !$0.isFavorite }.sorted { $0.order < $1.order }
-    }
-
-    var body: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            // Заголовок с кнопкой добавления
-            HStack {
-                Button(action: onAdd) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(DesignSystem.Colors.accent)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .help("Добавить сниппет")
-                Spacer()
-                Text("Сниппеты")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.6))
-            }
-
-            // Список non-favorite сниппетов
-            if nonFavoriteSnippets.isEmpty {
-                Text("Нет дополнительных сниппетов")
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 8)
-            } else {
-                VStack(alignment: .trailing, spacing: 4) {
-                    ForEach(nonFavoriteSnippets) { snippet in
-                        SnippetButton(
-                            shortcut: snippet.shortcut,
-                            tooltip: snippet.title,
-                            action: {
-                                inputText += snippet.content
-                            },
-                            onEdit: {
-                                editingSnippet = snippet
-                            },
-                            onDelete: {
-                                snippetsManager.deleteSnippet(snippet)
-                            }
-                        )
-                    }
-                }
-            }
-        }
-        .padding(12)
-        .frame(width: 180)
-        .background(Color.black.opacity(0.85))
-        .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-        )
     }
 }
 
@@ -1371,31 +1183,3 @@ struct FlowLayout: Layout {
     }
 }
 
-// MARK: - SwiftUI Previews
-#Preview("InputModalView") {
-    InputModalView()
-        .frame(width: 1060, height: 300)
-        .background(Color.black.opacity(0.5))
-}
-
-#Preview("VoiceOverlayView") {
-    VoiceOverlayView(audioLevel: 0.7)
-        .frame(width: 600, height: 70)
-        .background(Color(red: 30/255, green: 30/255, blue: 32/255))
-}
-
-#Preview("ScreenshotNotificationView") {
-    ScreenshotNotificationView()
-        .padding()
-        .background(Color.black)
-}
-
-#Preview("LoadingLanguageButton") {
-    HStack(spacing: 8) {
-        LoadingLanguageButton(label: "WB", tooltip: "Вежливый Бот", isLoading: false, action: {})
-        LoadingLanguageButton(label: "RU", tooltip: "Перевод на русский", isLoading: true, action: {})
-        LoadingLanguageButton(label: "EN", tooltip: "Перевод на английский", isLoading: false, action: {})
-    }
-    .padding()
-    .background(Color.black)
-}

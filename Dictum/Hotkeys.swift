@@ -62,14 +62,3 @@ struct HotkeyConfig: Codable, Equatable {
     static let defaultToggle = HotkeyConfig(keyCode: 10, modifiers: UInt32(cmdKey)) // ⌘ + §
 }
 
-// MARK: - SwiftUI Previews
-#Preview("HotkeyConfig Display") {
-    VStack(alignment: .leading, spacing: 8) {
-        Text("Default: \(HotkeyConfig.defaultToggle.displayString)")
-        Text("Cmd+S: \(HotkeyConfig(keyCode: 1, modifiers: UInt32(cmdKey)).displayString)")
-        Text("Cmd+Shift+A: \(HotkeyConfig(keyCode: 0, modifiers: UInt32(cmdKey) | UInt32(shiftKey)).displayString)")
-    }
-    .padding()
-    .background(Color.black)
-    .foregroundColor(.white)
-}

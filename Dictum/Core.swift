@@ -145,26 +145,3 @@ extension Notification.Name {
     static let dictumPasteAndClose = Notification.Name("dictumPasteAndClose")
 }
 
-// MARK: - SwiftUI Previews
-#Preview("DesignSystem Colors") {
-    VStack(alignment: .leading, spacing: 8) {
-        HStack {
-            Circle().fill(DesignSystem.Colors.accent).frame(width: 24, height: 24)
-            Text("Accent")
-        }
-        HStack {
-            Circle().fill(DesignSystem.Colors.deepgramOrange).frame(width: 24, height: 24)
-            Text("Deepgram Orange")
-        }
-        HStack {
-            Circle().fill(DesignSystem.Colors.destructive).frame(width: 24, height: 24)
-            Text("Destructive")
-        }
-        HStack {
-            Circle().fill(DesignSystem.Colors.warning).frame(width: 24, height: 24)
-            Text("Warning")
-        }
-    }
-    .padding()
-    .background(Color.black)
-}

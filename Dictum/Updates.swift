@@ -397,10 +397,3 @@ struct UpdatesSettingsSection: View {
     }
 }
 
-// MARK: - SwiftUI Previews
-#Preview("UpdatesSettingsSection") {
-    UpdatesSettingsSection()
-        .frame(width: 600)
-        .padding()
-        .background(Color.black)
-}

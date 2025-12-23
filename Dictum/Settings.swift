@@ -56,7 +56,7 @@ struct DictumConfig: Codable {
         var soundEnabled: Bool
         var preferredLanguage: String
         var maxHistoryItems: Int
-        var volumeLevel: Int
+        var volumeReduction: Int
         var autoCheckUpdates: Bool
 
         // ASR
@@ -172,6 +172,11 @@ class SettingsManager: ObservableObject, @unchecked Sendable {
     @Published var screenshotHotkey: HotkeyConfig {
         didSet { saveScreenshotHotkey() }
     }
+    @Published var screenshotSavePath: String {
+        didSet {
+            UserDefaults.standard.set(screenshotSavePath, forKey: "settings.screenshotSavePath")
+        }
+    }
 
     // Gemini API key status
     @Published var hasGeminiAPIKey: Bool = false
@@ -224,11 +229,11 @@ class SettingsManager: ObservableObject, @unchecked Sendable {
         }
     }
 
-    @Published var volumeLevel: Int {
+    @Published var volumeReduction: Int {
         didSet {
-            let value = volumeLevel
+            let value = volumeReduction
             DispatchQueue.global(qos: .utility).async {
-                UserDefaults.standard.set(value, forKey: "settings.volumeLevel")
+                UserDefaults.standard.set(value, forKey: "settings.volumeReduction")
             }
         }
     }
@@ -397,6 +402,9 @@ class SettingsManager: ObservableObject, @unchecked Sendable {
             self.screenshotHotkey = HotkeyConfig(keyCode: 2, modifiers: UInt32(cmdKey | shiftKey))
         }
 
+        // Screenshot save path: по умолчанию ~/Documents/Screenshots
+        self.screenshotSavePath = UserDefaults.standard.string(forKey: "settings.screenshotSavePath") ?? "~/Documents/Screenshots"
+
         // Settings window state
         self.settingsWindowWasOpen = UserDefaults.standard.bool(forKey: "settings.windowWasOpen")
         self.lastSettingsTab = UserDefaults.standard.string(forKey: "settings.lastTab") ?? "general"
@@ -435,8 +443,8 @@ class SettingsManager: ObservableObject, @unchecked Sendable {
         // Системный промпт для "Улучшить через ИИ"
         self.enhanceSystemPrompt = UserDefaults.standard.string(forKey: "settings.enhanceSystemPrompt") ?? Self.defaultEnhanceSystemPrompt
 
-        // Volume level: по умолчанию 10%
-        self.volumeLevel = UserDefaults.standard.object(forKey: "settings.volumeLevel") as? Int ?? 10
+        // Volume reduction: процент снижения громкости (по умолчанию 50%)
+        self.volumeReduction = UserDefaults.standard.object(forKey: "settings.volumeReduction") as? Int ?? 50
 
         // Автопроверка обновлений: по умолчанию включена
         self.autoCheckUpdates = UserDefaults.standard.object(forKey: "settings.autoCheckUpdates") as? Bool ?? true
@@ -532,7 +540,7 @@ class SettingsManager: ObservableObject, @unchecked Sendable {
                 soundEnabled: soundEnabled,
                 preferredLanguage: preferredLanguage,
                 maxHistoryItems: maxHistoryItems,
-                volumeLevel: volumeLevel,
+                volumeReduction: volumeReduction,
                 autoCheckUpdates: autoCheckUpdates,
                 deepgramModel: deepgramModel,
                 highlightForeignWords: highlightForeignWords,
@@ -572,7 +580,7 @@ class SettingsManager: ObservableObject, @unchecked Sendable {
         soundEnabled = config.settings.soundEnabled
         preferredLanguage = config.settings.preferredLanguage
         maxHistoryItems = config.settings.maxHistoryItems
-        volumeLevel = config.settings.volumeLevel
+        volumeReduction = config.settings.volumeReduction
         autoCheckUpdates = config.settings.autoCheckUpdates
 
         // ASR
@@ -1139,7 +1147,7 @@ enum SettingsTab: String, CaseIterable {
     case hotkeys = "Хоткеи"
     case features = "Инструменты"
     case speech = "Диктовка"
-    case ai = "AI"
+    case ai = "AI промпты"
     case snippets = "Сниппеты"
     case updates = "Обновления"
 
@@ -1347,13 +1355,17 @@ struct SettingsView: View {
                         action: {
                             // Умный запрос: диалог если не определено, Settings если отказано
                             PermissionManager.shared.requestMicrophone { granted in
-                                hasMicrophonePermission = granted
+                                Task { @MainActor in
+                                    hasMicrophonePermission = granted
+                                }
                             }
 
                             // Polling если юзер даст разрешение через System Settings
                             for delay in stride(from: 1.0, through: 30.0, by: 1.0) {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                                    hasMicrophonePermission = PermissionManager.shared.hasMicrophone()
+                                    Task { @MainActor in
+                                        hasMicrophonePermission = PermissionManager.shared.hasMicrophone()
+                                    }
                                 }
                             }
                         }
@@ -1423,22 +1435,6 @@ struct SettingsView: View {
                 }
             }
 
-            // Секция: Громкость при записи
-            SettingsSection(title: "ГРОМКОСТЬ ПРИ ЗАПИСИ") {
-                SettingsRow(
-                    title: "Снижать громкость ПК",
-                    subtitle: "Автоматически уменьшать громкость системы во время записи"
-                ) {
-                    Picker("", selection: $settings.volumeLevel) {
-                        Text("10%").tag(10)
-                        Text("20%").tag(20)
-                        Text("30%").tag(30)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 150)
-                }
-            }
-
             // Секция: Подсветка текста
             SettingsSection(title: "ТЕКСТОВЫЙ РЕДАКТОР") {
                 SettingsRow(
@@ -1452,6 +1448,35 @@ struct SettingsView: View {
                         .toggleStyle(GreenToggleStyle())
                         .labelsHidden()
                 }
+            }
+
+            // Секция: Громкость при записи голоса (слайдер)
+            SettingsSection(title: "ГРОМКОСТЬ ПРИ ЗАПИСИ ГОЛОСА") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        Text("0%")
+                            .font(.system(size: 10))
+                            .foregroundColor(.gray)
+
+                        Slider(
+                            value: Binding(
+                                get: { Double(settings.volumeReduction) },
+                                set: { settings.volumeReduction = Int($0) }
+                            ),
+                            in: 0...100
+                        )
+                        .tint(DesignSystem.Colors.accent)
+
+                        Text("100%")
+                            .font(.system(size: 10))
+                            .foregroundColor(.gray)
+                    }
+
+                    Text("0% = не глушить, 100% = полная тишина")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray.opacity(0.7))
+                }
+                .padding(.vertical, 12)
             }
 
             // Секция: Бекап конфигурации (ПОСЛЕДНЯЯ)
@@ -1622,16 +1647,50 @@ struct SettingsView: View {
             SettingsSection(title: "СКРИНШОТЫ") {
                 VStack(spacing: 16) {
                     // Toggle для включения/выключения
-                    SettingsRow(
-                        title: "Быстрые скриншоты",
-                        subtitle: "Глобальный хоткей для создания скриншота. Сохраняется в ~/Library/Screenshots/, путь копируется в буфер обмена"
-                    ) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Быстрые скриншоты")
+                                .font(.system(size: 14))
+                                .foregroundColor(.white)
+                            Text("Глобальный хоткей для создания скриншота. Путь копируется в буфер обмена")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
                         Toggle("", isOn: .init(
                             get: { SettingsManager.shared.screenshotFeatureEnabled },
                             set: { SettingsManager.shared.screenshotFeatureEnabled = $0 }
                         ))
                             .toggleStyle(GreenToggleStyle())
                             .labelsHidden()
+                    }
+                    .padding(.vertical, 8)
+
+                    // Выбор папки для сохранения (только если фича включена)
+                    if SettingsManager.shared.screenshotFeatureEnabled {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Папка для сохранения")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.white)
+                                Text(SettingsManager.shared.screenshotSavePath)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(DesignSystem.Colors.accent)
+                                    .onTapGesture {
+                                        let path = NSString(string: SettingsManager.shared.screenshotSavePath).expandingTildeInPath
+                                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                                    }
+                            }
+                            Spacer()
+                            Button("Изменить") {
+                                selectScreenshotFolder()
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(6)
+                        }
                     }
 
                     // Hotkey recorder (только если фича включена)
@@ -1723,6 +1782,32 @@ struct SettingsView: View {
     var updatesTabContent: some View {
         VStack(spacing: 0) {
             UpdatesSettingsSection()
+        }
+    }
+
+    // MARK: - Screenshot Folder Picker
+    @MainActor
+    private func selectScreenshotFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.title = "Выберите папку для скриншотов"
+        panel.message = "Скриншоты будут сохраняться в выбранную папку"
+        panel.prompt = "Выбрать"
+
+        // Устанавливаем текущую папку как начальную
+        let currentPath = NSString(string: SettingsManager.shared.screenshotSavePath).expandingTildeInPath
+        panel.directoryURL = URL(fileURLWithPath: currentPath)
+
+        if panel.runModal() == .OK, let url = panel.url {
+            // Сохраняем путь с тильдой если это домашняя директория
+            let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+            var newPath = url.path
+            if newPath.hasPrefix(homePath) {
+                newPath = "~" + newPath.dropFirst(homePath.count)
+            }
+            SettingsManager.shared.screenshotSavePath = newPath
         }
     }
 }
@@ -2368,7 +2453,7 @@ struct ASRProviderSection: View {
     @ObservedObject private var settings = SettingsManager.shared
 
     var body: some View {
-        SettingsSection(title: "РАСПОЗНАВАНИЕ РЕЧИ") {
+        SettingsSection(title: "ДИКТОВКА") {
             VStack(alignment: .leading, spacing: 16) {
                 // Горизонтальные карточки провайдеров
                 HStack(spacing: 12) {
@@ -2448,15 +2533,15 @@ struct LLMSettingsInlineView: View {
             )
             .cornerRadius(8)
 
-            // === ПЛАШКА 2: Системный промпт + Инструкции (нейтральная рамка) ===
+            // === ПЛАШКА 2: Улучшайзер текста + Дополнительные инструкции ===
             VStack(alignment: .leading, spacing: 16) {
-                // Системный промпт
+                // Улучшайзер текста
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("Системный промпт")
+                        Text("Улучшайзер текста")
                             .font(.system(size: 14))
                             .foregroundColor(.white)
-                        Text("— инструкции для LLM обработки")
+                        Text("— промпт для LLM обработки текста")
                             .font(.system(size: 11))
                             .foregroundColor(.gray)
                         Spacer()
@@ -2491,57 +2576,20 @@ struct LLMSettingsInlineView: View {
                             .foregroundColor(.gray)
                     }
 
+                    // Динамическая высота: 1 строка по умолчанию, до 10 строк макс
+                    let lineCount = max(1, settings.llmAdditionalInstructions.components(separatedBy: "\n").count)
+                    let dynamicHeight = min(CGFloat(lineCount) * 18 + 16, 180)
+
                     TextEditor(text: $settings.llmAdditionalInstructions)
                         .font(.system(size: 11, design: .monospaced))
                         .scrollContentBackground(.hidden)
-                        .frame(minHeight: 44, maxHeight: 132)
+                        .frame(height: dynamicHeight)
                         .padding(8)
                         .background(Color.black.opacity(0.3))
                         .cornerRadius(6)
                 }
             }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.white.opacity(0.03))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
-            )
-
-            // === ПЛАШКА 3: Промпт "Улучшить через ИИ" (нейтральная рамка) ===
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Image(systemName: "wand.and.stars")
-                        .foregroundColor(DesignSystem.Colors.accent)
-                        .font(.system(size: 12))
-                    Text("Улучшить через ИИ")
-                        .font(.system(size: 14))
-                        .foregroundColor(.white)
-                    Text("— инструкции для кнопки ✨")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    Spacer()
-                    if settings.enhanceSystemPrompt != SettingsManager.defaultEnhanceSystemPrompt {
-                        Button("Сбросить") {
-                            settings.enhanceSystemPrompt = SettingsManager.defaultEnhanceSystemPrompt
-                        }
-                        .font(.system(size: 11))
-                        .foregroundColor(DesignSystem.Colors.accent)
-                    }
-                }
-
-                TextEditor(text: $settings.enhanceSystemPrompt)
-                    .font(.system(size: 11, design: .monospaced))
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 80, maxHeight: 220)
-                    .padding(8)
-                    .background(Color.black.opacity(0.3))
-                    .cornerRadius(6)
-            }
-            .padding(.vertical, 8)
+            .padding(.vertical, 16)
             .padding(.horizontal, 16)
             .background(
                 RoundedRectangle(cornerRadius: 8)
@@ -2987,6 +3035,22 @@ struct AddPromptSheet: View {
         !promptText.isEmpty
     }
 
+    private func addPrompt() {
+        guard isValid else { return }
+        let newPrompt = CustomPrompt(
+            id: UUID(),
+            label: label,
+            description: description,
+            prompt: promptText,
+            isVisible: true,
+            isFavorite: true,
+            isSystem: false,
+            order: 0
+        )
+        onAdd(newPrompt)
+        dismiss()
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Text("Новый промпт")
@@ -3008,6 +3072,7 @@ struct AddPromptSheet: View {
                         .onChange(of: label) { _, newValue in
                             label = String(newValue.prefix(10)).uppercased()
                         }
+                        .onSubmit { addPrompt() }
                 }
 
                 // Description
@@ -3020,6 +3085,7 @@ struct AddPromptSheet: View {
                         .padding(10)
                         .background(Color(hex: "#1a1a1b"))
                         .cornerRadius(6)
+                        .onSubmit { addPrompt() }
                 }
 
                 // Prompt text
@@ -3045,23 +3111,11 @@ struct AddPromptSheet: View {
                 }
                 .buttonStyle(.bordered)
 
-                Button("Добавить") {
-                    let newPrompt = CustomPrompt(
-                        id: UUID(),
-                        label: label,
-                        description: description,
-                        prompt: promptText,
-                        isVisible: true,
-                        isFavorite: true,
-                        isSystem: false,
-                        order: 0
-                    )
-                    onAdd(newPrompt)
-                    dismiss()
-                }
+                Button("Добавить", action: addPrompt)
                 .buttonStyle(.borderedProminent)
                 .tint(DesignSystem.Colors.accent)
                 .disabled(!isValid)
+                .keyboardShortcut(.return, modifiers: .command)
             }
         }
         .padding(24)
@@ -3102,6 +3156,17 @@ struct EditPromptSheet: View {
     // Цвет фона полей ввода
     private let fieldBackground = Color(red: 26/255, green: 26/255, blue: 27/255)  // #1a1a1b
 
+    private func saveChanges() {
+        guard isValid else { return }
+        var updated = prompt
+        updated.label = label
+        updated.description = description
+        updated.prompt = promptText
+        updated.isFavorite = isFavorite
+        onSave(updated)
+        dismiss()
+    }
+
     var body: some View {
         VStack(spacing: 20) {
             Text("Редактировать промпт")
@@ -3123,6 +3188,7 @@ struct EditPromptSheet: View {
                         .onChange(of: label) { _, newValue in
                             label = String(newValue.prefix(10)).uppercased()
                         }
+                        .onSubmit { saveChanges() }
                 }
 
                 // Description (редактируется для всех промптов)
@@ -3135,6 +3201,7 @@ struct EditPromptSheet: View {
                         .padding(10)
                         .background(fieldBackground)
                         .cornerRadius(6)
+                        .onSubmit { saveChanges() }
                 }
 
                 // Prompt text
@@ -3213,15 +3280,7 @@ struct EditPromptSheet: View {
                 .cornerRadius(6)
                 .buttonStyle(PlainButtonStyle())
 
-                Button(action: {
-                    var updated = prompt
-                    updated.label = label
-                    updated.description = description
-                    updated.prompt = promptText
-                    updated.isFavorite = isFavorite
-                    onSave(updated)
-                    dismiss()
-                }) {
+                Button(action: saveChanges) {
                     Text("Сохранить")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white)
@@ -3232,6 +3291,7 @@ struct EditPromptSheet: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .disabled(!isValid)
+                .keyboardShortcut(.return, modifiers: .command)
             }
         }
         .padding(24)
@@ -3432,6 +3492,19 @@ struct AddSnippetSheet: View {
         !content.isEmpty
     }
 
+    private func addSnippet() {
+        guard isValid else { return }
+        let newSnippet = Snippet.create(
+            shortcut: shortcut,
+            title: title,
+            content: content
+        )
+        var snippet = newSnippet
+        snippet.isFavorite = isFavorite
+        onAdd(snippet)
+        dismiss()
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Text("Новый сниппет")
@@ -3450,6 +3523,7 @@ struct AddSnippetSheet: View {
                         .onChange(of: shortcut) { _, newValue in
                             shortcut = String(newValue.prefix(6)).lowercased()
                         }
+                        .onSubmit { addSnippet() }
                 }
 
                 // Title
@@ -3459,6 +3533,7 @@ struct AddSnippetSheet: View {
                         .foregroundColor(.gray)
                     TextField("", text: $title)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .onSubmit { addSnippet() }
                 }
 
                 // Content
@@ -3491,19 +3566,10 @@ struct AddSnippetSheet: View {
 
                 Spacer()
 
-                Button("Добавить") {
-                    let newSnippet = Snippet.create(
-                        shortcut: shortcut,
-                        title: title,
-                        content: content
-                    )
-                    var snippet = newSnippet
-                    snippet.isFavorite = isFavorite
-                    onAdd(snippet)
-                    dismiss()
-                }
+                Button("Добавить", action: addSnippet)
                 .buttonStyle(.borderedProminent)
                 .disabled(!isValid)
+                .keyboardShortcut(.return, modifiers: .command)
             }
         }
         .padding(20)
@@ -3538,6 +3604,17 @@ struct EditSnippetSheet: View {
         !content.isEmpty
     }
 
+    private func saveChanges() {
+        guard isValid else { return }
+        var updated = snippet
+        updated.shortcut = shortcut
+        updated.title = title
+        updated.content = content
+        updated.isFavorite = isFavorite
+        onSave(updated)
+        dismiss()
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Text("Редактировать сниппет")
@@ -3556,6 +3633,7 @@ struct EditSnippetSheet: View {
                         .onChange(of: shortcut) { _, newValue in
                             shortcut = String(newValue.prefix(6)).lowercased()
                         }
+                        .onSubmit { saveChanges() }
                 }
 
                 // Title
@@ -3565,6 +3643,7 @@ struct EditSnippetSheet: View {
                         .foregroundColor(.gray)
                     TextField("", text: $title)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .onSubmit { saveChanges() }
                 }
 
                 // Content
@@ -3597,17 +3676,10 @@ struct EditSnippetSheet: View {
 
                 Spacer()
 
-                Button("Сохранить") {
-                    var updated = snippet
-                    updated.shortcut = shortcut
-                    updated.title = title
-                    updated.content = content
-                    updated.isFavorite = isFavorite
-                    onSave(updated)
-                    dismiss()
-                }
+                Button("Сохранить", action: saveChanges)
                 .buttonStyle(.borderedProminent)
                 .disabled(!isValid)
+                .keyboardShortcut(.return, modifiers: .command)
             }
         }
         .padding(20)
@@ -3616,45 +3688,3 @@ struct EditSnippetSheet: View {
     }
 }
 
-// MARK: - SwiftUI Previews
-#Preview("SettingsView") {
-    SettingsView()
-        .frame(width: 750, height: 600)
-}
-
-#Preview("ASRProviderCard") {
-    HStack(spacing: 12) {
-        ASRProviderCard(
-            icon: "cpu",
-            title: "Parakeet v3",
-            subtitle: "25 языков • ~190× RT",
-            badge: "Офлайн",
-            isSelected: true,
-            accentColor: DesignSystem.Colors.accent,
-            action: {}
-        )
-        ASRProviderCard(
-            icon: "cloud.fill",
-            title: "Deepgram",
-            subtitle: "Streaming • ~200мс",
-            badge: nil,
-            isSelected: false,
-            accentColor: DesignSystem.Colors.deepgramOrange,
-            action: {}
-        )
-    }
-    .padding()
-    .background(Color.black)
-}
-
-#Preview("GreenToggleStyle") {
-    VStack(spacing: 20) {
-        Toggle("Enabled", isOn: .constant(true))
-            .toggleStyle(GreenToggleStyle())
-        Toggle("Disabled", isOn: .constant(false))
-            .toggleStyle(GreenToggleStyle())
-    }
-    .padding()
-    .background(Color.black)
-    .foregroundColor(.white)
-}

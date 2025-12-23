@@ -38,21 +38,28 @@ Dictum — умный ввод текста с ИИ для macOS. Floating panel
 ### Критически важные API
 
 #### Для вставки текста в другие приложения
-**ВСЕГДА использовать AppleScript + System Events** (как Raycast, Alfred, SuperWhisper):
+**CGEvent** (как в Maccy, Clipy — популярных clipboard managers):
 ```swift
-let script = """
-tell application "System Events"
-    keystroke "v" using command down
-end tell
-"""
-let appleScript = NSAppleScript(source: script)
-appleScript?.executeAndReturnError(&error)
+let source = CGEventSource(stateID: .combinedSessionState)
+source?.setLocalEventsFilterDuringSuppressionState(
+    [.permitLocalMouseEvents, .permitSystemDefinedEvents],
+    state: .eventSuppressionStateSuppressionInterval
+)
+
+let vKeyCode: CGKeyCode = 0x09  // 'v' key
+let keyVDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true)
+let keyVUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false)
+keyVDown?.flags = .maskCommand
+keyVUp?.flags = .maskCommand
+
+keyVDown?.post(tap: .cgSessionEventTap)
+keyVUp?.post(tap: .cgSessionEventTap)
 ```
 
-**Почему НЕ CGEvent:**
-- CGEvent заблокирован в App Sandbox
-- CGEvent ненадёжен для Electron/WebView приложений
-- AppleScript работает через Accessibility API — более универсально
+**Почему CGEvent, а не AppleScript:**
+- Требует только Accessibility permission (галочка в System Settings)
+- НЕ показывает диалог "управление System Events" при первом запуске
+- Работает во всех приложениях, включая Electron (проверено в Maccy/Clipy)
 
 #### Для активации предыдущего приложения
 ```swift
@@ -506,15 +513,67 @@ class VolumeManager {
 - **Не использовать `.green`** — только `DesignSystem.Colors.accent` (#1AAF87)
 - **Не хардкодить цвета** — всегда через `DesignSystem.Colors`
 - **Единый зеленый** — `#1AAF87` для всех зеленых элементов
+- **НЕ добавлять тени на модалки** — `.shadow()` запрещён на главной модалке
+- **strokeBorder вместо stroke** — для равномерных бордеров на скруглённых углах
 
 ```swift
 // Правильно
 .foregroundColor(DesignSystem.Colors.accent)
 .toggleStyle(SwitchToggleStyle(tint: DesignSystem.Colors.toggleActive))
+.strokeBorder(DesignSystem.Colors.borderColor, lineWidth: 1)  // бордер модалки
 
 // Неправильно
 .foregroundColor(.green)
+.shadow(color: .black, radius: 27, y: 24)  // тени на модалке ЗАПРЕЩЕНЫ
+.stroke(borderColor, lineWidth: 2)  // неравномерно на углах
 ```
+
+### Комментирование кода
+
+#### MARK-комментарии для навигации
+
+Используй `// MARK:` для разделения логических секций в файле:
+
+```swift
+// MARK: - Properties
+// MARK: - Initialization
+// MARK: - Public Methods
+// MARK: - Private Methods
+// MARK: - UI Components
+// MARK: - Actions
+// MARK: - Helpers
+```
+
+#### Документирующие комментарии
+
+Для публичных API используй `///`:
+
+```swift
+/// Запускает транскрибацию аудио
+/// - Parameter audioData: PCM аудио данные (16kHz, mono)
+/// - Returns: Транскрибированный текст
+/// - Throws: ASRError если транскрибация не удалась
+func transcribe(_ audioData: Data) async throws -> String
+```
+
+#### Inline комментарии
+
+Только для неочевидной логики:
+
+```swift
+// Буфер 1600 samples = ~100ms при 16kHz — оптимально для streaming
+inputNode.installTap(onBus: 0, bufferSize: 1600, format: inputFormat)
+
+// КРИТИЧНО: allowsHitTesting(false) иначе VoiceOverlay блокирует Enter
+VoiceOverlayView(audioLevel: level)
+    .allowsHitTesting(false)
+```
+
+#### НЕ добавлять комментарии:
+- К очевидному коду (`// increment counter` перед `counter += 1`)
+- Закомментированный код — удалять, не комментировать
+- TODO без issue/задачи — либо делать сразу, либо создавать issue
+- `#Preview` блоки — не используем (Xcode Preview не даёт инспектировать элементы)
 
 ### ВСЕГДА делать research лучших решений
 
@@ -529,7 +588,7 @@ class VolumeManager {
 
 | Задача | Правильный метод | НЕ использовать |
 |--------|------------------|-----------------|
-| Paste в другое приложение | AppleScript + System Events | CGEvent (ненадёжно) |
+| Paste в другое приложение | CGEvent (как Maccy/Clipy) | AppleScript (диалог System Events) |
 | Захват аудио real-time | AVAudioEngine | AVAudioRecorder (медленно) |
 | Speech-to-text (облако) | WebSocket streaming (Deepgram) | REST API (задержка) |
 | Speech-to-text (локально) | FluidAudio + CoreML (Parakeet) | Whisper.cpp (медленнее) |
@@ -635,7 +694,6 @@ targets:
 | Проблема | Причина | Решение |
 |----------|---------|---------|
 | Paste не работает | Нет Accessibility permission | Добавить в System Settings |
-| Paste не работает в Electron | CGEvent игнорируется | Использовать AppleScript |
 | Enter не работает при записи | VoiceOverlayView перехватывает события | `.allowsHitTesting(false)` |
 | Первые слова теряются | Большой буфер / нет pre-buffering | Буфер 1600 + pre-buffer |
 | Дублирование текста | finalTranscript не сбрасывается | Всегда `finalTranscript = ""` в начале |

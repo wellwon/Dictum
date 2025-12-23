@@ -36,7 +36,14 @@ pkill -9 -f "Dictum.app" 2>/dev/null
 # Small delay to ensure clean start
 sleep 0.5
 
+# Reset Accessibility permissions (removes old entries)
+echo "🔐 Resetting Accessibility permissions..."
+tccutil reset Accessibility com.dictum.app 2>/dev/null
+
 # Launch app
 open "$APP"
 
 echo "✅ Dictum started"
+echo ""
+echo "⚠️  Enable Accessibility permission:"
+echo "   System Settings → Privacy & Security → Accessibility → Enable Dictum"

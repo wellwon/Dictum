@@ -287,12 +287,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         NSLog("📸 Screenshot hotkey pressed")
 
-        // Используем /tmp/ — гарантированно доступна для записи на всех версиях macOS
+        // Используем путь из настроек (по умолчанию ~/Documents/Screenshots)
+        let savePath = SettingsManager.shared.screenshotSavePath
+        let expandedPath = NSString(string: savePath).expandingTildeInPath
+
+        // Создаём папку если не существует
+        try? FileManager.default.createDirectory(atPath: expandedPath, withIntermediateDirectories: true)
+
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
         let timestamp = dateFormatter.string(from: Date())
         let filename = "dictum-screenshot-\(timestamp).png"
-        let filepath = "/tmp/\(filename)"
+        let filepath = "\(expandedPath)/\(filename)"
 
         // Запускаем screencapture с интерактивным выбором
         // Fix R4-H1: Выполняем в background thread чтобы не блокировать UI
@@ -460,25 +466,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func simulatePaste() {
-        // AppleScript через System Events — надёжнее CGEvent для всех приложений
-        // + поддерживает undo stack целевого приложения
-        let script = """
-        tell application "System Events"
-            keystroke "v" using command down
-        end tell
-        """
+        // CGEvent — как в Maccy/Clipy, не требует диалога "управление System Events"
+        // Требует только Accessibility permission (галочка в System Settings)
+        let source = CGEventSource(stateID: .combinedSessionState)
+        // Отключаем локальные события клавиатуры во время paste
+        source?.setLocalEventsFilterDuringSuppressionState(
+            [.permitLocalMouseEvents, .permitSystemDefinedEvents],
+            state: .eventSuppressionStateSuppressionInterval
+        )
 
-        var error: NSDictionary?
-        if let appleScript = NSAppleScript(source: script) {
-            appleScript.executeAndReturnError(&error)
-            if let error = error {
-                NSLog("❌ AppleScript paste error: \(error)")
-            } else {
-                NSLog("✅ Paste выполнен через AppleScript")
-            }
-        } else {
-            NSLog("❌ Не удалось создать AppleScript")
-        }
+        let vKeyCode: CGKeyCode = 0x09  // 'v' key
+
+        let keyVDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true)
+        let keyVUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false)
+        keyVDown?.flags = .maskCommand
+        keyVUp?.flags = .maskCommand
+
+        keyVDown?.post(tap: .cgSessionEventTap)
+        keyVUp?.post(tap: .cgSessionEventTap)
+
+        NSLog("✅ Paste выполнен через CGEvent")
     }
 
     func unregisterHotKeys() {
@@ -997,12 +1004,4 @@ struct DictumApp: App {
             EmptyView()
         }
     }
-}
-
-// MARK: - SwiftUI Previews
-
-#Preview("ScreenshotNotificationView") {
-    ScreenshotNotificationView()
-        .padding()
-        .background(Color.black.opacity(0.5))
 }
