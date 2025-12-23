@@ -198,15 +198,27 @@ open Dictum.app
 
 ```
 Dictum/
-├── Dictum.swift           # Весь код приложения (~10000 строк)
-├── project.yml            # Конфигурация для xcodegen (SPM deps)
-├── Info.plist             # Конфигурация приложения
-├── Dictum.entitlements    # Права доступа
-├── AppIcon.icns           # Иконка
-├── create_dmg.sh          # Создание DMG
-├── claude.md              # Документация для разработки
-├── DESIGN_SYSTEM.md       # Дизайн-система (цвета, шрифты)
-├── sound/                 # Звуковые эффекты
+├── Dictum/                  # Исходный код (12 модулей, ~9700 строк)
+│   ├── DictumApp.swift      # Entry point, AppDelegate, FloatingPanel
+│   ├── Core.swift           # DesignSystem, APIKeyManager
+│   ├── Settings.swift       # SettingsManager + UI настроек
+│   ├── InputModal.swift     # Главное окно ввода
+│   ├── Dictation.swift      # ASR: Deepgram + Parakeet v3
+│   ├── AI.swift             # GeminiService
+│   ├── Prompts.swift        # Кастомные AI-промпты
+│   ├── Snippets.swift       # Текстовые сниппеты
+│   ├── History.swift        # История заметок (SQLite)
+│   ├── Hotkeys.swift        # HotkeyConfig для Carbon API
+│   ├── Updates.swift        # UpdateManager + Sparkle
+│   └── Components.swift     # UI-компоненты
+├── project.yml              # Конфигурация для xcodegen (SPM deps)
+├── Info.plist               # Конфигурация приложения
+├── Dictum.entitlements      # Права доступа
+├── AppIcon.icns             # Иконка
+├── create_dmg.sh            # Создание DMG
+├── claude.md                # Документация для разработки
+├── DESIGN_SYSTEM.md         # Дизайн-система (цвета, шрифты)
+├── sound/                   # Звуковые эффекты
 │   ├── start.wav
 │   ├── stop.wav
 │   ├── copy.wav
@@ -232,34 +244,36 @@ Dictum/
 
 ### Архитектура приложения
 
-**Монолитный файл** (`Dictum.swift`, ~10000 строк) с четкой модульной структурой:
+**Модульная архитектура** — 12 Swift-файлов, организованных по функциональности (~9700 строк):
 
-#### Основные компоненты:
+| Модуль | Строк | Содержимое |
+|--------|-------|------------|
+| `DictumApp.swift` | ~975 | Entry point, AppDelegate, FloatingPanel, меню |
+| `Settings.swift` | ~3600 | SettingsManager + весь UI настроек |
+| `InputModal.swift` | ~1360 | Главное окно ввода с голосом |
+| `Dictation.swift` | ~1090 | AudioRecordingManager, ParakeetASRProvider |
+| `Components.swift` | ~520 | CustomTextEditor, UI-компоненты |
+| `Snippets.swift` | ~520 | SnippetsManager + UI |
+| `Prompts.swift` | ~465 | PromptsManager + UI |
+| `Updates.swift` | ~400 | UpdateManager + AppcastParser |
+| `History.swift` | ~265 | HistoryManager + UI |
+| `AI.swift` | ~215 | GeminiService |
+| `Core.swift` | ~170 | DesignSystem, APIKeyManager |
+| `Hotkeys.swift` | ~75 | HotkeyConfig |
 
-1. **Managers (ObservableObject):**
-   - `SettingsManager` - управление настройками (UserDefaults)
-   - `AudioRecordingManager` - облачная ASR через Deepgram WebSocket
-   - `ParakeetASRProvider` - локальная ASR через FluidAudio (Parakeet v3)
-   - `BillingManager` - Management API для биллинга Deepgram
-   - `HistoryManager` - хранение и поиск истории заметок
-   - `KeychainManager` - безопасное хранение API ключей
-   - `SoundManager` - воспроизведение звуковых эффектов
+#### Ключевые классы:
 
-2. **Services:**
-   - `DeepgramService` - REST API для одноразовой транскрипции аудиофайлов
-   - `DeepgramManagementService` - Management API v1 (проекты, балансы, usage)
-
-3. **SwiftUI Views:**
-   - `InputModalView` - главное модальное окно (floating window)
-   - `HistoryListView` - список истории с поиском
-   - `SettingsPanelView` - настройки с табами (General, Hotkeys, Deepgram, AI)
-   - `VoiceOverlayView` - amplitude визуализация
-   - `CustomTextEditor` - NSViewRepresentable обертка для NSTextView
-
-4. **AppDelegate:**
-   - Глобальные хоткеи (MASShortcut или Carbon)
-   - Menu bar item
-   - Event monitoring
+| Категория | Класс | Файл |
+|-----------|-------|------|
+| **ASR** | `AudioRecordingManager` | Dictation.swift |
+| | `ParakeetASRProvider` | Dictation.swift |
+| **AI** | `GeminiService` | AI.swift |
+| **Настройки** | `SettingsManager` | Settings.swift |
+| | `PromptsManager` | Prompts.swift |
+| | `SnippetsManager` | Snippets.swift |
+| **Система** | `HistoryManager` | History.swift |
+| | `UpdateManager` | Updates.swift |
+| | `AppDelegate` | DictumApp.swift |
 
 ### Ключевые технологии
 
@@ -296,10 +310,10 @@ Dictum/
 
 ### Важные особенности кода
 
-**1. Все в одном файле:**
-- Монолитная структура для простоты
-- ~10000 строк с четкими MARK секциями
-- Нет модульности - всё в Dictum.swift
+**1. Модульная архитектура:**
+- 12 файлов по функциональности
+- ~9700 строк суммарно
+- Каждый модуль содержит Manager + UI
 
 **2. SwiftUI patterns:**
 - `@Published` свойства для реактивности

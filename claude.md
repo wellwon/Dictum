@@ -64,8 +64,38 @@ prevApp.activate(options: .activateIgnoringOtherApps)
 
 ## Архитектура
 
-### Ключевые файлы
-- `Dictum.swift` — единственный файл с кодом (~10000 строк)
+### Файловая структура
+
+Проект разбит на 12 модулей по функциональности:
+
+```
+Dictum/
+├── DictumApp.swift      # Entry point, AppDelegate, FloatingPanel, меню
+├── Core.swift           # DesignSystem, Color+Hex, AppConfig, APIKeyManager
+├── Settings.swift       # SettingsManager + весь UI настроек
+├── InputModal.swift     # Главное окно ввода с голосом
+├── Dictation.swift      # ASR: Deepgram + Parakeet v3
+├── AI.swift             # GeminiService для обработки текста
+├── Prompts.swift        # Кастомные AI-промпты
+├── Snippets.swift       # Текстовые сниппеты
+├── History.swift        # История заметок (SQLite)
+├── Hotkeys.swift        # HotkeyConfig для Carbon API
+├── Updates.swift        # UpdateManager + AppcastParser
+└── Components.swift     # Переиспользуемые UI-компоненты
+```
+
+### Как найти нужный код
+
+| Задача | Файл |
+|--------|------|
+| Добавить настройку | `Settings.swift` |
+| Изменить UI модалки | `InputModal.swift` |
+| Поправить распознавание речи | `Dictation.swift` |
+| Добавить AI-функцию | `AI.swift` |
+| Новый UI-компонент | `Components.swift` |
+| Управление окнами/хоткеями | `DictumApp.swift` |
+
+### Конфигурационные файлы
 - `project.yml` — конфигурация проекта для xcodegen
 - `Info.plist` — конфигурация приложения
 - `Dictum.entitlements` — права приложения (sandbox ОТКЛЮЧЁН)
@@ -336,6 +366,139 @@ class MyManager: ObservableObject, @unchecked Sendable { ... }
 
 **Причина:** Понижение версий создаёт технический долг и ломает совместимость с зависимостями (FluidAudio требует macOS 14.0+).
 
+### 🔒 Swift 6 Strict Concurrency — правила
+
+Swift 6 требует явной изоляции потоков. Основные правила:
+
+#### 1. UI-классы требуют `@MainActor`
+
+Любой класс, работающий с AppKit/SwiftUI (окна, панели, делегаты):
+
+```swift
+// ✅ ПРАВИЛЬНО
+@MainActor
+class FloatingPanel: NSPanel { ... }
+
+@MainActor
+class AppDelegate: NSObject, NSApplicationDelegate { ... }
+
+@MainActor
+class Coordinator: NSObject, NSTextViewDelegate { ... }
+
+// ❌ НЕПРАВИЛЬНО — ошибки "Main actor-isolated property..."
+class FloatingPanel: NSPanel { ... }
+```
+
+#### 2. UI-функции требуют `@MainActor`
+
+Функции, создающие UI-элементы или работающие с NSSavePanel/NSOpenPanel:
+
+```swift
+// ✅ ПРАВИЛЬНО
+@MainActor
+func createMenuBarIcon() -> NSImage { ... }
+
+@MainActor
+func saveConfigToFile() -> URL? {
+    let panel = NSSavePanel()
+    // ...
+}
+
+// ❌ НЕПРАВИЛЬНО — ошибки "Call to main actor-isolated initializer..."
+func createMenuBarIcon() -> NSImage { ... }
+```
+
+#### 3. Переменные в @Sendable closures
+
+Переменные, захватываемые в `@Sendable` closures (например, в `AVAudioConverter.convert`), требуют специальной обработки:
+
+```swift
+// ✅ ПРАВИЛЬНО — использовать Box-класс
+private final class BoolBox: @unchecked Sendable {
+    var value: Bool
+    init(_ value: Bool) { self.value = value }
+}
+
+let hasDataBox = BoolBox(true)
+converter.convert(to: outputBuffer, error: &error) { _, outStatus in
+    if hasDataBox.value {
+        outStatus.pointee = .haveData
+        hasDataBox.value = false
+        return buffer
+    }
+    outStatus.pointee = .noDataNow
+    return nil
+}
+
+// ❌ НЕПРАВИЛЬНО — ошибки "Mutation of captured var in concurrently-executing code"
+var hasData = true
+converter.convert(...) { _, outStatus in
+    if hasData { ... }  // Ошибка!
+}
+```
+
+#### 4. Non-Sendable типы из системных фреймворков
+
+Для `AVAudioPCMBuffer` и других типов из AVFoundation:
+
+```swift
+// ✅ ПРАВИЛЬНО — добавить @preconcurrency к импорту
+@preconcurrency import AVFoundation
+
+// ❌ НЕПРАВИЛЬНО — ошибки "Capture of 'buffer' with non-Sendable type"
+import AVFoundation
+```
+
+#### 5. Deprecated API в macOS 14+
+
+```swift
+// ✅ ПРАВИЛЬНО (macOS 14+)
+NSApp.activate()
+targetApp.activate()
+
+// ❌ DEPRECATED — предупреждения "activateIgnoringOtherApps was deprecated"
+NSApp.activate(ignoringOtherApps: true)
+targetApp.activate(options: .activateIgnoringOtherApps)
+```
+
+#### 6. SwiftUI onChange (macOS 14+)
+
+Новый синтаксис `onChange` с двумя параметрами:
+
+```swift
+// ✅ ПРАВИЛЬНО (macOS 14+) — два параметра: oldValue, newValue
+.onChange(of: someValue) { _, newValue in
+    // используем newValue
+}
+
+// ❌ DEPRECATED — один параметр
+.onChange(of: someValue) { newValue in
+    // ...
+}
+```
+
+#### 7. Классы с mutable state
+
+Для классов с изменяемым состоянием, используемых из разных потоков:
+
+```swift
+// ✅ ПРАВИЛЬНО — если класс уже @MainActor, Sendable не нужен
+@MainActor
+class AppDelegate: NSObject, NSApplicationDelegate { ... }
+
+// ✅ ПРАВИЛЬНО — для синглтонов без UI
+class VolumeManager: @unchecked Sendable {
+    static let shared = VolumeManager()
+    private var savedVolume: Int?
+    // ...
+}
+
+// ❌ НЕПРАВИЛЬНО — ошибки при использовании из async контекста
+class VolumeManager {
+    static let shared = VolumeManager()
+}
+```
+
 ### Дизайн-система
 
 **ВАЖНО:** При изменении любых элементов дизайна приложения (цвета, отступы, шрифты, радиусы) — сначала проверить `DESIGN_SYSTEM.md` для использования единых стилей.
@@ -389,24 +552,54 @@ class MyManager: ObservableObject, @unchecked Sendable { ... }
 - **Xcode 16+**
 - **xcodegen** (`brew install xcodegen`)
 
-### Сборка
+### Development Workflow
+
+#### Debug vs Release
+
+| Этап | Конфигурация | Как запускать |
+|------|--------------|---------------|
+| **Разработка** | Debug | Xcode ▶️ или `scripts/run-debug.sh` |
+| **Релиз** | Release | `xcodebuild -configuration Release` |
+
+#### Как работают разрешения (TCC)
+
+macOS привязывает разрешения (Accessibility, Microphone и т.д.) к **CDHash** — подписи приложения. Debug и Release версии имеют разные CDHash.
+
+**Важно:** Во время разработки используй только Debug версию. Дашь разрешения один раз — работают везде.
+
+#### Запуск приложения
+
+**Разработчик (Xcode):**
+```bash
+# Xcode → ▶️ Run
+# Или через скрипт:
+./scripts/run-debug.sh
+```
+
+**Claude (CLI):**
+```bash
+# Использует ту же Debug версию из DerivedData:
+./scripts/run-debug.sh
+# Или напрямую:
+open "$(find ~/Library/Developer/Xcode/DerivedData -path '*/Dictum-*/Build/Products/Debug/Dictum.app' -not -path '*/Index.noindex/*' -type d | head -1)"
+```
+
+**Релиз (финальный билд):**
+```bash
+xcodebuild -project Dictum.xcodeproj -scheme Dictum -configuration Release -derivedDataPath ./build build
+cp -r ./build/Build/Products/Release/Dictum.app ./
+open Dictum.app
+```
+
+#### Индикатор версии
+
+В настройках отображается тип сборки: "Dictum v1.82 (Debug)" или "Dictum v1.82 (Release)".
+
+### Генерация проекта
 
 ```bash
-# Генерация Xcode проекта из project.yml
+# Из project.yml
 xcodegen generate
-
-# Сборка через xcodebuild
-xcodebuild -project Dictum.xcodeproj \
-    -scheme Dictum \
-    -configuration Release \
-    -derivedDataPath ./build \
-    build
-
-# Копирование .app
-cp -r ./build/Build/Products/Release/Dictum.app ./
-
-# Запуск
-open Dictum.app
 
 # Логи
 # Console.app → фильтр "Dictum"
