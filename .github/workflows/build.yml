@@ -1,0 +1,100 @@
+name: Build
+
+on:
+  push:
+    branches: [main, rename-to-dictum]
+  pull_request:
+    branches: [main]
+
+env:
+  APP_NAME: Dictum
+  # sherpa-onnx версия для скачивания
+  SHERPA_VERSION: "1.10.32"
+
+jobs:
+  build:
+    runs-on: macos-14  # Apple Silicon runner
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup environment
+        run: |
+          echo "Building $APP_NAME..."
+          sw_vers
+          uname -m
+
+      - name: Cache sherpa-onnx
+        id: cache-sherpa
+        uses: actions/cache@v4
+        with:
+          path: sherpa-onnx-build
+          key: sherpa-onnx-${{ env.SHERPA_VERSION }}-macos-arm64
+
+      - name: Download sherpa-onnx
+        if: steps.cache-sherpa.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p sherpa-onnx-build
+          cd sherpa-onnx-build
+
+          # Скачиваем pre-built static library
+          curl -L -o sherpa-onnx.tar.bz2 \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${SHERPA_VERSION}/sherpa-onnx-v${SHERPA_VERSION}-osx-arm64-static.tar.bz2"
+
+          tar xf sherpa-onnx.tar.bz2
+          rm sherpa-onnx.tar.bz2
+
+          # Переименовываем директорию
+          mv sherpa-onnx-v* install
+
+      - name: Cache T-ONE model
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: t-one-russian-2025-09-08
+
+      - name: Download T-ONE model
+        if: steps.cache-model.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p models
+          curl -L -o model.tar.bz2 \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-t-one-russian-2025-09-08.tar.bz2"
+          tar xf model.tar.bz2 -C models/
+          rm model.tar.bz2
+
+      - name: Build application
+        run: |
+          # Настраиваем пути для CI
+          export SHERPA_BUILD_DIR="${PWD}/sherpa-onnx-build/install"
+          export SHERPA_LIB="${SHERPA_BUILD_DIR}/lib/libsherpa-onnx-c-api.a"
+          export SHERPA_INCLUDE="${SHERPA_BUILD_DIR}/include"
+
+          # Проверяем файлы
+          ls -la sherpa-onnx-build/install/lib/ || true
+          ls -la sherpa-onnx-build/install/include/ || true
+
+          # Создаём структуру .app
+          mkdir -p "$APP_NAME.app/Contents/MacOS"
+          mkdir -p "$APP_NAME.app/Contents/Resources/models"
+
+          # Копируем ресурсы
+          cp Info.plist "$APP_NAME.app/Contents/"
+          cp AppIcon.icns "$APP_NAME.app/Contents/Resources/" 2>/dev/null || true
+          cp -r models/* "$APP_NAME.app/Contents/Resources/models/" 2>/dev/null || true
+          cp sound/*.wav "$APP_NAME.app/Contents/Resources/" 2>/dev/null || true
+          echo "APPL????" > "$APP_NAME.app/Contents/PkgInfo"
+
+          # Компилируем (упрощённая версия для CI)
+          # Примечание: полная сборка требует все static libs из sherpa-onnx
+          echo "Build configuration complete. Full compilation requires local sherpa-onnx build."
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-build
+          path: |
+            ${{ env.APP_NAME }}.app/
+          if-no-files-found: warn
+          retention-days: 7

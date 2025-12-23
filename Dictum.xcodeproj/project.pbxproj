@@ -1,0 +1,406 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 63;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		193A665DD50433D61C772BEA /* Dictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04EAB0B76FD5694386037F0F /* Dictation.swift */; };
+		434D4D894E603557903D7E7A /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 265C6A0B76E2696619723684 /* AppIcon.icns */; };
+		4BAF8B4D4D4B03A3ABFF6097 /* DictumApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 233D620BE4A1F2BB693CAB21 /* DictumApp.swift */; };
+		4C8C41D8611BBE119F4411FD /* Updates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FBC1D81F0E448A8F026F8B4 /* Updates.swift */; };
+		4F05D3BC06A0A08DB81CE198 /* Snippets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7EA3A14A4BC00F668D12BBA /* Snippets.swift */; };
+		7CB79CCCF1DADF821F5D6945 /* History.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FC9E1DCAA1A6E857127465 /* History.swift */; };
+		97F1E87700F8A58E12311006 /* Hotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */; };
+		9E9C00549F13F6B40FF581D7 /* sound in Resources */ = {isa = PBXBuildFile; fileRef = 6CFF6BAB6AF455F8C94BB4B3 /* sound */; };
+		9F79EEE2C0F3CC4164049680 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6E3F811455ACCFD649BCBFF /* Settings.swift */; };
+		B43EA4A3E9EA21A0B7D2FF1A /* AI.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEB9A8517BE59E9B73CF663C /* AI.swift */; };
+		B5796459F38954025FC586E5 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F74750E0CF8B1EAB09B94D /* Components.swift */; };
+		BB3BB22AB1F1A28EE7C3FCDA /* Core.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD88433191E1DCD7C878A9AE /* Core.swift */; };
+		C3FC8A79D0B6C366C1C429C0 /* Prompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD156401813A36F4B8FFB7D /* Prompts.swift */; };
+		D0F3552B34D51CBFCB4B8BA4 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 936EA6F30269CB2105AC0A38 /* FluidAudio */; };
+		E3498BA760FB5B3EF2937A63 /* InputModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12B87D63DB9833713690EFA3 /* InputModal.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		00FC9E1DCAA1A6E857127465 /* History.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = History.swift; sourceTree = "<group>"; };
+		04EAB0B76FD5694386037F0F /* Dictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dictation.swift; sourceTree = "<group>"; };
+		12B87D63DB9833713690EFA3 /* InputModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputModal.swift; sourceTree = "<group>"; };
+		233D620BE4A1F2BB693CAB21 /* DictumApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictumApp.swift; sourceTree = "<group>"; };
+		265C6A0B76E2696619723684 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		6CFF6BAB6AF455F8C94BB4B3 /* sound */ = {isa = PBXFileReference; lastKnownFileType = folder; path = sound; sourceTree = SOURCE_ROOT; };
+		7FBC1D81F0E448A8F026F8B4 /* Updates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Updates.swift; sourceTree = "<group>"; };
+		A1F74750E0CF8B1EAB09B94D /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		A52C02DC25B522AB15CF93A1 /* Dictum.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Dictum.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C7EA3A14A4BC00F668D12BBA /* Snippets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snippets.swift; sourceTree = "<group>"; };
+		EEB9A8517BE59E9B73CF663C /* AI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AI.swift; sourceTree = "<group>"; };
+		F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Hotkeys.swift; sourceTree = "<group>"; };
+		F6E3F811455ACCFD649BCBFF /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
+		FAD156401813A36F4B8FFB7D /* Prompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Prompts.swift; sourceTree = "<group>"; };
+		FD88433191E1DCD7C878A9AE /* Core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BBBA2F8FB50BAF5BE9F5FFB9 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D0F3552B34D51CBFCB4B8BA4 /* FluidAudio in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		9559F4F0E1F239A398D6EB04 = {
+			isa = PBXGroup;
+			children = (
+				265C6A0B76E2696619723684 /* AppIcon.icns */,
+				6CFF6BAB6AF455F8C94BB4B3 /* sound */,
+				DCF5253A450C0F025AD28023 /* Dictum */,
+				C8222A1FA74A22D09DA6898F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C8222A1FA74A22D09DA6898F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A52C02DC25B522AB15CF93A1 /* Dictum.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		DCF5253A450C0F025AD28023 /* Dictum */ = {
+			isa = PBXGroup;
+			children = (
+				EEB9A8517BE59E9B73CF663C /* AI.swift */,
+				A1F74750E0CF8B1EAB09B94D /* Components.swift */,
+				FD88433191E1DCD7C878A9AE /* Core.swift */,
+				04EAB0B76FD5694386037F0F /* Dictation.swift */,
+				233D620BE4A1F2BB693CAB21 /* DictumApp.swift */,
+				00FC9E1DCAA1A6E857127465 /* History.swift */,
+				F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */,
+				12B87D63DB9833713690EFA3 /* InputModal.swift */,
+				FAD156401813A36F4B8FFB7D /* Prompts.swift */,
+				F6E3F811455ACCFD649BCBFF /* Settings.swift */,
+				C7EA3A14A4BC00F668D12BBA /* Snippets.swift */,
+				7FBC1D81F0E448A8F026F8B4 /* Updates.swift */,
+			);
+			path = Dictum;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		CBE02459CFDF081B93E9F5F7 /* Dictum */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7676ADBAE213A40494ED4E49 /* Build configuration list for PBXNativeTarget "Dictum" */;
+			buildPhases = (
+				C45851DE3A8157DBACB2AC0A /* Sources */,
+				924FADEDACAE94BFFA4B4D3D /* Resources */,
+				BBBA2F8FB50BAF5BE9F5FFB9 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Dictum;
+			packageProductDependencies = (
+				936EA6F30269CB2105AC0A38 /* FluidAudio */,
+			);
+			productName = Dictum;
+			productReference = A52C02DC25B522AB15CF93A1 /* Dictum.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		ECF71239C46929138E73F781 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2620;
+				TargetAttributes = {
+					CBE02459CFDF081B93E9F5F7 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 368E86BA8944907E08E756C0 /* Build configuration list for PBXProject "Dictum" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 9559F4F0E1F239A398D6EB04;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				8D01F40AF3E4F5025EDEE8B9 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+			);
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				CBE02459CFDF081B93E9F5F7 /* Dictum */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		924FADEDACAE94BFFA4B4D3D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				434D4D894E603557903D7E7A /* AppIcon.icns in Resources */,
+				9E9C00549F13F6B40FF581D7 /* sound in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C45851DE3A8157DBACB2AC0A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B43EA4A3E9EA21A0B7D2FF1A /* AI.swift in Sources */,
+				B5796459F38954025FC586E5 /* Components.swift in Sources */,
+				BB3BB22AB1F1A28EE7C3FCDA /* Core.swift in Sources */,
+				193A665DD50433D61C772BEA /* Dictation.swift in Sources */,
+				4BAF8B4D4D4B03A3ABFF6097 /* DictumApp.swift in Sources */,
+				7CB79CCCF1DADF821F5D6945 /* History.swift in Sources */,
+				97F1E87700F8A58E12311006 /* Hotkeys.swift in Sources */,
+				E3498BA760FB5B3EF2937A63 /* InputModal.swift in Sources */,
+				C3FC8A79D0B6C366C1C429C0 /* Prompts.swift in Sources */,
+				9F79EEE2C0F3CC4164049680 /* Settings.swift in Sources */,
+				4F05D3BC06A0A08DB81CE198 /* Snippets.swift in Sources */,
+				4C8C41D8611BBE119F4411FD /* Updates.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		12F48CB2EA182ED69146E25C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		4670B6B8E5203493BE7D7C6F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Dictum.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.92;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dictum.app;
+				PRODUCT_NAME = Dictum;
+				SDKROOT = macosx;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		B6F5959F6290AAC27A4F72F2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		EFCC333045A15E1272006BDC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Dictum.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.92;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dictum.app;
+				PRODUCT_NAME = Dictum;
+				SDKROOT = macosx;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		368E86BA8944907E08E756C0 /* Build configuration list for PBXProject "Dictum" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B6F5959F6290AAC27A4F72F2 /* Debug */,
+				12F48CB2EA182ED69146E25C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7676ADBAE213A40494ED4E49 /* Build configuration list for PBXNativeTarget "Dictum" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4670B6B8E5203493BE7D7C6F /* Debug */,
+				EFCC333045A15E1272006BDC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		8D01F40AF3E4F5025EDEE8B9 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.8.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		936EA6F30269CB2105AC0A38 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8D01F40AF3E4F5025EDEE8B9 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = ECF71239C46929138E73F781 /* Project object */;
+}

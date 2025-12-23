@@ -1,0 +1,1401 @@
+//
+//  InputModal.swift
+//  Dictum
+//
+//  Главное окно ввода: InputModalView и связанные компоненты
+//
+
+import SwiftUI
+import AppKit
+
+// MARK: - Input Modal View
+struct InputModalView: View {
+    @StateObject private var audioManager = AudioRecordingManager()  // Deepgram
+    @StateObject private var localASRManager = SherpaASRProvider()   // Локальная модель Parakeet v3
+    @ObservedObject private var settings = SettingsManager.shared
+
+    // Computed properties для текущего ASR провайдера
+    private var isRecording: Bool {
+        settings.asrProviderType == .local ? localASRManager.isRecording : audioManager.isRecording
+    }
+
+    private var audioLevel: Float {
+        settings.asrProviderType == .local ? localASRManager.audioLevel : audioManager.audioLevel
+    }
+
+    private var interimText: String {
+        settings.asrProviderType == .local ? localASRManager.interimText : audioManager.interimText
+    }
+
+    private var transcriptionResult: String? {
+        settings.asrProviderType == .local ? localASRManager.transcriptionResult : audioManager.transcriptionResult
+    }
+
+    private var asrErrorMessage: String? {
+        settings.asrProviderType == .local ? localASRManager.errorMessage : audioManager.errorMessage
+    }
+    @State private var inputText: String = ""
+    @State private var showHistory: Bool = false
+    @State private var searchQuery: String = ""
+    @State private var historyItems: [HistoryItem] = []
+    @State private var textEditorHeight: CGFloat = 40
+    @State private var isProcessingAI: Bool = false
+    // FIX: Флаг для скрытия текстового поля ДО старта записи (устраняет визуальный "прыжок")
+    @State private var pendingAudioStart: Bool = false
+    @State private var currentProcessingPrompt: CustomPrompt? = nil
+    @State private var showASRErrorAlert: Bool = false
+    // Состояние: запись остановлена хоткеем (для 3-фазной логики)
+    @State private var recordingStoppedByHotkey: Bool = false
+    // Alert при отсутствии API ключа для AI функций
+    @State private var showAPIKeyAlert: Bool = false
+    @StateObject private var geminiService = GeminiService()
+    @ObservedObject private var promptsManager = PromptsManager.shared
+    @ObservedObject private var snippetsManager = SnippetsManager.shared
+
+    // Панели управления (mutual exclusivity с showHistory)
+    @State private var showAIPanel: Bool = false
+    @State private var showSnippetsPanel: Bool = false
+    @State private var showLeftPanel: Bool = false       // Sliding panel для промптов слева
+    @State private var showRightPanel: Bool = false      // Sliding panel для сниппетов справа
+    @State private var showAddSnippetSheet: Bool = false // Sheet для добавления сниппета
+    @State private var showAddPromptSheet: Bool = false  // Sheet для добавления промпта
+    @State private var editingPrompt: CustomPrompt? = nil  // Редактируемый промпт
+    @State private var editingSnippet: Snippet? = nil  // Редактируемый сниппет
+
+    // Максимум 30 строк (~600px), минимум 40px
+    private let lineHeight: CGFloat = 20
+    private let maxLines: Int = 30
+
+    // Computed property для проверки возможности отправки
+    private var canSubmit: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRecording
+    }
+    private var maxTextHeight: CGFloat { CGFloat(maxLines) * lineHeight }
+
+    // Оверлей записи — отдельный computed property для упрощения body
+    @ViewBuilder
+    private var recordingOverlay: some View {
+        if isRecording {
+            VoiceOverlayView(audioLevel: audioLevel)
+                .frame(maxHeight: 70)  // Ограничиваем высоту оверлея
+                .clipped()  // Обрезаем если выходит за пределы
+                .background(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.95))
+                .clipShape(RoundedRectangle(cornerRadius: 24))
+                .allowsHitTesting(false)
+        }
+    }
+
+    // Константы для layout панелей
+    private let mainModalWidth: CGFloat = 680
+    private let panelWidth: CGFloat = 180
+    private let panelGap: CGFloat = 8
+
+    // Offset от центра: половина модалки + половина панели + отступ
+    private var panelOffset: CGFloat {
+        (mainModalWidth / 2) + (panelWidth / 2) + panelGap
+    }
+
+    var body: some View {
+        ZStack(alignment: .center) {
+            // СЛЕВА: Выезжающая панель промптов (под модалкой)
+            SlidingPromptPanel(
+                promptsManager: promptsManager,
+                onProcessWithGemini: { prompt in
+                    Task {
+                        await processWithGemini(prompt: prompt)
+                    }
+                },
+                currentProcessingPrompt: currentProcessingPrompt,
+                onAdd: { showAddPromptSheet = true },
+                editingPrompt: $editingPrompt
+            )
+            .offset(x: showLeftPanel ? -panelOffset : -panelOffset - 200)  // Скрыта слева
+            .opacity(showLeftPanel ? 1 : 0)
+            .zIndex(0)
+
+            // СПРАВА: Выезжающая панель сниппетов (под модалкой)
+            SlidingSnippetPanel(
+                snippetsManager: snippetsManager,
+                inputText: $inputText,
+                onAdd: { showAddSnippetSheet = true },
+                editingSnippet: $editingSnippet
+            )
+            .offset(x: showRightPanel ? panelOffset : panelOffset + 200)  // Скрыта справа
+            .opacity(showRightPanel ? 1 : 0)
+            .zIndex(0)
+
+            // ОСНОВНАЯ МОДАЛКА (поверх панелей)
+            VStack(spacing: 0) {
+                // ВЕРХНЯЯ ЧАСТЬ: Ввод + Оверлеи
+                VStack(spacing: 0) {
+                // Поле ввода с динамической высотой
+                ZStack(alignment: .topLeading) {
+                    CustomTextEditor(
+                        text: $inputText,
+                        // Всегда вставлять текст при Enter
+                        onSubmit: { submitImmediate(skipAutoPaste: false) },
+                        onHeightChange: { height in
+                            // Ограничиваем высоту до 30 строк
+                            textEditorHeight = min(max(40, height), maxTextHeight)
+                        },
+                        highlightForeignWords: settings.highlightForeignWords
+                    )
+                    .font(.system(size: 16, weight: .regular))
+                    .frame(height: textEditorHeight)
+                    .padding(.leading, 20)
+                    .padding(.trailing, 50)  // Увеличено для иконки "Улучшить"
+                    .padding(.top, 18)
+                    .padding(.bottom, 12)
+                    .background(Color.clear)
+                    // FIX: Скрываем текст если идёт запись ИЛИ ожидаем старт записи
+                    .opacity((isRecording || pendingAudioStart) ? 0 : 1)
+
+                    if inputText.isEmpty && !isRecording {
+                        Text("Введите текст...")
+                            .font(.system(size: 16, weight: .regular, design: .default))
+                            .foregroundColor(Color.white.opacity(0.45))
+                            .padding(.leading, 28)
+                            .padding(.top, 18)
+                            .allowsHitTesting(false)
+                    }
+
+                    // Live-transcription во время записи
+                    if isRecording && !interimText.isEmpty {
+                        Text(interimText)
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundColor(Color.white.opacity(0.7))
+                            .padding(.leading, 28)
+                            .padding(.trailing, 20)
+                            .padding(.top, 18)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .allowsHitTesting(false)
+                    }
+
+                    // Иконка "Улучшить через ИИ" - появляется когда есть текст и не идёт запись
+                    if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isRecording {
+                        Button(action: {
+                            Task {
+                                await enhanceText()
+                            }
+                        }) {
+                            Image(systemName: isProcessingAI ? "rays" : "sparkles")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(DesignSystem.Colors.accent)
+                                .padding(8)
+                                .background(Color.white.opacity(0.1))
+                                .clipShape(Circle())
+                                .rotationEffect(.degrees(isProcessingAI ? 360 : 0))
+                                .animation(
+                                    isProcessingAI
+                                        ? Animation.linear(duration: 1).repeatForever(autoreverses: false)
+                                        : .default,
+                                    value: isProcessingAI
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(isProcessingAI)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(.top, 16)
+                        .padding(.trailing, 16)
+                        .help(isProcessingAI ? "Обработка..." : "Улучшить через ИИ")
+                    }
+                }
+
+                // Список истории (упрощённый)
+                // Раскрывающиеся панели (mutual exclusivity)
+                if showHistory {
+                    HistoryListView(
+                        items: historyItems,
+                        searchQuery: $searchQuery,
+                        onSelect: { item in
+                            textEditorHeight = 40  // Сброс высоты перед вставкой текста
+                            inputText = item.text
+                            searchQuery = ""
+                            showHistory = false
+                        },
+                        onSearch: { query in
+                            loadHistory(searchQuery: query)
+                        }
+                    )
+                }
+
+            }
+            .overlay(recordingOverlay)
+
+            // НИЖНЯЯ ЧАСТЬ: Футер (2 строки)
+            VStack(spacing: 0) {
+                // ROW 1: Быстрый доступ (AI промпты слева + Сниппеты справа)
+                if settings.aiEnabled || !snippetsManager.snippets.isEmpty {
+                    // ROW 1: Только основная строка (панели вынесены в ZStack снаружи модалки)
+                    UnifiedQuickAccessRow(
+                        promptsManager: promptsManager,
+                        snippetsManager: snippetsManager,
+                        inputText: $inputText,
+                        showLeftPanel: $showLeftPanel,
+                        showRightPanel: $showRightPanel,
+                        onProcessWithGemini: { prompt in
+                            Task {
+                                await processWithGemini(prompt: prompt)
+                            }
+                        },
+                        currentProcessingPrompt: currentProcessingPrompt,
+                        editingPrompt: $editingPrompt,
+                        editingSnippet: $editingSnippet
+                    )
+
+                    // Разделитель между ROW 1 и ROW 2
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.clear, .white.opacity(0.1), .clear],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                }
+
+                // ROW 2: Основные действия
+                HStack {
+                    HStack(spacing: 12) {
+                        // Кнопка Голос
+                        Button(action: {
+                            NSLog("🔘 Нажата кнопка записи, isRecording=\(isRecording), provider=\(settings.asrProviderType)")
+                            Task {
+                                if isRecording {
+                                    NSLog("⏹️ Останавливаем запись...")
+                                    await stopASR()
+                                } else {
+                                    // Проверить возможность записи
+                                    if !canStartASR() {
+                                        NSLog("❌ canStartASR() вернул false")
+                                        setASRError("API ключ не найден. Откройте Настройки (Cmd+,)")
+                                        return
+                                    }
+                                    NSLog("▶️ Запускаем запись...")
+                                    // Передаём существующий текст для режима дозаписи
+                                    await startASR(existingText: inputText)
+                                }
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                if isRecording {
+                                    Image(systemName: "stop.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(Color(nsColor: .systemRed))
+                                } else {
+                                    Image(systemName: "waveform")
+                                        .font(.system(size: 14))
+                                }
+
+                                Text(isRecording ? "Stop" : "Запись")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 8)
+                            .background(isRecording ? Color(nsColor: .systemRed).opacity(0.15) : Color.clear)
+                            .foregroundColor(isRecording ? Color(nsColor: .systemRed) : Color.white.opacity(0.8))
+                            .cornerRadius(6)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        Divider()
+                            .frame(height: 16)
+                            .background(Color.white.opacity(0.2))
+
+                        // Кнопка История
+                        Button(action: {
+                            // Закрыть sliding panels при открытии истории
+                            showLeftPanel = false
+                            showRightPanel = false
+                            if !showHistory {
+                                loadHistory(searchQuery: "")
+                            }
+                            showHistory.toggle()
+                            if !showHistory {
+                                searchQuery = ""
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "clock")
+                                Text("История")
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 8)
+                            .background(showHistory ? Color.white.opacity(0.15) : Color.clear)
+                            .foregroundColor(showHistory ? .white : Color.white.opacity(0.8))
+                            .cornerRadius(6)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+
+                    Spacer()
+
+                    // Кнопка режима Текст/Аудио — только иконки
+                    Button(action: {
+                        // Если переключаемся с Аудио на Текст И идёт запись - остановить
+                        if settings.audioModeEnabled && isRecording {
+                            Task {
+                                await stopASR()
+                            }
+                        }
+                        settings.audioModeEnabled.toggle()
+                    }) {
+                        Image(systemName: settings.audioModeEnabled ? "mic.fill" : "text.cursor")
+                            .font(.system(size: 14))
+                            .frame(width: 28, height: 28)
+                            .background(settings.audioModeEnabled
+                                ? DesignSystem.Colors.accent.opacity(0.2)
+                                : Color.white.opacity(0.1))
+                            .foregroundColor(settings.audioModeEnabled
+                                ? DesignSystem.Colors.accent
+                                : Color.white.opacity(0.8))
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .help(settings.audioModeEnabled ? "Режим: Аудио (нажмите для Текст)" : "Режим: Текст (нажмите для Аудио)")
+
+                    // Кнопка Настройки
+                    Button(action: {
+                        NotificationCenter.default.post(name: .openSettings, object: nil)
+                    }) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 14))
+                            .frame(width: 28, height: 28)
+                            .background(Color.white.opacity(0.1))
+                            .foregroundColor(Color.white.opacity(0.8))
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .help("Настройки")
+
+                    // Кнопка Отправить (активная) - зелёный #19af87
+                    // Всегда вставлять текст при нажатии OK
+                    Button(action: { submitImmediate(skipAutoPaste: false) }) {
+                        HStack(spacing: 6) {
+                            Text("Отправить")
+                                .font(.system(size: 12, weight: .medium))
+                            Text("↵")
+                                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                .foregroundColor(Color.white.opacity(0.9))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.white.opacity(0.15))
+                                .cornerRadius(4)
+                        }
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 12)
+                        .background(!canSubmit
+                            ? Color.white.opacity(0.1)
+                            : DesignSystem.Colors.accent)  // #19af87
+                        .foregroundColor(!canSubmit
+                            ? Color.white.opacity(0.5)
+                            : .white)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(!canSubmit)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .background(DesignSystem.Colors.buttonAreaBackground)
+        }
+        .background(
+            VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+                .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.85))
+                .clipShape(RoundedRectangle(cornerRadius: 24))  // Скругление применяется к подложке
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(DesignSystem.Colors.borderColor, lineWidth: 2)
+        )
+        .shadow(color: .black.opacity(0.65), radius: 27, x: 0, y: 24)
+        .frame(width: 680)
+        .zIndex(1)  // Модалка поверх панелей
+        } // ZStack
+        .frame(width: 1060)  // Ширина окна: модалка + панели
+        .animation(.easeInOut(duration: 0.25), value: showLeftPanel)
+        .animation(.easeInOut(duration: 0.25), value: showRightPanel)
+        .onAppear {
+            // FIX: Устанавливаем pendingAudioStart СИНХРОННО до resetView
+            // Это скрывает текстовое поле мгновенно, до async запуска записи
+            if settings.audioModeEnabled && canStartASR() {
+                pendingAudioStart = true
+            }
+
+            resetView()
+
+            // Мгновенный автозапуск записи в режиме Аудио (без задержки!)
+            if settings.audioModeEnabled && canStartASR() && !isRecording {
+                Task {
+                    await startASR(existingText: "")
+                    // Сбрасываем pendingAudioStart когда запись началась
+                    await MainActor.run { pendingAudioStart = false }
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .resetInputView)) { _ in
+            // FIX: Устанавливаем pendingAudioStart СИНХРОННО до resetView
+            if settings.audioModeEnabled && canStartASR() {
+                pendingAudioStart = true
+            }
+
+            resetView()
+
+            // Автозапуск записи при переоткрытии в audio mode
+            if settings.audioModeEnabled && canStartASR() && !isRecording {
+                Task {
+                    await startASR(existingText: "")
+                    // Сбрасываем pendingAudioStart когда запись началась
+                    await MainActor.run { pendingAudioStart = false }
+                }
+            }
+        }
+        .onChange(of: settings.audioModeEnabled) { _, isAudioMode in
+            // При включении режима Аудио - запустить запись
+            if isAudioMode && !isRecording && canStartASR() {
+                Task {
+                    await startASR(existingText: inputText)
+                }
+            }
+        }
+        .onChange(of: audioManager.transcriptionResult) { _, newValue in
+            if let transcription = newValue {
+                // Режим дозаписи: добавляем через пробел
+                if audioManager.appendMode && !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    inputText = inputText.trimmingCharacters(in: .whitespacesAndNewlines) + " " + transcription
+                } else {
+                    inputText = transcription
+                }
+                audioManager.transcriptionResult = nil
+            }
+        }
+        .onChange(of: localASRManager.transcriptionResult) { _, newValue in
+            if let transcription = newValue {
+                // У локальной модели нет appendMode, всегда заменяем или добавляем к существующему
+                if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    inputText = inputText.trimmingCharacters(in: .whitespacesAndNewlines) + " " + transcription
+                } else {
+                    inputText = transcription
+                }
+                localASRManager.transcriptionResult = nil
+            }
+        }
+        .alert("Ошибка", isPresented: $showASRErrorAlert) {
+            Button("OK") {
+                showASRErrorAlert = false
+                clearASRError()
+            }
+        } message: {
+            Text(asrErrorMessage ?? "")
+        }
+        .onChange(of: asrErrorMessage) { _, error in
+            showASRErrorAlert = error != nil
+        }
+        // Alert при отсутствии Gemini API ключа
+        .alert("Требуется Gemini API ключ", isPresented: $showAPIKeyAlert) {
+            Button("Открыть настройки") {
+                NotificationCenter.default.post(name: .openSettings, object: nil)
+                NotificationCenter.default.post(name: .openSettingsToAI, object: nil)
+            }
+            Button("Отмена", role: .cancel) { }
+        } message: {
+            Text("Для использования AI функций необходимо добавить ключ в разделе Настройки → AI")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .checkAndSubmit)) { _ in
+            if settings.audioModeEnabled {
+                // Режим аудио: 3-фазная логика хоткея
+                if isRecording {
+                    // Фаза 1→2: Остановить запись, НЕ закрывать модалку
+                    Task {
+                        await stopASR()
+                        recordingStoppedByHotkey = true
+                    }
+                    SoundManager.shared.playStopSound()
+                } else {
+                    // Фаза 2→3: Запись уже остановлена → закрыть без вставки
+                    SoundManager.shared.playCloseSound()
+                    NSApp.keyWindow?.close()
+                }
+            } else {
+                // Текстовый режим: оригинальная логика
+                let trimmedText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedText.isEmpty {
+                    submitImmediate()
+                } else {
+                    SoundManager.shared.playCloseSound()
+                    NSApp.keyWindow?.close()
+                }
+            }
+        }
+        // Sheet для редактирования промпта (из UnifiedQuickAccessRow)
+        .sheet(item: $editingPrompt) { prompt in
+            PromptEditView(
+                prompt: prompt,
+                onSave: { updatedPrompt in
+                    promptsManager.updatePrompt(updatedPrompt)
+                    editingPrompt = nil
+                },
+                onCancel: {
+                    editingPrompt = nil
+                }
+            )
+        }
+        // Sheet для редактирования сниппета (из UnifiedQuickAccessRow)
+        .sheet(item: $editingSnippet) { snippet in
+            SnippetEditView(
+                snippet: snippet,
+                onSave: { updatedSnippet in
+                    snippetsManager.updateSnippet(updatedSnippet)
+                    editingSnippet = nil
+                },
+                onCancel: {
+                    editingSnippet = nil
+                }
+            )
+        }
+        // Sheet для добавления сниппета (из SlidingSnippetPanel)
+        .sheet(isPresented: $showAddSnippetSheet) {
+            SnippetAddView(
+                onSave: { newSnippet in
+                    snippetsManager.addSnippet(newSnippet)
+                    showAddSnippetSheet = false
+                },
+                onCancel: {
+                    showAddSnippetSheet = false
+                }
+            )
+        }
+        // Sheet для добавления промпта (из SlidingPromptPanel)
+        .sheet(isPresented: $showAddPromptSheet) {
+            PromptAddView(
+                onSave: { newPrompt in
+                    promptsManager.addPrompt(newPrompt)
+                    showAddPromptSheet = false
+                },
+                onCancel: {
+                    showAddPromptSheet = false
+                }
+            )
+        }
+    }
+
+    private func resetView() {
+        inputText = ""
+        showHistory = false
+        showLeftPanel = false
+        showRightPanel = false
+        searchQuery = ""
+        historyItems = []
+        textEditorHeight = 40
+        recordingStoppedByHotkey = false
+        editingPrompt = nil
+        editingSnippet = nil
+        // НЕ сбрасываем pendingAudioStart здесь — он управляется в onAppear/onReceive
+    }
+
+    private func loadHistory(searchQuery: String) {
+        historyItems = HistoryManager.shared.getHistoryItems(limit: 50, searchQuery: searchQuery)
+    }
+
+    private func submitText() {
+        let trimmedText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(trimmedText, forType: .string)
+
+        HistoryManager.shared.addNote(trimmedText)
+
+        inputText = ""
+
+        // Закрыть и вставить в предыдущее приложение
+        NotificationCenter.default.post(name: .submitAndPaste, object: nil)
+    }
+
+    /// Немедленная отправка - работает даже во время записи
+    /// skipAutoPaste: если true - только копировать в буфер, не вставлять автоматически (для аудио режима)
+    private func submitImmediate(skipAutoPaste: Bool = false) {
+        Task {
+            // Если идёт запись - остановить и подождать результат
+            if isRecording {
+                await stopASR()
+                // Подождать пока результат придёт
+                try? await Task.sleep(nanoseconds: 150_000_000)
+            }
+
+            await MainActor.run {
+                // Собрать текст: из inputText или из только что полученного результата
+                var textToSubmit: String
+
+                if let result = transcriptionResult, !result.isEmpty {
+                    // Режим дозаписи (только для Deepgram)
+                    if appendMode && !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        textToSubmit = inputText.trimmingCharacters(in: .whitespacesAndNewlines) + " " + result
+                    } else {
+                        textToSubmit = result
+                    }
+                    clearTranscriptionResult()
+                } else {
+                    textToSubmit = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+
+                guard !textToSubmit.isEmpty else { return }
+
+                // Копировать в буфер
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(textToSubmit, forType: .string)
+
+                HistoryManager.shared.addNote(textToSubmit)
+                inputText = ""
+
+                if skipAutoPaste {
+                    // Только копирование - без автовставки (для аудио режима)
+                    SoundManager.shared.playCopySound()
+                    NSApp.keyWindow?.close()
+                } else {
+                    // Обычное поведение - копировать и вставить
+                    NotificationCenter.default.post(name: .submitAndPaste, object: nil)
+                }
+            }
+        }
+    }
+
+    /// Process text with LLM after local ASR (automatic post-processing)
+    private func processWithLLMPostASR() async {
+        let trimmedText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Validate input
+        guard !trimmedText.isEmpty else {
+            NSLog("⚠️ No text to process with LLM")
+            return
+        }
+
+        // Check Gemini API key
+        guard SettingsManager.shared.hasGeminiKey() else {
+            await MainActor.run {
+                setASRError("Для LLM-обработки нужен Gemini API ключ. Откройте Настройки → AI")
+            }
+            return
+        }
+
+        await MainActor.run {
+            isProcessingAI = true
+        }
+
+        NSLog("🤖 Auto-processing with LLM after local ASR...")
+
+        // Собираем полный промпт
+        var fullPrompt = settings.llmProcessingPrompt
+        if !settings.llmAdditionalInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            fullPrompt += "\n\nДополнительные инструкции:\n" + settings.llmAdditionalInstructions
+        }
+
+        do {
+            // forAI: false — используем модель из настроек Речи
+            let result = try await geminiService.generateContent(prompt: fullPrompt, userText: trimmedText, forAI: false)
+
+            await MainActor.run {
+                inputText = result
+                isProcessingAI = false
+            }
+
+            NSLog("✅ LLM post-processing complete")
+        } catch {
+            NSLog("❌ LLM processing error: \(error.localizedDescription)")
+
+            await MainActor.run {
+                setASRError("Ошибка LLM: \(error.localizedDescription)")
+                isProcessingAI = false
+            }
+        }
+    }
+
+    /// Process text with Gemini AI
+    private func processWithGemini(prompt customPrompt: CustomPrompt) async {
+        let trimmedText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Validate input
+        guard !trimmedText.isEmpty else {
+            NSLog("⚠️ No text to process")
+            return
+        }
+
+        // Check API key - показать Alert вместо ошибки
+        guard SettingsManager.shared.hasGeminiKey() else {
+            await MainActor.run {
+                showAPIKeyAlert = true
+            }
+            return
+        }
+
+        await MainActor.run {
+            isProcessingAI = true
+            currentProcessingPrompt = customPrompt
+        }
+
+        NSLog("🤖 Processing with Gemini (\(customPrompt.label))...")
+
+        do {
+            let result = try await geminiService.generateContent(prompt: customPrompt.prompt, userText: trimmedText)
+
+            await MainActor.run {
+                inputText = result
+                isProcessingAI = false
+                currentProcessingPrompt = nil
+            }
+
+            NSLog("✅ Gemini processing complete")
+        } catch {
+            NSLog("❌ Gemini error: \(error.localizedDescription)")
+
+            await MainActor.run {
+                setASRError("Ошибка Gemini: \(error.localizedDescription)")
+                isProcessingAI = false
+                currentProcessingPrompt = nil
+            }
+        }
+    }
+
+    // MARK: - Enhance Text (улучшение текста через ИИ)
+
+    /// Улучшает текст через ИИ используя системный промпт из настроек
+    private func enhanceText() async {
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        guard SettingsManager.shared.hasGeminiKey() else {
+            await MainActor.run { showAPIKeyAlert = true }
+            return
+        }
+
+        await MainActor.run { isProcessingAI = true }
+
+        NSLog("✨ Enhancing text with AI...")
+
+        do {
+            let result = try await geminiService.generateContent(
+                prompt: "Улучши этот текст",
+                userText: text,
+                forAI: true,
+                systemPrompt: SettingsManager.shared.enhanceSystemPrompt
+            )
+
+            await MainActor.run {
+                inputText = result
+                isProcessingAI = false
+            }
+
+            NSLog("✅ Enhance complete")
+        } catch {
+            NSLog("❌ Enhance error: \(error.localizedDescription)")
+            await MainActor.run {
+                setASRError("Ошибка AI: \(error.localizedDescription)")
+                isProcessingAI = false
+            }
+        }
+    }
+
+    // MARK: - ASR Helper Methods
+
+    /// Проверяет можно ли начать запись (для Deepgram нужен API key)
+    private func canStartASR() -> Bool {
+        if settings.asrProviderType == .local {
+            return true  // Локальная модель всегда доступна
+        } else {
+            return SettingsManager.shared.hasAPIKey()  // Deepgram требует API key
+        }
+    }
+
+    /// Запускает запись с текущим ASR провайдером
+    private func startASR(existingText: String = "") async {
+        if settings.asrProviderType == .local {
+            await localASRManager.startRecording()
+        } else {
+            await audioManager.startRecording(existingText: existingText)
+        }
+    }
+
+    /// Останавливает запись текущего ASR провайдера
+    private func stopASR() async {
+        if settings.asrProviderType == .local {
+            await localASRManager.stopRecordingAndTranscribe()
+        } else {
+            await audioManager.stopRecordingAndTranscribe(
+                language: SettingsManager.shared.preferredLanguage
+            )
+        }
+    }
+
+    /// Устанавливает ошибку для текущего ASR провайдера
+    private func setASRError(_ message: String) {
+        if settings.asrProviderType == .local {
+            localASRManager.errorMessage = message
+        } else {
+            audioManager.errorMessage = message
+        }
+    }
+
+    /// Очищает ошибку текущего ASR провайдера
+    private func clearASRError() {
+        if settings.asrProviderType == .local {
+            localASRManager.errorMessage = nil
+        } else {
+            audioManager.errorMessage = nil
+        }
+    }
+
+    /// Очищает результат транскрипции
+    private func clearTranscriptionResult() {
+        if settings.asrProviderType == .local {
+            localASRManager.transcriptionResult = nil
+        } else {
+            audioManager.transcriptionResult = nil
+        }
+    }
+
+    /// Режим дозаписи (только для Deepgram, у локальной модели нет)
+    private var appendMode: Bool {
+        settings.asrProviderType == .local ? false : audioManager.appendMode
+    }
+}
+
+// MARK: - Voice Overlay View
+struct VoiceOverlayView: View {
+    let audioLevel: Float  // 0.0 - 1.0
+
+    private let barCount = 100
+    private let recordingColor = Color(red: 254/255, green: 67/255, blue: 70/255) // #fe4346
+
+    // Предварительно сгенерированные случайные факторы для органичности
+    private let randomFactors: [CGFloat] = (0..<100).map { _ in CGFloat.random(in: 0.85...1.15) }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<barCount, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 999)
+                    .fill(recordingColor.opacity(opacityForIndex(index)))
+                    .frame(width: 3, height: calculateBarHeight(for: index))
+                    .animation(.easeInOut(duration: animationDuration(for: index)), value: audioLevel)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 10)
+    }
+
+    // Пирамидальная высота — центр высокий, края низкие
+    private func calculateBarHeight(for index: Int) -> CGFloat {
+        let baseHeight: CGFloat = 4
+        let center = CGFloat(barCount) / 2.0
+        let distanceFromCenter = abs(CGFloat(index) - center) / center // 0.0 (центр) - 1.0 (край)
+
+        // Пирамидальный множитель высоты
+        let heightMultiplier: CGFloat
+        if distanceFromCenter > 0.9 { // края (1-10, 91-100)
+            heightMultiplier = 0.075
+        } else if distanceFromCenter > 0.7 { // (11-20, 81-90)
+            heightMultiplier = 0.15
+        } else if distanceFromCenter > 0.5 { // (21-30, 71-80)
+            heightMultiplier = 0.275
+        } else if distanceFromCenter > 0.3 { // (31-40, 61-70)
+            heightMultiplier = 0.44
+        } else if distanceFromCenter > 0.1 { // (41-45, 56-60)
+            heightMultiplier = 0.69
+        } else { // центр (46-55)
+            heightMultiplier = 1.0
+        }
+
+        let maxHeight: CGFloat = 50  // Ограничено чтобы не выходить за пределы поля ввода
+        let animatedHeight = maxHeight * CGFloat(audioLevel) * heightMultiplier * randomFactors[index]
+        return max(baseHeight, animatedHeight)
+    }
+
+    // Прозрачность по зонам — края более прозрачные
+    private func opacityForIndex(_ index: Int) -> Double {
+        let center = CGFloat(barCount) / 2.0
+        let distanceFromCenter = abs(CGFloat(index) - center) / center
+
+        if distanceFromCenter > 0.9 { return 0.4 }
+        if distanceFromCenter > 0.7 { return 0.6 }
+        if distanceFromCenter > 0.5 { return 0.8 }
+        return 1.0
+    }
+
+    // Разная скорость анимации — центр быстрее
+    private func animationDuration(for index: Int) -> Double {
+        let center = CGFloat(barCount) / 2.0
+        let distanceFromCenter = abs(CGFloat(index) - center) / center
+
+        if distanceFromCenter > 0.9 { return 0.7 }
+        if distanceFromCenter > 0.7 { return 0.6 }
+        if distanceFromCenter > 0.5 { return 0.5 }
+        if distanceFromCenter > 0.3 { return 0.4 }
+        if distanceFromCenter > 0.1 { return 0.3 }
+        return 0.25 // центр — быстрее всего
+    }
+}
+
+// MARK: - Loading Language Button
+struct LoadingLanguageButton: View {
+    let label: String
+    let tooltip: String
+    let isLoading: Bool
+    let action: () -> Void
+    var onEdit: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
+    var isSystem: Bool = false  // Системные промпты нельзя удалить
+
+    @State private var trimOffset: CGFloat = 0
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                // Фон кнопки
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(isLoading ? DesignSystem.Colors.accent : .white.opacity(0.8))
+                    .frame(width: 28, height: 24)
+                    .background(
+                        ZStack {
+                            // Основной фон
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color.white.opacity(isLoading ? 0.05 : 0.1))
+
+                            // Полупрозрачная рамка при загрузке (как "колея")
+                            if isLoading {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(DesignSystem.Colors.accent.opacity(0.2), lineWidth: 1)
+                            }
+                        }
+                    )
+                    .shadow(
+                        color: isLoading ? DesignSystem.Colors.accent.opacity(0.3) : .clear,
+                        radius: 8
+                    )
+
+                // Бегающая точка (индикатор загрузки)
+                if isLoading {
+                    RoundedRectangle(cornerRadius: 4)
+                        .trim(from: trimOffset, to: trimOffset + 0.12)
+                        .stroke(
+                            DesignSystem.Colors.accent,
+                            style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                        )
+                        .frame(width: 28, height: 24)
+                        .shadow(color: DesignSystem.Colors.accent.opacity(0.8), radius: 4)
+                        .shadow(color: DesignSystem.Colors.accent, radius: 2)
+                }
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
+        .disabled(isLoading)
+        .help(tooltip)
+        .contextMenu {
+            if let onEdit = onEdit {
+                Button {
+                    onEdit()
+                } label: {
+                    Label("Редактировать", systemImage: "pencil")
+                }
+            }
+            if let onDelete = onDelete, !isSystem {
+                Divider()
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Удалить", systemImage: "trash")
+                }
+            }
+        }
+        .onChange(of: isLoading) { _, loading in
+            if loading {
+                trimOffset = 0
+                withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
+                    trimOffset = 1.0
+                }
+            } else {
+                withAnimation(.linear(duration: 0)) {
+                    trimOffset = 0
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Snippet Button
+struct SnippetButton: View {
+    let shortcut: String
+    let tooltip: String
+    let action: () -> Void
+    var onEdit: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(shortcut)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.8))
+                .frame(minWidth: 28)
+                .frame(height: 24)
+                .padding(.horizontal, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(DesignSystem.Colors.accent.opacity(isHovered ? 0.25 : 0.15))
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .help(tooltip)
+        .contextMenu {
+            if let onEdit = onEdit {
+                Button {
+                    onEdit()
+                } label: {
+                    Label("Редактировать", systemImage: "pencil")
+                }
+            }
+            if let onDelete = onDelete {
+                Divider()
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Удалить", systemImage: "trash")
+                }
+            }
+        }
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+}
+
+// MARK: - Unified Quick Access Row (промпты слева, сниппеты справа)
+struct UnifiedQuickAccessRow: View {
+    @ObservedObject var promptsManager: PromptsManager
+    @ObservedObject var snippetsManager: SnippetsManager
+    @Binding var inputText: String
+    @Binding var showLeftPanel: Bool      // Панель промптов слева
+    @Binding var showRightPanel: Bool     // Панель сниппетов справа
+    let onProcessWithGemini: (CustomPrompt) -> Void
+    let currentProcessingPrompt: CustomPrompt?
+
+    // Для редактирования
+    @Binding var editingPrompt: CustomPrompt?
+    @Binding var editingSnippet: Snippet?
+
+    // Только избранные элементы для быстрого доступа
+    private var favoritePrompts: [CustomPrompt] {
+        promptsManager.prompts.filter { $0.isFavorite }.sorted { $0.order < $1.order }
+    }
+
+    private var favoriteSnippets: [Snippet] {
+        snippetsManager.snippets.filter { $0.isFavorite }.sorted { $0.order < $1.order }
+    }
+
+    private var hasNonFavoritePrompts: Bool {
+        promptsManager.prompts.contains { !$0.isFavorite }
+    }
+
+    private var hasNonFavoriteSnippets: Bool {
+        snippetsManager.snippets.contains { !$0.isFavorite }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            // LEFT: Кнопка раскрытия панели промптов "<"
+            if hasNonFavoritePrompts {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showLeftPanel.toggle()
+                        if showLeftPanel { showRightPanel = false }
+                    }
+                }) {
+                    Image(systemName: showLeftPanel ? "chevron.right" : "chevron.left")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.6))
+                        .frame(width: 24, height: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(showLeftPanel ? Color.white.opacity(0.15) : Color.white.opacity(0.1))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Дополнительные промпты")
+            }
+
+            // Избранные промпты
+            ForEach(favoritePrompts) { prompt in
+                LoadingLanguageButton(
+                    label: prompt.label,
+                    tooltip: prompt.description,
+                    isLoading: currentProcessingPrompt?.id == prompt.id,
+                    action: {
+                        onProcessWithGemini(prompt)
+                    },
+                    onEdit: {
+                        editingPrompt = prompt
+                    },
+                    onDelete: prompt.isSystem ? nil : {
+                        promptsManager.deletePrompt(prompt)
+                    },
+                    isSystem: prompt.isSystem
+                )
+            }
+
+            Spacer()
+
+            // Избранные сниппеты
+            ForEach(favoriteSnippets) { snippet in
+                SnippetButton(
+                    shortcut: snippet.shortcut,
+                    tooltip: snippet.title,
+                    action: {
+                        inputText += snippet.content
+                    },
+                    onEdit: {
+                        editingSnippet = snippet
+                    },
+                    onDelete: {
+                        snippetsManager.deleteSnippet(snippet)
+                    }
+                )
+            }
+
+            // RIGHT: Кнопка раскрытия панели сниппетов ">"
+            if hasNonFavoriteSnippets {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showRightPanel.toggle()
+                        if showRightPanel { showLeftPanel = false }
+                    }
+                }) {
+                    Image(systemName: showRightPanel ? "chevron.left" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.6))
+                        .frame(width: 24, height: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(showRightPanel ? Color.white.opacity(0.15) : Color.white.opacity(0.1))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Дополнительные сниппеты")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Sliding Prompt Panel (левая панель с non-favorite промптами)
+struct SlidingPromptPanel: View {
+    @ObservedObject var promptsManager: PromptsManager
+    let onProcessWithGemini: (CustomPrompt) -> Void
+    let currentProcessingPrompt: CustomPrompt?
+    let onAdd: () -> Void
+    @Binding var editingPrompt: CustomPrompt?
+
+    private var nonFavoritePrompts: [CustomPrompt] {
+        promptsManager.prompts.filter { !$0.isFavorite }.sorted { $0.order < $1.order }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Заголовок с кнопкой добавления
+            HStack {
+                Text("Промпты")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.6))
+                Spacer()
+                Button(action: onAdd) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Добавить промпт")
+            }
+
+            // Список non-favorite промптов
+            if nonFavoritePrompts.isEmpty {
+                Text("Нет дополнительных промптов")
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(nonFavoritePrompts) { prompt in
+                        LoadingLanguageButton(
+                            label: prompt.label,
+                            tooltip: prompt.description,
+                            isLoading: currentProcessingPrompt?.id == prompt.id,
+                            action: {
+                                onProcessWithGemini(prompt)
+                            },
+                            onEdit: {
+                                editingPrompt = prompt
+                            },
+                            onDelete: prompt.isSystem ? nil : {
+                                promptsManager.deletePrompt(prompt)
+                            },
+                            isSystem: prompt.isSystem
+                        )
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 180)
+        .background(Color.black.opacity(0.85))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Sliding Snippet Panel (правая панель с non-favorite сниппетами)
+struct SlidingSnippetPanel: View {
+    @ObservedObject var snippetsManager: SnippetsManager
+    @Binding var inputText: String
+    let onAdd: () -> Void
+    @Binding var editingSnippet: Snippet?
+
+    private var nonFavoriteSnippets: [Snippet] {
+        snippetsManager.snippets.filter { !$0.isFavorite }.sorted { $0.order < $1.order }
+    }
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            // Заголовок с кнопкой добавления
+            HStack {
+                Button(action: onAdd) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Добавить сниппет")
+                Spacer()
+                Text("Сниппеты")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+
+            // Список non-favorite сниппетов
+            if nonFavoriteSnippets.isEmpty {
+                Text("Нет дополнительных сниппетов")
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
+            } else {
+                VStack(alignment: .trailing, spacing: 4) {
+                    ForEach(nonFavoriteSnippets) { snippet in
+                        SnippetButton(
+                            shortcut: snippet.shortcut,
+                            tooltip: snippet.title,
+                            action: {
+                                inputText += snippet.content
+                            },
+                            onEdit: {
+                                editingSnippet = snippet
+                            },
+                            onDelete: {
+                                snippetsManager.deleteSnippet(snippet)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 180)
+        .background(Color.black.opacity(0.85))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - FlowLayout (для автоматического переноса кнопок)
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
+        for (index, position) in result.positions.enumerated() {
+            subviews[index].place(at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y), proposal: .unspecified)
+        }
+    }
+
+    private func arrangeSubviews(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
+        let maxWidth = proposal.width ?? .infinity
+        var positions: [CGPoint] = []
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+
+            if currentX + size.width > maxWidth && currentX > 0 {
+                currentX = 0
+                currentY += lineHeight + spacing
+                lineHeight = 0
+            }
+
+            positions.append(CGPoint(x: currentX, y: currentY))
+            lineHeight = max(lineHeight, size.height)
+            currentX += size.width + spacing
+            totalWidth = max(totalWidth, currentX - spacing)
+        }
+
+        return (CGSize(width: totalWidth, height: currentY + lineHeight), positions)
+    }
+}
+
+// MARK: - SwiftUI Previews
+#Preview("InputModalView") {
+    InputModalView()
+        .frame(width: 1060, height: 300)
+        .background(Color.black.opacity(0.5))
+}
+
+#Preview("VoiceOverlayView") {
+    VoiceOverlayView(audioLevel: 0.7)
+        .frame(width: 600, height: 70)
+        .background(Color(red: 30/255, green: 30/255, blue: 32/255))
+}
+
+#Preview("ScreenshotNotificationView") {
+    ScreenshotNotificationView()
+        .padding()
+        .background(Color.black)
+}
+
+#Preview("LoadingLanguageButton") {
+    HStack(spacing: 8) {
+        LoadingLanguageButton(label: "WB", tooltip: "Вежливый Бот", isLoading: false, action: {})
+        LoadingLanguageButton(label: "RU", tooltip: "Перевод на русский", isLoading: true, action: {})
+        LoadingLanguageButton(label: "EN", tooltip: "Перевод на английский", isLoading: false, action: {})
+    }
+    .padding()
+    .background(Color.black)
+}

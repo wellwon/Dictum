@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>Dictum Updates</title>
+        <link>https://github.com/wellwon/Dictum</link>
+        <description>Обновления для Dictum — умный ввод с ИИ для macOS</description>
+        <language>ru</language>
+
+        <!-- Текущая версия -->
+        <item>
+            <title>Версия 1.9</title>
+            <pubDate>Sun, 22 Dec 2024 12:00:00 +0300</pubDate>
+            <sparkle:version>19</sparkle:version>
+            <sparkle:shortVersionString>1.9</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <style>
+                    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+                    h2 { color: #1AAF87; }
+                    ul { padding-left: 20px; }
+                    li { margin: 8px 0; }
+                </style>
+                <h2>Что нового в версии 1.9</h2>
+                <ul>
+                    <li><strong>Локальная модель T-ONE</strong> — распознавание русской речи работает офлайн</li>
+                    <li><strong>Улучшенная производительность</strong> — оптимизация аудио потока</li>
+                    <li><strong>Система обновлений</strong> — проверка и уведомления о новых версиях</li>
+                </ul>
+                <p>Минимальная версия macOS: 13.0 (Ventura)</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/wellwon/Dictum/releases/download/v1.9/Dictum-1.9.dmg"
+                sparkle:version="19"
+                sparkle:shortVersionString="1.9"
+                length="150000000"
+                type="application/octet-stream" />
+        </item>
+
+        <!-- История предыдущих версий -->
+        <item>
+            <title>Версия 1.8</title>
+            <pubDate>Mon, 16 Dec 2024 12:00:00 +0300</pubDate>
+            <sparkle:version>18</sparkle:version>
+            <sparkle:shortVersionString>1.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>Что нового в версии 1.8</h2>
+                <ul>
+                    <li>Локальное распознавание речи (T-ONE)</li>
+                    <li>LLM обработка для локальной модели</li>
+                    <li>Исправления ошибок</li>
+                </ul>
+            ]]></description>
+            <enclosure
+                url="https://github.com/wellwon/Dictum/releases/download/v1.8/Dictum-1.8.dmg"
+                sparkle:version="18"
+                sparkle:shortVersionString="1.8"
+                length="150000000"
+                type="application/octet-stream" />
+        </item>
+    </channel>
+</rss>

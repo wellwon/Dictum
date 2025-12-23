@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  APP_NAME: Dictum
+
+jobs:
+  release:
+    runs-on: macos-14  # Apple Silicon runner
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Releasing version: $VERSION"
+
+      - name: Verify version matches Info.plist
+        run: |
+          PLIST_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist)
+          TAG_VERSION=${{ steps.version.outputs.version }}
+
+          if [ "$PLIST_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Version mismatch! Tag: $TAG_VERSION, Info.plist: $PLIST_VERSION"
+            echo "Run: ./scripts/bump_version.sh to update version"
+            exit 1
+          fi
+
+          echo "Version verified: $PLIST_VERSION"
+
+      # Note: Full build requires self-hosted runner with local sherpa-onnx
+      # This workflow creates a release placeholder
+      # For actual releases, build locally and upload DMG manually, or use self-hosted runner
+
+      - name: Check for pre-built DMG
+        id: check-dmg
+        run: |
+          DMG_FILE="${APP_NAME}-${{ steps.version.outputs.version }}.dmg"
+          if [ -f "$DMG_FILE" ]; then
+            echo "dmg_exists=true" >> $GITHUB_OUTPUT
+            echo "dmg_file=$DMG_FILE" >> $GITHUB_OUTPUT
+          else
+            echo "dmg_exists=false" >> $GITHUB_OUTPUT
+            echo "No pre-built DMG found. Build locally with ./build.sh && ./create_dmg.sh"
+          fi
+
+      - name: Generate release notes
+        id: release-notes
+        run: |
+          cat << 'EOF' > release_notes.md
+          ## Dictum v${{ steps.version.outputs.version }}
+
+          ### Installation
+
+          1. Download `Dictum-${{ steps.version.outputs.version }}.dmg`
+          2. Open the DMG and drag Dictum to Applications
+          3. On first launch, macOS may show a security warning:
+             - Go to System Settings → Privacy & Security
+             - Click "Open Anyway"
+
+          ### Requirements
+
+          - macOS 13.0 (Ventura) or later
+          - Apple Silicon (M1/M2/M3)
+          - Accessibility permission (for text paste)
+          - Microphone permission (for voice input)
+
+          ### What's New
+
+          See [CHANGELOG.md](CHANGELOG.md) for details.
+
+          ---
+          Built with sherpa-onnx T-ONE for local Russian speech recognition.
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Dictum v${{ steps.version.outputs.version }}
+          body_path: release_notes.md
+          draft: true
+          prerelease: false
+          files: |
+            ${{ steps.check-dmg.outputs.dmg_file }}
+            appcast.xml
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release instructions
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "Release created as DRAFT"
+          echo "=========================================="
+          echo ""
+          echo "Next steps:"
+          echo "1. Build locally: ./build.sh && ./create_dmg.sh"
+          echo "2. Upload DMG to the release"
+          echo "3. Generate appcast.xml with Sparkle tools"
+          echo "4. Publish the release"
+          echo ""
