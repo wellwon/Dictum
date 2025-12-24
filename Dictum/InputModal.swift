@@ -11,7 +11,7 @@ import AppKit
 // MARK: - Input Modal View
 struct InputModalView: View {
     @StateObject private var audioManager = AudioRecordingManager()  // Deepgram
-    @StateObject private var localASRManager = SherpaASRProvider()   // Локальная модель Parakeet v3
+    @ObservedObject private var localASRManager = SherpaASRProvider.shared   // Локальная модель Parakeet v3
     @ObservedObject private var settings = SettingsManager.shared
 
     // Computed properties для текущего ASR провайдера
@@ -35,9 +35,6 @@ struct InputModalView: View {
         settings.asrProviderType == .local ? localASRManager.errorMessage : audioManager.errorMessage
     }
     @State private var inputText: String = ""
-    @State private var showHistory: Bool = false
-    @State private var searchQuery: String = ""
-    @State private var historyItems: [HistoryItem] = []
     @State private var textEditorHeight: CGFloat = 40
     @State private var isProcessingAI: Bool = false
     // FIX: Флаг для скрытия текстового поля ДО старта записи (устраняет визуальный "прыжок")
@@ -52,9 +49,6 @@ struct InputModalView: View {
     @ObservedObject private var promptsManager = PromptsManager.shared
     @ObservedObject private var snippetsManager = SnippetsManager.shared
 
-    // Панели управления (mutual exclusivity с showHistory)
-    @State private var showAIPanel: Bool = false
-    @State private var showSnippetsPanel: Bool = false
     @State private var showAddSnippetSheet: Bool = false // Sheet для добавления сниппета
     @State private var showAddPromptSheet: Bool = false  // Sheet для добавления промпта
     @State private var editingPrompt: CustomPrompt? = nil  // Редактируемый промпт
@@ -77,8 +71,8 @@ struct InputModalView: View {
             VoiceOverlayView(audioLevel: audioLevel)
                 .frame(maxHeight: 70)  // Ограничиваем высоту оверлея
                 .clipped()  // Обрезаем если выходит за пределы
-                .background(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.95))
-                .clipShape(RoundedRectangle(cornerRadius: 24))
+                .background(Color(red: 24/255, green: 24/255, blue: 26/255))  // #18181a
+                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 24, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 24))
                 .allowsHitTesting(false)
         }
     }
@@ -109,13 +103,22 @@ struct InputModalView: View {
                     // FIX: Скрываем текст если идёт запись ИЛИ ожидаем старт записи
                     .opacity((isRecording || pendingAudioStart) ? 0 : 1)
 
-                    if inputText.isEmpty && !isRecording {
-                        Text("Введите текст...")
-                            .font(.system(size: 16, weight: .regular, design: .default))
-                            .foregroundColor(Color.white.opacity(0.45))
-                            .padding(.leading, 28)
-                            .padding(.top, 18)
-                            .allowsHitTesting(false)
+                    // Placeholder или статус модели
+                    if inputText.isEmpty && !isRecording && !pendingAudioStart {
+                        Group {
+                            if settings.asrProviderType == .local {
+                                // Для локальной модели — показываем статус с анимацией
+                                ModelStatusView(status: localASRManager.modelStatus)
+                            } else {
+                                // Для Deepgram — обычный placeholder
+                                Text("Введите текст...")
+                                    .foregroundColor(Color.white.opacity(0.45))
+                            }
+                        }
+                        .font(.system(size: 16, weight: .regular, design: .default))
+                        .padding(.leading, 28)
+                        .padding(.top, 18)
+                        .allowsHitTesting(settings.asrProviderType == .local && localASRManager.modelStatus == .notDownloaded)
                     }
 
                     // Live-transcription во время записи
@@ -159,25 +162,11 @@ struct InputModalView: View {
                         .help(isProcessingAI ? "Обработка..." : "Улучшить через ИИ")
                     }
                 }
+                .background(
+                    Color(red: 24/255, green: 24/255, blue: 26/255)  // #18181a
+                        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 24, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 24))
+                )
                 .overlay(recordingOverlay)
-
-                // Список истории (упрощённый)
-                // Раскрывающиеся панели (mutual exclusivity)
-                if showHistory {
-                    HistoryListView(
-                        items: historyItems,
-                        searchQuery: $searchQuery,
-                        onSelect: { item in
-                            textEditorHeight = 40  // Сброс высоты перед вставкой текста
-                            inputText = item.text
-                            searchQuery = ""
-                            showHistory = false
-                        },
-                        onSearch: { query in
-                            loadHistory(searchQuery: query)
-                        }
-                    )
-                }
 
             }
 
@@ -185,7 +174,6 @@ struct InputModalView: View {
             VStack(spacing: 0) {
                 // ROW 1: Быстрый доступ (AI промпты слева + Сниппеты справа)
                 if settings.aiEnabled || !snippetsManager.snippets.isEmpty {
-                    // ROW 1: Только основная строка (панели вынесены в ZStack снаружи модалки)
                     UnifiedQuickAccessRow(
                         promptsManager: promptsManager,
                         snippetsManager: snippetsManager,
@@ -260,16 +248,9 @@ struct InputModalView: View {
                             .frame(height: 16)
                             .background(Color.white.opacity(0.2))
 
-                        // Кнопка История
+                        // Кнопка История (открывает модалку истории)
                         Button(action: {
-                            if !showHistory {
-                                loadHistory(searchQuery: "")
-                            }
-                            showHistory.toggle()
-                            if !showHistory {
-                                searchQuery = ""
-                                textEditorHeight = 40  // Сбросить высоту при закрытии
-                            }
+                            NotificationCenter.default.post(name: .toggleHistoryModal, object: nil)
                         }) {
                             HStack(spacing: 6) {
                                 Image(systemName: "clock")
@@ -278,8 +259,8 @@ struct InputModalView: View {
                             .font(.system(size: 12, weight: .medium))
                             .padding(.vertical, 4)
                             .padding(.horizontal, 8)
-                            .background(showHistory ? Color.white.opacity(0.15) : Color.clear)
-                            .foregroundColor(showHistory ? .white : Color.white.opacity(0.8))
+                            .background(Color.clear)
+                            .foregroundColor(Color.white.opacity(0.8))
                             .cornerRadius(6)
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -360,11 +341,11 @@ struct InputModalView: View {
         .background(
             VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
                 .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.85))
-                .clipShape(RoundedRectangle(cornerRadius: 24))  // Скругление применяется к подложке
+                .clipShape(RoundedRectangle(cornerRadius: 26))  // macOS Tahoe: 26pt
         )
-        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .clipShape(RoundedRectangle(cornerRadius: 26))
         .overlay(
-            RoundedRectangle(cornerRadius: 24)
+            RoundedRectangle(cornerRadius: 26)
                 .strokeBorder(DesignSystem.Colors.borderColor, lineWidth: 1)
         )
         .frame(width: 680)
@@ -530,22 +511,22 @@ struct InputModalView: View {
                 }
             )
         }
+        // Получение выбранного элемента из модалки истории
+        .onReceive(NotificationCenter.default.publisher(for: .historyItemSelected)) { notification in
+            if let item = notification.object as? HistoryItem {
+                textEditorHeight = 40  // Сброс высоты
+                inputText = item.text
+            }
+        }
     }
 
     private func resetView() {
         inputText = ""
-        showHistory = false
-        searchQuery = ""
-        historyItems = []
         textEditorHeight = 40
         recordingStoppedByHotkey = false
         editingPrompt = nil
         editingSnippet = nil
         // НЕ сбрасываем pendingAudioStart здесь — он управляется в onAppear/onReceive
-    }
-
-    private func loadHistory(searchQuery: String) {
-        historyItems = HistoryManager.shared.getHistoryItems(limit: 50, searchQuery: searchQuery)
     }
 
     private func submitText() {
@@ -809,6 +790,71 @@ struct InputModalView: View {
     /// Режим дозаписи (только для Deepgram, у локальной модели нет)
     private var appendMode: Bool {
         settings.asrProviderType == .local ? false : audioManager.appendMode
+    }
+}
+
+// MARK: - Model Status View (Typewriter Animation)
+struct ModelStatusView: View {
+    let status: ParakeetModelStatus
+    @State private var showReady = true
+    @State private var hasShownReady = false
+
+    var body: some View {
+        Group {
+            switch status {
+            case .notChecked, .checking, .loading:
+                TypewriterText(
+                    text: "Загружаю локальную модель...",
+                    color: .orange
+                )
+
+            case .downloading:
+                TypewriterText(
+                    text: "Скачиваю модель...",
+                    color: .orange
+                )
+
+            case .ready:
+                if showReady && !hasShownReady {
+                    TypewriterText(
+                        text: "Модель готова",
+                        color: DesignSystem.Colors.accent
+                    )
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                showReady = false
+                                hasShownReady = true
+                            }
+                        }
+                    }
+                } else {
+                    // После исчезновения — показываем обычный placeholder
+                    Text("Введите текст...")
+                        .foregroundColor(Color.white.opacity(0.45))
+                }
+
+            case .notDownloaded:
+                Button(action: {
+                    Task {
+                        await ParakeetASRProvider.shared.initializeModelsIfNeeded()
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down.circle")
+                        Text("Скачать локальную модель")
+                    }
+                    .foregroundColor(.orange)
+                }
+                .buttonStyle(.plain)
+
+            case .error(let msg):
+                Text("Ошибка: \(msg)")
+                    .foregroundColor(.red)
+                    .lineLimit(1)
+            }
+        }
+        .font(.system(size: 16))
     }
 }
 

@@ -266,7 +266,7 @@ struct VisualEffectBackground: NSViewRepresentable {
 
 // MARK: - Toggle Styles
 
-/// Кастомный стиль тумблера с цветом #1aaf87
+/// Кастомный стиль тумблера - компактный, прямоугольный, с цветом #1aaf87
 /// Остается зеленым даже при потере фокуса окна (не серый как стандартный SwitchToggleStyle)
 struct GreenToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -274,15 +274,15 @@ struct GreenToggleStyle: ToggleStyle {
             configuration.label
             Spacer()
             ZStack {
-                Capsule()
+                RoundedRectangle(cornerRadius: 4)
                     .fill(configuration.isOn ? DesignSystem.Colors.accent : Color.gray.opacity(0.3))
-                    .frame(width: 51, height: 31)
+                    .frame(width: 36, height: 20)
 
-                Circle()
+                RoundedRectangle(cornerRadius: 3)
                     .fill(Color.white)
-                    .frame(width: 27, height: 27)
-                    .offset(x: configuration.isOn ? 10 : -10)
-                    .animation(.easeInOut(duration: 0.2), value: configuration.isOn)
+                    .frame(width: 14, height: 14)
+                    .offset(x: configuration.isOn ? 8 : -8)
+                    .animation(.easeInOut(duration: 0.15), value: configuration.isOn)
             }
             .onTapGesture {
                 configuration.isOn.toggle()
@@ -448,6 +448,37 @@ struct HotkeyRow: View {
                             .cornerRadius(4)
                     }
                 }
+            }
+        }
+    }
+}
+
+// MARK: - Typewriter Text Animation
+struct TypewriterText: View {
+    let text: String
+    let color: Color
+    var speed: Double = 0.03  // секунд на букву
+
+    @State private var displayedText = ""
+    @State private var animationId = UUID()
+
+    var body: some View {
+        Text(displayedText)
+            .foregroundColor(color)
+            .onAppear { startAnimation() }
+            .onChange(of: text) { _, _ in startAnimation() }
+    }
+
+    private func startAnimation() {
+        let currentId = UUID()
+        animationId = currentId
+        displayedText = ""
+
+        for (index, char) in text.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + speed * Double(index)) {
+                // Проверяем что анимация не была перезапущена
+                guard animationId == currentId else { return }
+                displayedText += String(char)
             }
         }
     }

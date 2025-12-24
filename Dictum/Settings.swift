@@ -1064,6 +1064,8 @@ extension Notification.Name {
     static let enableGlobalHotkeys = Notification.Name("enableGlobalHotkeys")
     static let accessibilityStatusChanged = Notification.Name("accessibilityStatusChanged")
     static let openSettingsToAI = Notification.Name("openSettingsToAI")
+    static let toggleHistoryModal = Notification.Name("toggleHistoryModal")
+    static let historyItemSelected = Notification.Name("historyItemSelected")
 }
 
 // MARK: - Hotkey Recorder View
@@ -1217,11 +1219,8 @@ struct SettingsView: View {
         HStack(spacing: 0) {
             // === SIDEBAR (слева) ===
             VStack(alignment: .leading, spacing: 4) {
-                Text("НАСТРОЙКИ")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.gray)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
+                // Отступ сверху для titlebar
+                Spacer().frame(height: 36)
 
                 ForEach(SettingsTab.allCases, id: \.self) { tab in
                     SettingsTabButton(tab: tab, isSelected: selectedTab == tab) {
@@ -1253,29 +1252,30 @@ struct SettingsView: View {
                         .foregroundColor(.gray.opacity(0.6))
                 }
                 .padding(.horizontal, 12)
+                .padding(.bottom, 20)
             }
             .frame(width: 180)
-            .padding(.vertical, 20)
             .background(Color.black.opacity(0.3))
-
-            // Разделитель
-            Rectangle()
-                .fill(Color.white.opacity(0.1))
-                .frame(width: 1)
+            .overlay(alignment: .trailing) {
+                // Разделитель (от края до края по высоте)
+                Rectangle()
+                    .fill(Color.white.opacity(0.1))
+                    .frame(width: 1)
+            }
 
             // === CONTENT (справа) ===
             VStack(spacing: 0) {
-                // Заголовок таба
+                // Заголовок таба (справа)
                 HStack {
+                    Spacer()
                     Image(systemName: selectedTab.icon)
                         .font(.system(size: 16))
                     Text(selectedTab.rawValue)
                         .font(.system(size: 18, weight: .semibold))
-                    Spacer()
                 }
                 .foregroundColor(.white)
                 .padding(.horizontal, 24)
-                .padding(.top, 20)
+                .padding(.top, 36)
                 .padding(.bottom, 16)
 
                 Divider().background(Color.white.opacity(0.1))
@@ -1289,7 +1289,8 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(red: 30/255, green: 30/255, blue: 32/255))
-        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .clipShape(RoundedRectangle(cornerRadius: 26))  // macOS Tahoe: 26pt
+        .ignoresSafeArea(.all, edges: .top)
         .onAppear {
             hasAccessibility = PermissionManager.shared.hasAccessibility()
             hasMicrophonePermission = PermissionManager.shared.hasMicrophone()
@@ -1906,7 +1907,7 @@ struct ASRProviderCard: View {
 
 // MARK: - Parakeet Model Status View
 struct ParakeetModelStatusView: View {
-    @StateObject private var localASRManager = ParakeetASRProvider()
+    @ObservedObject private var localASRManager = ParakeetASRProvider.shared
     @State private var showDeleteConfirmation = false
 
     var body: some View {

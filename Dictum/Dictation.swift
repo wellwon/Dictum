@@ -259,6 +259,8 @@ enum ParakeetModelStatus: Equatable {
 
 // MARK: - Parakeet ASR Provider (Local)
 class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
+    static let shared = ParakeetASRProvider()
+
     @Published var isRecording = false
     @Published var transcriptionResult: String?
     @Published var interimText: String = ""
@@ -404,13 +406,8 @@ class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
         }
 
         guard isModelLoaded, asrManager != nil else {
-            await MainActor.run {
-                if modelStatus == .loading {
-                    errorMessage = "Модель загружается..."
-                } else {
-                    errorMessage = "Модель не загружена. Подождите или откройте Настройки."
-                }
-            }
+            // Статус модели теперь отображается через typewriter-анимацию в поле ввода
+            // Всплывающее сообщение не нужно — пользователь видит статус напрямую
             return
         }
 

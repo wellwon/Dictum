@@ -15,8 +15,9 @@
 |----------|----------|---------------|
 | **Panel Background** | `rgba(0, 0, 0, 0.3)` | Фон панелей, сайдбаров |
 | **Card Background** | `rgba(255, 255, 255, 0.05)` | Фон карточек, секций |
-| **Hover Background** | `rgba(255, 255, 255, 0.1)` | Ховер-состояние |
-| **Selected Background** | `rgba(255, 255, 255, 0.15)` | Выбранные элементы |
+| **Hover Background** | `rgba(255, 255, 255, 0.1)` | Ховер-состояние (общий) |
+| **Selected Background** | `rgba(255, 255, 255, 0.15)` | Выбранные элементы (общий) |
+| **Row Highlight** | `#242425` / `(36, 36, 37)` | Выделение строки в модалке истории (hover + selection) |
 
 ### Modal/Panel Elements
 | Название | HEX | RGB | Использование |
@@ -154,6 +155,7 @@ DesignSystem.Typography.sectionHeader   // Font.system(size: 11, weight: .semibo
 ### Исключения
 
 Тени разрешены только для:
+- **Модалка истории** — `.shadow(color: .black.opacity(0.5), radius: 30, y: 15)` — отдельное окно поверх основного
 - **Нотификации** (screenshot notification) — `.shadow(radius: 10, y: 5)`
 - **Glow-эффекты кнопок** — `.shadow(color: accent, radius: 4)` при загрузке
 
@@ -161,16 +163,18 @@ DesignSystem.Typography.sectionHeader   // Font.system(size: 11, weight: .semibo
 
 ## Бордеры модалки
 
+**macOS Tahoe Toolbar Window standard: 26pt**
+
 ```swift
 // ✅ ПРАВИЛЬНО — strokeBorder рисует внутри контура (равномерная толщина)
 .overlay(
-    RoundedRectangle(cornerRadius: 24)
+    RoundedRectangle(cornerRadius: 26)  // macOS Tahoe: 26pt
         .strokeBorder(DesignSystem.Colors.borderColor, lineWidth: 1)
 )
 
 // ❌ НЕПРАВИЛЬНО — stroke рисует по центру контура (неравномерно на углах)
 .overlay(
-    RoundedRectangle(cornerRadius: 24)
+    RoundedRectangle(cornerRadius: 26)
         .stroke(DesignSystem.Colors.borderColor, lineWidth: 2)
 )
 ```
@@ -185,3 +189,112 @@ DesignSystem.Typography.sectionHeader   // Font.system(size: 11, weight: .semibo
 4. **Проверять перед изменениями** — сначала глянуть этот файл
 5. **Не добавлять тени на модалки** — модалка без `.shadow()`
 6. **strokeBorder вместо stroke** — для равномерных бордеров
+
+---
+
+## Модалки (Modal Windows)
+
+### Структура модалки истории
+
+| Элемент | Значение | Описание |
+|---------|----------|----------|
+| **Size** | 720×450 | Размер модалки |
+| **Corner Radius** | 26pt | Скругление (macOS Tahoe standard) |
+| **Max Height** | 320px | Максимальная высота списка |
+| **Header Padding** | 20px top/bottom, 24px horizontal | Отступы поля поиска |
+| **Footer Padding** | 14px vertical, 24px horizontal | Отступы футера |
+| **Row Padding** | 12px vertical, 20px horizontal | Отступы строки списка |
+| **Row Highlight** | `#242425` | Цвет выделения строки (hover/selection) |
+| **Shadow** | `radius: 30, y: 15, opacity: 0.5` | Тень модалки (исключение) |
+
+### Поле поиска (Search Field)
+
+```swift
+HStack(spacing: 12) {
+    Image(systemName: "magnifyingglass")
+    TextField("Поиск...", text: $query)
+}
+.padding(.horizontal, 20)
+.padding(.vertical, 14)
+.background(Capsule().fill(Color.white.opacity(0.05)))
+.overlay(Capsule().stroke(Color.white.opacity(0.1), lineWidth: 1))
+.padding(.horizontal, 24)
+.padding(.top, 20)
+.padding(.bottom, 20)
+```
+
+### Футер с хоткеями
+
+```swift
+HStack {
+    HStack(spacing: 20) {
+        hotkeyHint("KEY", "описание")
+        // ...
+    }
+    Spacer()
+    hotkeyHint("ESC", "закрыть")
+}
+.padding(.horizontal, 24)
+.padding(.vertical, 14)
+.background(Color(red: 39/255, green: 39/255, blue: 41/255))  // #272729
+```
+
+### Хоткей-бейдж
+
+```swift
+HStack(spacing: 8) {
+    Text("KEY")
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundColor(.white.opacity(0.5))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(Color.white.opacity(0.08))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.15)))
+        .cornerRadius(4)
+    Text("описание")
+        .font(.system(size: 11, weight: .medium))
+        .foregroundColor(.white.opacity(0.4))
+}
+```
+
+### Навигация клавиатурой
+
+| Клавиша | Действие |
+|---------|----------|
+| ↑↓ | Навигация по списку |
+| ←→ | Свернуть/развернуть запись |
+| Enter | Выбрать |
+| ESC | Закрыть |
+| ⌘K | Открыть/закрыть модалку |
+
+### Выделение строки (Row Highlight)
+
+```swift
+// Цвет #242425 для hover и selection
+.background(isHighlighted ? Color(red: 36/255, green: 36/255, blue: 37/255) : Color.clear)
+```
+
+### Hover vs Keyboard Navigation
+
+При навигации клавишами hover отключается через `isKeyboardNavigating` флаг.
+Сбрасывается через `NSEvent.addLocalMonitorForEvents(matching: .mouseMoved)`.
+
+```swift
+// В HistoryModalView
+@State private var isKeyboardNavigating = false
+@State private var mouseMonitor: Any?
+
+.onAppear {
+    mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { event in
+        isKeyboardNavigating = false
+        return event
+    }
+}
+
+// В HistoryRowView
+.onHover { hovering in
+    if !isKeyboardNavigating {
+        isHovered = hovering
+    }
+}
+```

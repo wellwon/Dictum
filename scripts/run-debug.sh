@@ -1,49 +1,48 @@
 #!/bin/bash
 #
-# run-debug.sh - Launch Debug version of Dictum from DerivedData
+# run-debug.sh - Сборка и запуск Debug версии Dictum
 #
-# Usage: ./scripts/run-debug.sh
+# Использование: ./scripts/run-debug.sh
 #
-# This script finds and launches the Debug build created by Xcode.
-# Both Xcode and Claude use the same Debug version, so permissions
-# (Accessibility, Microphone, etc.) only need to be granted once.
+# Все сборки (Xcode и CLI) используют единый путь: ./build/
+# Это гарантирует что permissions работают одинаково.
 #
 
-DERIVED_DATA=~/Library/Developer/Xcode/DerivedData
+set -e
 
-# Find Debug build (exclude Index.noindex which contains non-runnable builds)
-APP=$(find "$DERIVED_DATA" -path "*/Dictum-*/Build/Products/Debug/Dictum.app" -not -path "*/Index.noindex/*" -type d 2>/dev/null | head -1)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_DIR"
 
-if [ -z "$APP" ]; then
-    echo "❌ Debug build not found in DerivedData"
-    echo ""
-    echo "Please build the app first:"
-    echo "  1. Open Dictum.xcodeproj in Xcode"
-    echo "  2. Press ⌘R (Run) or click ▶️"
-    echo ""
-    echo "Or build via CLI:"
-    echo "  xcodebuild -project Dictum.xcodeproj -scheme Dictum -configuration Debug build"
+APP_NAME="Dictum"
+BUNDLE_ID="com.dictum.app"
+DEBUG_APP="$PROJECT_DIR/build/Build/Products/Debug/$APP_NAME.app"
+
+echo "🔨 Сборка Debug версии..."
+
+# Убить существующие процессы
+pkill -9 -f "$APP_NAME.app" 2>/dev/null || true
+sleep 0.5
+
+# Собрать Debug
+xcodebuild -project Dictum.xcodeproj \
+    -scheme Dictum \
+    -configuration Debug \
+    -derivedDataPath ./build \
+    -quiet \
+    build
+
+if [ ! -d "$DEBUG_APP" ]; then
+    echo "❌ Сборка не удалась: $DEBUG_APP не найден"
     exit 1
 fi
 
-echo "🚀 Launching Debug build:"
-echo "   $APP"
+echo "✅ Сборка завершена"
 echo ""
+echo "🚀 Запуск: $DEBUG_APP"
 
-# Kill existing instances
-pkill -9 -f "Dictum.app" 2>/dev/null
+open "$DEBUG_APP"
 
-# Small delay to ensure clean start
-sleep 0.5
-
-# Reset Accessibility permissions (removes old entries)
-echo "🔐 Resetting Accessibility permissions..."
-tccutil reset Accessibility com.dictum.app 2>/dev/null
-
-# Launch app
-open "$APP"
-
-echo "✅ Dictum started"
 echo ""
-echo "⚠️  Enable Accessibility permission:"
+echo "⚠️  Если нужны permissions:"
 echo "   System Settings → Privacy & Security → Accessibility → Enable Dictum"

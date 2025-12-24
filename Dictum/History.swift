@@ -78,10 +78,12 @@ class HistoryManager: ObservableObject, @unchecked Sendable {
 
     func getHistoryItems(limit: Int = 50, searchQuery: String = "") -> [HistoryItem] {
         if searchQuery.isEmpty {
+            NSLog("📋 History: returning all \(history.count) items")
             return Array(history.prefix(limit))
         } else {
             let lowercasedQuery = searchQuery.lowercased()
             let filtered = history.filter { $0.text.lowercased().contains(lowercasedQuery) }
+            NSLog("📋 History search '\(searchQuery)': found \(filtered.count) of \(history.count)")
             return Array(filtered.prefix(limit))
         }
     }
@@ -290,6 +292,8 @@ struct HistoryListView: View {
 struct HistoryRowView: View {
     let item: HistoryItem
     var isSelected: Bool = false
+    var isExpanded: Bool = false
+    var isKeyboardNavigating: Bool = false
     let onTap: () -> Void
     @State private var isHovered = false
 
@@ -306,7 +310,7 @@ struct HistoryRowView: View {
             Text(item.text)
                 .foregroundColor(.white)
                 .font(.system(size: 14))
-                .lineLimit(1)
+                .lineLimit(isExpanded ? nil : 1)
 
             Spacer()
 
@@ -316,18 +320,281 @@ struct HistoryRowView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(isHighlighted ? Color.white.opacity(0.1) : Color.clear)
+        .background(isHighlighted ? Color(red: 36/255, green: 36/255, blue: 37/255) : Color.clear)  // #242425
         .contentShape(Rectangle())
         .onTapGesture {
             onTap()
         }
         .onHover { hovering in
-            isHovered = hovering
+            if !isKeyboardNavigating {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
+// MARK: - History Modal View (отдельная модалка поверх основной)
+struct HistoryModalView: View {
+    @Binding var isPresented: Bool
+    let onSelect: (HistoryItem) -> Void
+
+    @State private var searchQuery = ""
+    @State private var selectedIndex = 0
+    @State private var expandedIndex: Int? = nil
+    @State private var isKeyboardNavigating = false
+    @State private var mouseMonitor: Any?
+    @FocusState private var isSearchFocused: Bool
+
+    // Computed property — пересчитывается при каждом изменении searchQuery
+    private var filteredItems: [HistoryItem] {
+        let allItems = HistoryManager.shared.history
+        if searchQuery.isEmpty {
+            return Array(allItems.prefix(50))
+        }
+        let query = searchQuery.lowercased()
+        return allItems.filter { $0.text.lowercased().contains(query) }
+    }
+
+    // MARK: - Search Field
+
+    private var searchFieldView: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15))
+                .foregroundColor(.white.opacity(0.3))
+
+            TextField("Поиск в истории...", text: $searchQuery)
+                .textFieldStyle(PlainTextFieldStyle())
+                .font(.system(size: 15))
+                .foregroundColor(.white.opacity(0.9))
+                .focused($isSearchFocused)
+                .onSubmit {
+                    if selectedIndex < filteredItems.count {
+                        onSelect(filteredItems[selectedIndex])
+                        isPresented = false
+                    }
+                }
+
+            if !searchQuery.isEmpty {
+                Button(action: {
+                    searchQuery = ""
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.4))
+                        .padding(4)
+                        .background(Circle().fill(Color.white.opacity(0.1)))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+
+            // Hotkey badge ⌘K
+            HStack(spacing: 2) {
+                Text("⌘")
+                    .font(.system(size: 11))
+                Text("K")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(.white.opacity(0.3))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color.white.opacity(0.05))
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+            )
+            .cornerRadius(4)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.05))
+                .overlay(Capsule().stroke(Color.white.opacity(0.1), lineWidth: 1))
+        )
+        .padding(.horizontal, 24)
+        .padding(.top, 20)
+        .padding(.bottom, 20)
+    }
+
+    // MARK: - Results List
+
+    private var resultsListView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
+                        HistoryRowView(
+                            item: item,
+                            isSelected: index == selectedIndex,
+                            isExpanded: index == expandedIndex,
+                            isKeyboardNavigating: isKeyboardNavigating,
+                            onTap: {
+                                onSelect(item)
+                                isPresented = false
+                            }
+                        )
+                        .id(index)
+                    }
+                }
+            }
+            .onChange(of: selectedIndex) { _, newIndex in
+                withAnimation(.easeOut(duration: 0.1)) {
+                    proxy.scrollTo(newIndex, anchor: nil)
+                }
+            }
+        }
+        .frame(maxHeight: 320)
+    }
+
+    // MARK: - Empty State
+
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: searchQuery.isEmpty ? "clock" : "magnifyingglass")
+                .font(.system(size: 40))
+                .foregroundColor(.white.opacity(0.2))
+            Text(searchQuery.isEmpty ? "История пуста" : "Ничего не найдено")
+                .font(.system(size: 15))
+                .foregroundColor(.white.opacity(0.4))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.vertical, 60)
+    }
+
+    // MARK: - Footer with Hotkey Hints
+
+    private var footerView: some View {
+        HStack {
+            HStack(spacing: 20) {
+                hotkeyHint("ENTER", "выбрать")
+                hotkeyHint("↑↓", "навигация")
+                hotkeyHint("← →", "свернуть/развернуть")
+            }
+            Spacer()
+            hotkeyHint("ESC", "закрыть")
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 14)
+        .background(Color(red: 39/255, green: 39/255, blue: 41/255))  // #272729
+    }
+
+    private func hotkeyHint(_ key: String, _ label: String) -> some View {
+        HStack(spacing: 8) {
+            Text(key)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.5))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(Color.white.opacity(0.08))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                .cornerRadius(4)
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.4))
+        }
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        VStack(spacing: 0) {
+            searchFieldView
+
+            if filteredItems.isEmpty {
+                emptyStateView
+            } else {
+                resultsListView
+            }
+
+            Spacer(minLength: 0)
+
+            footerView
+        }
+        .frame(width: 720, height: 450)
+        .background(
+            RoundedRectangle(cornerRadius: 26)  // macOS Tahoe: 26pt
+                .fill(Color(red: 24/255, green: 24/255, blue: 26/255))
+                .shadow(color: .black.opacity(0.5), radius: 30, y: 15)
+        )
+        .background(
+            VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+                .clipShape(RoundedRectangle(cornerRadius: 26))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .overlay(
+            RoundedRectangle(cornerRadius: 26)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(.downArrow) {
+            isKeyboardNavigating = true
+            if selectedIndex < filteredItems.count - 1 {
+                selectedIndex += 1
+            }
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            isKeyboardNavigating = true
+            if selectedIndex > 0 {
+                selectedIndex -= 1
+            }
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            expandedIndex = selectedIndex
+            return .handled
+        }
+        .onKeyPress(.leftArrow) {
+            expandedIndex = nil
+            return .handled
+        }
+        .onKeyPress(.return) {
+            if selectedIndex < filteredItems.count {
+                onSelect(filteredItems[selectedIndex])
+                isPresented = false
+            }
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            NotificationCenter.default.post(name: .toggleHistoryModal, object: nil)
+            return .handled
+        }
+        .onAppear {
+            // Автофокус на поле поиска
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isSearchFocused = true
+            }
+            // Monitor реального движения мыши
+            mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { event in
+                isKeyboardNavigating = false
+                return event
+            }
+        }
+        .onDisappear {
+            if let monitor = mouseMonitor {
+                NSEvent.removeMonitor(monitor)
+                mouseMonitor = nil
+            }
+        }
+        .onChange(of: searchQuery) { _, _ in
+            // Сбросить выделение при изменении поиска
+            selectedIndex = 0
         }
     }
 }
 
 // MARK: - SwiftUI Previews
+#Preview("HistoryModalView") {
+    HistoryModalView(
+        isPresented: .constant(true),
+        onSelect: { _ in }
+    )
+    .frame(width: 800, height: 500)
+    .background(Color.black.opacity(0.5))
+}
+
 #Preview("HistoryListView") {
     HistoryListView(
         items: [

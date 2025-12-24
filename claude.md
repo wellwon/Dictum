@@ -279,6 +279,51 @@ SlidingPromptPanel(...)
     .animation(.easeInOut(duration: 0.25), value: showLeftPanel)
 ```
 
+### 7. Скругление рамки окна (NSWindow) — macOS Tahoe 26pt
+
+**ВАЖНО:** Для `.titled` окон скруглять через `superview.layer.cornerRadius`, НЕ через `contentView.layer`!
+
+`contentView.layer` скругляет только контент, а `superview` (_NSThemeFrame) — саму рамку окна.
+
+```swift
+// В DictumApp.swift при создании .titled окна:
+sw.backgroundColor = .clear
+sw.isOpaque = false
+sw.contentView = hostingView
+
+// ПОСЛЕ присвоения contentView — скругляем ВНЕШНЮЮ рамку
+if let contentView = sw.contentView {
+    contentView.superview?.wantsLayer = true
+    contentView.superview?.layer?.cornerRadius = 26  // macOS Tahoe
+    contentView.superview?.layer?.masksToBounds = true
+}
+```
+
+**Для `.borderless` окон (InputModal, History):**
+```swift
+// SwiftUI clipShape работает корректно
+.clipShape(RoundedRectangle(cornerRadius: 26))
+```
+
+### 8. Контент в области titlebar (fullSizeContentView)
+
+Для окон со стилем `.fullSizeContentView` и прозрачным titlebar, чтобы контент (sidebar, дивайдеры) расширялся в область titlebar:
+
+```swift
+// В DictumApp.swift при создании окна:
+styleMask: [.titled, .closable, .resizable, .fullSizeContentView]
+sw.titlebarAppearsTransparent = true
+
+// В SwiftUI View — применить к КОРНЕВОМУ контейнеру:
+HStack(spacing: 0) {
+    // sidebar, content...
+}
+.background(...)
+.ignoresSafeArea(.all, edges: .top)  // ВАЖНО: на корневой контейнер!
+```
+
+**НЕ применять `.ignoresSafeArea()` к дочерним элементам** — это не работает, т.к. родительский background перекроет.
+
 ---
 
 ## Функциональность
@@ -528,6 +573,38 @@ class VolumeManager {
 .stroke(borderColor, lineWidth: 2)  // неравномерно на углах
 ```
 
+### 🔒 Corner Radius — ЗАПРЕТ НА ИЗМЕНЕНИЕ
+
+**Стандарт macOS Tahoe: 26pt для Toolbar Window**
+
+Все окна, модалки и уведомления ДОЛЖНЫ использовать `cornerRadius: 26`. Это значение НЕЛЬЗЯ менять без согласования!
+
+**Для `.borderless` окон (InputModal, History):**
+```swift
+.clipShape(RoundedRectangle(cornerRadius: 26))
+.overlay(
+    RoundedRectangle(cornerRadius: 26)
+        .strokeBorder(DesignSystem.Colors.borderColor, lineWidth: 1)
+)
+```
+
+**Для `.titled` окон (Settings):**
+```swift
+// ПОСЛЕ sw.contentView = hostingView:
+// Скругляем ВНЕШНЮЮ рамку через _NSThemeFrame (superview)
+if let contentView = sw.contentView {
+    contentView.superview?.wantsLayer = true
+    contentView.superview?.layer?.cornerRadius = 26
+    contentView.superview?.layer?.masksToBounds = true
+}
+```
+
+**ЗАПРЕЩЕНО:**
+- ❌ Менять cornerRadius без согласования
+- ❌ Использовать разные значения для разных окон
+- ❌ Скруглять `contentView.layer` вместо `superview` для titled окон
+- ❌ Использовать `clipShape` для скругления titled окон (обрезает sidebar)
+
 ### Комментирование кода
 
 #### MARK-комментарии для навигации
@@ -613,46 +690,63 @@ VoiceOverlayView(audioLevel: level)
 
 ### Development Workflow
 
-#### Debug vs Release
+#### ⚠️ ЕДИНЫЙ ПУТЬ СБОРКИ: `./build/`
 
-| Этап | Конфигурация | Как запускать |
-|------|--------------|---------------|
-| **Разработка** | Debug | Xcode ▶️ или `scripts/run-debug.sh` |
-| **Релиз** | Release | `xcodebuild -configuration Release` |
+**ВСЕ сборки** (Xcode и CLI) используют один путь: `./build/`
 
-#### Как работают разрешения (TCC)
+Это настроено в `project.yml`:
+```yaml
+options:
+  derivedDataPath: build
+```
 
-macOS привязывает разрешения (Accessibility, Microphone и т.д.) к **CDHash** — подписи приложения. Debug и Release версии имеют разные CDHash.
+**Почему это важно:**
+- Permissions (TCC) привязаны к CDHash приложения
+- Один путь = одна версия = permissions работают везде
+- Нет путаницы между DerivedData и локальным build
 
-**Важно:** Во время разработки используй только Debug версию. Дашь разрешения один раз — работают везде.
+#### Скрипты
+
+| Скрипт | Назначение |
+|--------|------------|
+| `./scripts/run-debug.sh` | Сборка Debug + запуск |
+| `./scripts/dictum_reload.sh` | Пересборка Debug + запуск |
+| `./scripts/dictum_reload.sh -r` | Пересборка Release + запуск |
+| `./scripts/reset-permissions.sh` | Сброс TCC + запуск |
+| `./scripts/build.sh` | Release сборка (для дистрибуции) |
+
+#### Пути к приложению
+
+| Конфигурация | Путь |
+|--------------|------|
+| **Debug** | `./build/Build/Products/Debug/Dictum.app` |
+| **Release** | `./build/Build/Products/Release/Dictum.app` |
 
 #### Запуск приложения
 
-**Разработчик (Xcode):**
 ```bash
-# Xcode → ▶️ Run
-# Или через скрипт:
+# Debug (разработка):
 ./scripts/run-debug.sh
-```
 
-**Claude (CLI):**
-```bash
-# Использует ту же Debug версию из DerivedData:
-./scripts/run-debug.sh
 # Или напрямую:
-open "$(find ~/Library/Developer/Xcode/DerivedData -path '*/Dictum-*/Build/Products/Debug/Dictum.app' -not -path '*/Index.noindex/*' -type d | head -1)"
+open ./build/Build/Products/Debug/Dictum.app
+
+# Release:
+./scripts/dictum_reload.sh --release
 ```
 
-**Релиз (финальный билд):**
+#### Xcode
+
+При запуске через Xcode (⌘R) проект автоматически использует `./build/` благодаря `derivedDataPath: build` в project.yml.
+
+**После изменения project.yml нужно перегенерировать проект:**
 ```bash
-xcodebuild -project Dictum.xcodeproj -scheme Dictum -configuration Release -derivedDataPath ./build build
-cp -r ./build/Build/Products/Release/Dictum.app ./
-open Dictum.app
+xcodegen generate
 ```
 
 #### Индикатор версии
 
-В настройках отображается тип сборки: "Dictum v1.82 (Debug)" или "Dictum v1.82 (Release)".
+В настройках отображается тип сборки: "Dictum v1.92 (Debug)" или "Dictum v1.92 (Release)".
 
 ### Генерация проекта
 

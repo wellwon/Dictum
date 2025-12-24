@@ -127,6 +127,7 @@ func createMenuBarIcon() -> NSImage {
     return image
 }
 
+
 // MARK: - Screenshot Notification View
 struct ScreenshotNotificationView: View {
     var body: some View {
@@ -150,7 +151,7 @@ struct ScreenshotNotificationView: View {
             VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
                 .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.95))
         )
-        .cornerRadius(10)
+        .cornerRadius(26)  // macOS Tahoe Toolbar Window standard
         .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
     }
 }
@@ -161,6 +162,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var statusItem: NSStatusItem?
     var window: NSWindow?
     var settingsWindow: NSWindow?
+    var historyWindow: NSWindow?  // Отдельное окно для истории
     var hotKeyRefs: [EventHotKeyRef] = []
     var localEventMonitor: Any?
     var globalEventMonitor: Any?
@@ -172,6 +174,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         set { previousAppLock.withLock { _previousApp = newValue } }
     }
     var screenshotNotificationWindow: NSWindow?  // Окно уведомления о скриншоте
+    private var settingsKeyMonitor: Any?  // ESC monitor для закрытия настроек
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Убить предыдущие экземпляры приложения (при пересборке)
@@ -193,6 +196,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         _ = HistoryManager.shared
         _ = SettingsManager.shared
 
+        // Начать загрузку локальной модели в фоне (если выбрана)
+        if SettingsManager.shared.asrProviderType == .local {
+            Task {
+                await ParakeetASRProvider.shared.initializeModelsIfNeeded()
+            }
+        }
+
         // Menu bar
         setupMenuBar()
 
@@ -209,6 +219,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(handleSubmitAndPaste), name: .submitAndPaste, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(disableGlobalHotkeys), name: .disableGlobalHotkeys, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(enableGlobalHotkeys), name: .enableGlobalHotkeys, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(toggleHistoryWindow), name: .toggleHistoryModal, object: nil)
 
         // Авто-проверка Accessibility при возврате в приложение
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -512,56 +523,48 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let button = statusItem?.button {
             button.image = createMenuBarIcon()
             button.action = #selector(statusBarClicked)
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.sendAction(on: [.leftMouseUp])  // Только левый клик через action
         }
+
+        // Создаём меню для правого клика (назначаем напрямую на statusItem)
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        let openItem = NSMenuItem(title: "Открыть Dictum", action: #selector(showWindow), keyEquivalent: "")
+        openItem.target = self
+        openItem.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
+        menu.addItem(openItem)
+
+        let updateItem = NSMenuItem(title: "Проверить обновления...", action: #selector(checkForUpdatesMenu), keyEquivalent: "")
+        updateItem.target = self
+        updateItem.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
+        menu.addItem(updateItem)
+
+        let settingsItem = NSMenuItem(title: "Настройки...", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        settingsItem.image = NSImage(systemSymbolName: "gear", accessibilityDescription: nil)
+        menu.addItem(settingsItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let quitItem = NSMenuItem(title: "Выход", action: #selector(quitApp), keyEquivalent: "q")
+        quitItem.target = self
+        quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
+        menu.addItem(quitItem)
+
+        statusItem?.menu = menu  // Правый клик автоматически показывает это меню
     }
 
     @objc func statusBarClicked(_ sender: NSStatusBarButton) {
-        guard let event = NSApp.currentEvent else { return }
-
         // FIX: Сохраняем previousApp СРАЗУ при клике, до активации Dictum
-        // Это важно потому что macOS активирует Dictum при клике по menubar ДО вызова showWindow()
         let frontApp = NSWorkspace.shared.frontmostApplication
         if frontApp?.bundleIdentifier != Bundle.main.bundleIdentifier {
             previousApp = frontApp
             NSLog("📱 [statusBarClicked] Сохранено: \(previousApp?.localizedName ?? "nil")")
         }
 
-        if event.type == .rightMouseUp {
-            // Правый клик - показать меню
-            let menu = NSMenu()
-
-            // "Открыть Dictum" with play icon
-            let openItem = NSMenuItem(title: "Открыть Dictum", action: #selector(showWindow), keyEquivalent: "")
-            openItem.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Open Dictum")
-            menu.addItem(openItem)
-
-            // "Проверить обновления..." with arrow icon (перед настройками)
-            let updateItem = NSMenuItem(title: "Проверить обновления...", action: #selector(checkForUpdatesMenu), keyEquivalent: "")
-            updateItem.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "Check for Updates")
-            menu.addItem(updateItem)
-
-            // "Настройки..." with gear icon (под проверкой обновлений)
-            let settingsItem = NSMenuItem(title: "Настройки...", action: #selector(openSettings), keyEquivalent: ",")
-            settingsItem.image = NSImage(systemSymbolName: "gear", accessibilityDescription: "Settings")
-            menu.addItem(settingsItem)
-
-            // Separator
-            menu.addItem(NSMenuItem.separator())
-
-            // "Выход" with power icon
-            let quitItem = NSMenuItem(title: "Выход", action: #selector(quitApp), keyEquivalent: "q")
-            quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: "Quit")
-            menu.addItem(quitItem)
-
-            // Показать меню под иконкой (безопасный способ без краша)
-            if let button = statusItem?.button {
-                menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 5), in: button)
-            }
-        } else {
-            // Левый клик - toggle окно
-            toggleWindow()
-        }
+        // Левый клик - toggle окно (правый клик обрабатывается через statusItem?.menu)
+        toggleWindow()
     }
 
     func setupHotKeys() {
@@ -716,8 +719,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func setupWindow() {
         let contentView = InputModalView()
 
-        // Ширина: 680 (модалка) + 2*(180 + 8) (боковые панели + отступы)
-        let windowWidth: CGFloat = 1060
+        let windowWidth: CGFloat = 680
 
         let panel = FloatingPanel(
             contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: 150),
@@ -737,8 +739,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let hostingView = NSHostingView(rootView: contentView)
         hostingView.wantsLayer = true
-        // cornerRadius не нужен - модалка и панели имеют свои clipShape
-        hostingView.layer?.masksToBounds = false  // Не обрезать выезжающие панели
+        hostingView.layer?.masksToBounds = true  // Обрезать по границам окна
         panel.contentView = hostingView
 
         self.window = panel
@@ -748,8 +749,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func centerWindowOnActiveScreen() {
         guard let window = window else { return }
 
-        // Ширина включает боковые панели: 680 + 2*(180 + 8)
-        let width: CGFloat = 1060
+        let width: CGFloat = 680
         let height: CGFloat = 150
 
         // Находим экран с курсором мыши
@@ -877,25 +877,152 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let sw = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight),
-            styleMask: [.titled, .closable, .resizable],
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
 
         sw.title = "Настройки Dictum"
-        sw.contentView = NSHostingView(rootView: SettingsView())
-        sw.center()
+        sw.titlebarAppearsTransparent = true
+        sw.titleVisibility = .hidden
+        sw.backgroundColor = .clear
+        sw.isOpaque = false
+
+        let hostingView = NSHostingView(rootView: SettingsView())
+        hostingView.wantsLayer = true
+        hostingView.layer?.masksToBounds = true
+        sw.contentView = hostingView
+
+        // Скругление ВНЕШНЕЙ рамки окна через _NSThemeFrame (superview contentView)
+        // macOS Tahoe Toolbar Window standard: 26pt
+        if let contentView = sw.contentView {
+            contentView.superview?.wantsLayer = true
+            contentView.superview?.layer?.cornerRadius = 26
+            contentView.superview?.layer?.masksToBounds = true
+        }
+
         sw.minSize = NSSize(width: 800, height: 600)
+
+        // Центрируем на экране с курсором (как модалка)
+        let mouseLocation = NSEvent.mouseLocation
+        var targetScreen: NSScreen? = nil
+        for screen in NSScreen.screens {
+            if screen.frame.contains(mouseLocation) {
+                targetScreen = screen
+                break
+            }
+        }
+        if let screen = targetScreen ?? NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            let windowSize = sw.frame.size
+            let x = screenFrame.origin.x + (screenFrame.width - windowSize.width) / 2
+            let y = screenFrame.origin.y + (screenFrame.height - windowSize.height) / 2
+            sw.setFrameOrigin(NSPoint(x: x, y: y))
+        } else {
+            sw.center()
+        }
 
         // H6: isReleasedWhenClosed = false - мы сами управляем lifecycle через settingsWindow = nil
         sw.isReleasedWhenClosed = false
         sw.delegate = self
         settingsWindow = sw
 
+        // Кастомизация кнопок окна: скрыть minimize, сдвинуть close и zoom
+        sw.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        let buttonOffset: CGFloat = 6
+        for buttonType: NSWindow.ButtonType in [.closeButton, .zoomButton] {
+            if let button = sw.standardWindowButton(buttonType) {
+                button.setFrameOrigin(NSPoint(
+                    x: button.frame.origin.x + buttonOffset,
+                    y: button.frame.origin.y - buttonOffset
+                ))
+            }
+        }
+
+        // ESC закрывает окно настроек
+        settingsKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53, self?.settingsWindow?.isKeyWindow == true {
+                self?.settingsWindow?.close()
+                return nil  // Поглощаем событие
+            }
+            return event
+        }
+
         SettingsManager.shared.settingsWindowWasOpen = true
 
         sw.makeKeyAndOrderFront(nil)
         NSApp.activate()
+    }
+
+    // MARK: - History Window
+    @objc func toggleHistoryWindow() {
+        if let hw = historyWindow, hw.isVisible {
+            // Закрыть окно истории
+            hw.close()
+            historyWindow = nil
+        } else {
+            // Открыть окно истории
+            showHistoryWindow()
+        }
+    }
+
+    func showHistoryWindow() {
+        // Закрыть предыдущее если есть
+        if let hw = historyWindow {
+            hw.close()
+            historyWindow = nil
+        }
+
+        // Размер окна истории
+        let historyWidth: CGFloat = 720
+        let historyHeight: CGFloat = 450
+
+        // Создаём floating panel для истории
+        let panel = FloatingPanel(
+            contentRect: NSRect(x: 0, y: 0, width: historyWidth, height: historyHeight),
+            styleMask: [.nonactivatingPanel, .fullSizeContentView, .borderless],
+            backing: .buffered,
+            defer: false
+        )
+
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.isMovableByWindowBackground = true
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+
+        // SwiftUI контент
+        let historyView = HistoryModalView(
+            isPresented: .constant(true),
+            onSelect: { [weak self] item in
+                // Отправить выбранный элемент в InputModal
+                NotificationCenter.default.post(name: .historyItemSelected, object: item)
+                // Закрыть окно истории
+                self?.historyWindow?.close()
+                self?.historyWindow = nil
+            }
+        )
+
+        let hostingView = NSHostingView(rootView: historyView)
+        panel.contentView = hostingView
+
+        // Центрируем относительно основного окна или экрана
+        if let mainWindow = window, mainWindow.isVisible {
+            let mainFrame = mainWindow.frame
+            let x = mainFrame.origin.x + (mainFrame.width - historyWidth) / 2
+            let y = mainFrame.origin.y + (mainFrame.height - historyHeight) / 2
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+        } else {
+            panel.center()
+        }
+
+        historyWindow = panel
+        panel.makeKeyAndOrderFront(nil)
     }
 
     @objc func checkForUpdatesMenu() {
@@ -943,7 +1070,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
+        // Окно истории
+        if closedWindow == historyWindow {
+            historyWindow?.delegate = nil
+            historyWindow = nil
+            return
+        }
+
         if closedWindow == settingsWindow {
+            // Удаляем ESC monitor
+            if let monitor = settingsKeyMonitor {
+                NSEvent.removeMonitor(monitor)
+                settingsKeyMonitor = nil
+            }
             // Сначала убираем delegate чтобы избежать повторных вызовов
             settingsWindow?.delegate = nil
             settingsWindow = nil

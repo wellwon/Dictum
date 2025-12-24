@@ -5,6 +5,7 @@ options:
   deploymentTarget:
     macOS: "14.0"
   minimumXcodeGenVersion: "2.40"
+  derivedDataPath: build
 
 packages:
   FluidAudio:
