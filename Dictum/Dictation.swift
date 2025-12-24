@@ -101,6 +101,14 @@ class VolumeManager: @unchecked Sendable {
 class PermissionManager: @unchecked Sendable {
     static let shared = PermissionManager()
 
+    // MARK: - Tracking Permission Requests
+
+    /// Отслеживаем, запрашивали ли Screen Recording (диалог показывается только 1 раз)
+    private var hasAskedForScreenRecording: Bool {
+        get { UserDefaults.standard.bool(forKey: "hasAskedForScreenRecording") }
+        set { UserDefaults.standard.set(newValue, forKey: "hasAskedForScreenRecording") }
+    }
+
     // MARK: - Check Permissions
 
     /// Проверка Accessibility (Универсальный доступ)
@@ -164,24 +172,59 @@ class PermissionManager: @unchecked Sendable {
     func requestScreenRecording() {
         NSLog("📹 Requesting Screen Recording permission...")
 
-        // CGWindowListCreateImage триггерит системный диалог и добавляет приложение в список
-        // Deprecated в macOS 14, но нужен для совместимости и добавления в TCC
-        if #available(macOS 14.0, *) {
-            // На macOS 14+ используем CGRequestScreenCaptureAccess
-            // Это покажет диалог и добавит в список
-            CGRequestScreenCaptureAccess()
-        } else {
-            // Legacy fallback
-            let _ = CGWindowListCreateImage(
-                CGRect(x: 0, y: 0, width: 1, height: 1),
-                .optionOnScreenOnly,
-                kCGNullWindowID,
-                .bestResolution
-            )
+        // Если уже есть разрешение — ничего не делаем
+        if hasScreenRecording() {
+            NSLog("📹 Screen Recording already granted")
+            return
         }
 
-        // Открываем Settings чтобы пользователь мог включить разрешение
-        openPrivacySettings(section: "ScreenCapture")
+        // Запускаем helper для авто-рестарта
+        // macOS делает SIGKILL при выдаче Screen Recording
+        scheduleAppRestart()
+
+        // Если ещё НЕ запрашивали — показываем системный диалог
+        if !hasAskedForScreenRecording {
+            hasAskedForScreenRecording = true
+            NSLog("📹 First time asking, showing system dialog")
+
+            if #available(macOS 14.0, *) {
+                CGRequestScreenCaptureAccess()
+            } else {
+                let _ = CGWindowListCreateImage(
+                    CGRect(x: 0, y: 0, width: 1, height: 1),
+                    .optionOnScreenOnly,
+                    kCGNullWindowID,
+                    .bestResolution
+                )
+            }
+            // Диалог сам откроет Settings по кнопке пользователя
+        } else {
+            // Уже запрашивали, но нет разрешения — открываем Settings напрямую
+            NSLog("📹 Already asked before, opening Settings directly")
+            openPrivacySettings(section: "ScreenCapture")
+        }
+    }
+
+    /// Планирует перезапуск приложения через 3 секунды
+    /// Используется для авто-рестарта после выдачи Screen Recording
+    private func scheduleAppRestart() {
+        let appPath = Bundle.main.bundlePath
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        // nohup + & создаёт независимый фоновый процесс, который переживёт SIGKILL родителя
+        task.arguments = ["-c", "nohup sh -c 'sleep 3; open \"\(appPath)\"' >/dev/null 2>&1 &"]
+
+        // Detach от родительского процесса — скрипт продолжит работать после SIGKILL
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+
+        do {
+            try task.run()
+            NSLog("🔄 Scheduled app restart in 3 seconds")
+        } catch {
+            NSLog("❌ Failed to schedule restart: \(error)")
+        }
     }
 
     // MARK: - Open System Settings
@@ -189,19 +232,13 @@ class PermissionManager: @unchecked Sendable {
     /// Открыть конкретную секцию Privacy & Security
     /// section: "Accessibility", "Microphone", "ScreenCapture", etc.
     func openPrivacySettings(section: String? = nil) {
-        // Определяем версию macOS
-        let osVersion = ProcessInfo.processInfo.operatingSystemVersion
-        let isTahoeOrLater = osVersion.majorVersion >= 26
-
         var urlString = "x-apple.systempreferences:com.apple.preference.security"
 
-        // На macOS 26+ (Tahoe) параметры Privacy_* могут вызывать краш
-        // Пробуем с параметром только на более ранних версиях
-        if let section = section, !isTahoeOrLater {
+        if let section = section {
             urlString += "?Privacy_\(section)"
         }
 
-        NSLog("🔧 Opening System Settings: \(urlString) (macOS \(osVersion.majorVersion))")
+        NSLog("🔧 Opening System Settings: \(urlString)")
 
         if let url = URL(string: urlString) {
             NSWorkspace.shared.open(url)
@@ -270,6 +307,7 @@ class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
     @Published var modelStatus: ParakeetModelStatus = .notChecked
     @Published var downloadedFilesCount: Int = 0
     @Published var totalFilesCount: Int = 0
+    @Published var hasShownReadyMessage = false  // Флаг: сообщение "Модель готова" уже показано
 
     private var audioEngine: AVAudioEngine?
     private var asrManager: AsrManager?
@@ -293,7 +331,11 @@ class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
             if modelStatus == .notDownloaded {
                 return
             }
-            await initializeModelsIfNeeded()
+            // Автоматически загружаем модель только если onboarding уже пройден
+            // При первом запуске модель загрузится через кнопку в onboarding
+            if SettingsManager.shared.hasCompletedOnboarding {
+                await initializeModelsIfNeeded()
+            }
         }
     }
 
@@ -308,7 +350,10 @@ class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
 
         await MainActor.run {
             if exists {
-                modelStatus = .loading
+                // Модель скачана — ставим .ready
+                // Фактическая загрузка в память произойдёт в initializeModelsIfNeeded()
+                // НЕ ставим .loading здесь — иначе будет вечная загрузка если onboarding не завершён
+                modelStatus = .ready
             } else {
                 modelStatus = .notDownloaded
             }

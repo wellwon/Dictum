@@ -484,3 +484,46 @@ struct TypewriterText: View {
     }
 }
 
+// MARK: - Looping Typewriter Text Animation
+struct LoopingTypewriterText: View {
+    let text: String
+    let color: Color
+    var typeSpeed: Double = 0.03  // секунд на букву
+    var pauseDuration: Double = 2.0  // пауза между циклами
+
+    @State private var displayedText = ""
+    @State private var animationId = UUID()
+
+    var body: some View {
+        Text(displayedText)
+            .foregroundColor(color)
+            .onAppear { startLoop() }
+            .onChange(of: text) { _, _ in startLoop() }
+    }
+
+    private func startLoop() {
+        let currentId = UUID()
+        animationId = currentId
+        runCycle(id: currentId)
+    }
+
+    private func runCycle(id: UUID) {
+        displayedText = ""
+
+        // Печатаем буква за буквой
+        for (index, char) in text.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + typeSpeed * Double(index)) {
+                guard animationId == id else { return }
+                displayedText += String(char)
+            }
+        }
+
+        // После окончания печати + пауза — запускаем снова
+        let totalTypingTime = typeSpeed * Double(text.count)
+        DispatchQueue.main.asyncAfter(deadline: .now() + totalTypingTime + pauseDuration) {
+            guard animationId == id else { return }
+            runCycle(id: id)
+        }
+    }
+}
+

@@ -324,6 +324,32 @@ HStack(spacing: 0) {
 
 **НЕ применять `.ignoresSafeArea()` к дочерним элементам** — это не работает, т.к. родительский background перекроет.
 
+### 9. Кнопки окна настроек (traffic lights)
+
+Для окна настроек кастомизируются стандартные кнопки окна:
+
+```swift
+// 1. Скрыть кнопку minimize
+sw.standardWindowButton(.miniaturizeButton)?.isHidden = true
+
+// 2. Переместить zoom на место minimize (убрать пустое место)
+if let zoomButton = sw.standardWindowButton(.zoomButton),
+   let minimizeButton = sw.standardWindowButton(.miniaturizeButton) {
+    zoomButton.setFrameOrigin(minimizeButton.frame.origin)
+}
+
+// 3. Сдвинуть close и zoom на 6pt вниз-вправо
+let buttonOffset: CGFloat = 6
+for buttonType: NSWindow.ButtonType in [.closeButton, .zoomButton] {
+    if let button = sw.standardWindowButton(buttonType) {
+        button.setFrameOrigin(NSPoint(
+            x: button.frame.origin.x + buttonOffset,
+            y: button.frame.origin.y - buttonOffset
+        ))
+    }
+}
+```
+
 ---
 
 ## Функциональность
@@ -737,12 +763,76 @@ open ./build/Build/Products/Debug/Dictum.app
 
 #### Xcode
 
-При запуске через Xcode (⌘R) проект автоматически использует `./build/` благодаря `derivedDataPath: build` в project.yml.
+При запуске через Xcode (⌘R) проект автоматически использует `./build/` благодаря:
+
+1. **project.yml**: `derivedDataPath: build`
+2. **WorkspaceSettings.xcsettings**: настройки workspace
+
+**Файл настроек workspace:**
+```
+Dictum.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+```
+
+Содержит:
+```xml
+<key>DerivedDataCustomLocation</key>
+<string>build</string>
+<key>DerivedDataLocationStyle</key>
+<string>WorkspaceRelativePath</string>
+```
+
+**Настройки Xcode (должны быть):**
+- Xcode → Settings → Locations → Build Location: **Custom Relative to Workspace**
+- Products: `build/Build/Products`
+- Intermediates: `build/Build/Intermediates.noindex`
 
 **После изменения project.yml нужно перегенерировать проект:**
 ```bash
 xcodegen generate
 ```
+
+#### Проверка конфигурации
+
+```bash
+# 1. Проверить что в Launch Services ОДНА копия:
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -dump | grep "path:.*Dictum.app" | grep -v Index.noindex
+
+# 2. Проверить что на диске ОДНА копия:
+find ~/PycharmProjects/Dictum -name "Dictum.app" -type d | grep -v Index.noindex
+
+# 3. После сборки из Xcode (⌘B) проверить дату:
+ls -la ./build/Build/Products/Debug/Dictum.app
+# Дата должна обновиться
+```
+
+#### Решение проблем с разрешениями
+
+**Симптомы:**
+- После выдачи разрешения и нажатия "Restart" открывается приложение без разрешений
+- Разрешения слетают при пересборке
+- macOS запускает не ту копию приложения
+
+**Причина:** В Launch Services зарегистрировано несколько копий Dictum.app с разными путями/подписями.
+
+**Решение:**
+
+```bash
+# 1. Посмотреть все зарегистрированные копии:
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -dump | grep -A3 "path:.*Dictum.app"
+
+# 2. Удалить лишние записи из Launch Services:
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "/путь/к/старой/Dictum.app"
+
+# 3. Удалить DerivedData (если есть копии там):
+rm -rf ~/Library/Developer/Xcode/DerivedData/Dictum-*
+
+# 4. Пересобрать и запустить:
+xcodegen generate
+xcodebuild -project Dictum.xcodeproj -scheme Dictum -configuration Debug -derivedDataPath ./build build
+open ./build/Build/Products/Debug/Dictum.app
+```
+
+**Результат:** После этого в Launch Services будет только одна копия, и разрешения будут работать корректно.
 
 #### Индикатор версии
 

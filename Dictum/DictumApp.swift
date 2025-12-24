@@ -163,6 +163,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow?
     var settingsWindow: NSWindow?
     var historyWindow: NSWindow?  // Отдельное окно для истории
+    var onboardingWindow: NSWindow?  // Окно первоначальной настройки
     var hotKeyRefs: [EventHotKeyRef] = []
     var localEventMonitor: Any?
     var globalEventMonitor: Any?
@@ -187,17 +188,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         NSLog("🚀 Dictum запущен")
 
-        // Запросить Accessibility при первом запуске (добавит в список автоматически)
-        if !AccessibilityHelper.checkAccessibility() {
-            AccessibilityHelper.requestAccessibility()
-        }
+        // Проверяем Accessibility БЕЗ показа диалога (диалог покажется в onboarding)
+        let hasAccess = AccessibilityHelper.checkAccessibility()
+        NSLog("🔐 Accessibility: \(hasAccess)")
 
         // Инициализация менеджеров
         _ = HistoryManager.shared
         _ = SettingsManager.shared
 
-        // Начать загрузку локальной модели в фоне (если выбрана)
-        if SettingsManager.shared.asrProviderType == .local {
+        // Начать загрузку локальной модели в фоне ТОЛЬКО если onboarding уже пройден
+        // При первом запуске модель скачается в onboarding по кнопке
+        if SettingsManager.shared.hasCompletedOnboarding && SettingsManager.shared.asrProviderType == .local {
             Task {
                 await ParakeetASRProvider.shared.initializeModelsIfNeeded()
             }
@@ -220,6 +221,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(disableGlobalHotkeys), name: .disableGlobalHotkeys, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(enableGlobalHotkeys), name: .enableGlobalHotkeys, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(toggleHistoryWindow), name: .toggleHistoryModal, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleOnboardingCompleted), name: .onboardingCompleted, object: nil)
 
         // Авто-проверка Accessibility при возврате в приложение
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -229,9 +231,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             object: nil
         )
 
-        // Показываем окно при первом запуске (уменьшена задержка для быстрого старта)
+        // Показываем окно при запуске (уменьшена задержка для быстрого старта)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            if SettingsManager.shared.settingsWindowWasOpen {
+            if !SettingsManager.shared.hasCompletedOnboarding {
+                // Первый запуск — показываем onboarding wizard
+                self?.showOnboarding()
+            } else if SettingsManager.shared.settingsWindowWasOpen {
                 self?.openSettings()
             } else {
                 self?.showWindow()
@@ -254,6 +259,54 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Приложение стало активным — проверить Accessibility
         NotificationCenter.default.post(name: .accessibilityStatusChanged, object: nil)
+    }
+
+    // MARK: - Onboarding
+
+    @objc func showOnboarding() {
+        // Закрыть другие окна если открыты
+        window?.orderOut(nil)
+        settingsWindow?.orderOut(nil)
+
+        let ow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 576),
+            styleMask: [.titled, .fullSizeContentView],  // Без .closable — используем свою X кнопку
+            backing: .buffered,
+            defer: false
+        )
+
+        ow.title = "Настройка Dictum"
+        ow.titlebarAppearsTransparent = true
+        ow.titleVisibility = .hidden
+        ow.backgroundColor = .clear
+        ow.isOpaque = false
+        ow.isMovableByWindowBackground = true
+
+        let hostingView = NSHostingView(rootView: OnboardingView())
+        ow.contentView = hostingView
+
+        // Скругление углов (macOS Tahoe standard: 26pt)
+        if let contentView = ow.contentView {
+            contentView.superview?.wantsLayer = true
+            contentView.superview?.layer?.cornerRadius = 26
+            contentView.superview?.layer?.masksToBounds = true
+        }
+
+        ow.center()
+        ow.isReleasedWhenClosed = false
+        ow.delegate = self
+
+        onboardingWindow = ow
+        ow.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+
+        NSLog("🎉 Onboarding wizard показан")
+    }
+
+    @objc func handleOnboardingCompleted() {
+        NSLog("✅ Onboarding завершён")
+        onboardingWindow?.close()
+        showWindow()
     }
 
     @objc func hotkeyDidChange() {
@@ -639,6 +692,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Перехватываем настроенный хоткей ДО того как символ попадёт в текстовое поле
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let eventKeyCode = event.keyCode
+
+            // § (keyCode 10) или ` (keyCode 50) БЕЗ модификаторов — toggle записи
+            // Только когда модалка видима
+            if (eventKeyCode == 10 || eventKeyCode == 50) &&
+               !event.modifierFlags.contains(.command) &&
+               !event.modifierFlags.contains(.shift) &&
+               !event.modifierFlags.contains(.option) &&
+               !event.modifierFlags.contains(.control) &&
+               self?.window?.isVisible == true {
+                // Отправляем notification для toggle записи
+                NotificationCenter.default.post(name: .toggleRecording, object: nil)
+                return nil  // Поглощаем — символ не попадёт в текстовое поле
+            }
+
             let hotkeyKeyCode = SettingsManager.shared.toggleHotkey.keyCode
             let hotkeyMods = SettingsManager.shared.toggleHotkey.modifiers
 
@@ -927,8 +994,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         sw.delegate = self
         settingsWindow = sw
 
-        // Кастомизация кнопок окна: скрыть minimize, сдвинуть close и zoom
+        // Кастомизация кнопок окна: скрыть minimize, переместить zoom на его место
         sw.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        if let zoomButton = sw.standardWindowButton(.zoomButton),
+           let minimizeButton = sw.standardWindowButton(.miniaturizeButton) {
+            zoomButton.setFrameOrigin(minimizeButton.frame.origin)
+        }
+        // Сдвинуть close и zoom на 6pt вниз-вправо
         let buttonOffset: CGFloat = 6
         for buttonType: NSWindow.ButtonType in [.closeButton, .zoomButton] {
             if let button = sw.standardWindowButton(buttonType) {
@@ -1077,6 +1149,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
+        // Окно onboarding
+        if closedWindow == onboardingWindow {
+            onboardingWindow?.delegate = nil
+            onboardingWindow = nil
+            // НЕ помечаем как завершённый и НЕ показываем модалку
+            // При следующем запуске onboarding откроется снова
+            if !SettingsManager.shared.hasCompletedOnboarding {
+                NSLog("⚠️ Onboarding закрыт без завершения")
+            }
+            return
+        }
+
         if closedWindow == settingsWindow {
             // Удаляем ESC monitor
             if let monitor = settingsKeyMonitor {
@@ -1088,10 +1172,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             settingsWindow = nil
             SettingsManager.shared.settingsWindowWasOpen = false
 
-            // Показываем модальное окно после закрытия настроек
-            // showWindow() сам создаст окно если его нет
+            // Показываем модальное окно после закрытия настроек (без сброса текста)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.showWindow()
+                self?.window?.makeKeyAndOrderFront(nil)
+                NSApp.activate()
             }
             return
         }

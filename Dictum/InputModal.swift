@@ -518,6 +518,16 @@ struct InputModalView: View {
                 inputText = item.text
             }
         }
+        // Toggle записи по хоткею § или ` (без модификаторов)
+        .onReceive(NotificationCenter.default.publisher(for: .toggleRecording)) { _ in
+            Task {
+                if isRecording {
+                    await stopASR()
+                } else if canStartASR() {
+                    await startASR(existingText: inputText)
+                }
+            }
+        }
     }
 
     private func resetView() {
@@ -796,26 +806,30 @@ struct InputModalView: View {
 // MARK: - Model Status View (Typewriter Animation)
 struct ModelStatusView: View {
     let status: ParakeetModelStatus
-    @State private var showReady = true
-    @State private var hasShownReady = false
+    // Используем флаг из singleton вместо @State (иначе сбрасывается при пересоздании View)
+    @ObservedObject private var asrProvider = ParakeetASRProvider.shared
+    @State private var showReadyAnimation = true  // Локальная анимация fade-out
 
     var body: some View {
         Group {
             switch status {
             case .notChecked, .checking, .loading:
-                TypewriterText(
+                LoopingTypewriterText(
                     text: "Загружаю локальную модель...",
-                    color: .orange
+                    color: .orange,
+                    pauseDuration: 2.0
                 )
 
             case .downloading:
-                TypewriterText(
+                LoopingTypewriterText(
                     text: "Скачиваю модель...",
-                    color: .orange
+                    color: .orange,
+                    pauseDuration: 2.0
                 )
 
             case .ready:
-                if showReady && !hasShownReady {
+                if !asrProvider.hasShownReadyMessage {
+                    // Показываем "Модель готова" только один раз за сессию
                     TypewriterText(
                         text: "Модель готова",
                         color: DesignSystem.Colors.accent
@@ -823,13 +837,15 @@ struct ModelStatusView: View {
                     .onAppear {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                             withAnimation(.easeOut(duration: 0.3)) {
-                                showReady = false
-                                hasShownReady = true
+                                showReadyAnimation = false
                             }
+                            // Устанавливаем флаг в singleton — он сохранится между пересозданиями View
+                            asrProvider.hasShownReadyMessage = true
                         }
                     }
+                    .opacity(showReadyAnimation ? 1 : 0)
                 } else {
-                    // После исчезновения — показываем обычный placeholder
+                    // После показа "Модель готова" — обычный placeholder
                     Text("Введите текст...")
                         .foregroundColor(Color.white.opacity(0.45))
                 }

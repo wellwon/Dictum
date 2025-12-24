@@ -256,6 +256,20 @@ class SettingsManager: ObservableObject, @unchecked Sendable {
         }
     }
 
+    // Onboarding completed flag
+    @Published var hasCompletedOnboarding: Bool {
+        didSet {
+            UserDefaults.standard.set(hasCompletedOnboarding, forKey: "settings.onboardingCompleted")
+        }
+    }
+
+    // Текущий шаг onboarding (для восстановления при перезапуске)
+    @Published var currentOnboardingStep: Int {
+        didSet {
+            UserDefaults.standard.set(currentOnboardingStep, forKey: "settings.currentOnboardingStep")
+        }
+    }
+
     // Custom prompts for each language mode
     @Published var promptWB: String {
         didSet {
@@ -408,6 +422,10 @@ class SettingsManager: ObservableObject, @unchecked Sendable {
         // Settings window state
         self.settingsWindowWasOpen = UserDefaults.standard.bool(forKey: "settings.windowWasOpen")
         self.lastSettingsTab = UserDefaults.standard.string(forKey: "settings.lastTab") ?? "general"
+
+        // Onboarding: по умолчанию не пройден (false)
+        self.hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "settings.onboardingCompleted")
+        self.currentOnboardingStep = UserDefaults.standard.integer(forKey: "settings.currentOnboardingStep")
 
         // ASR провайдер: по умолчанию локальная модель (работает офлайн)
         if let rawValue = UserDefaults.standard.string(forKey: "settings.asrProviderType"),
@@ -1066,6 +1084,7 @@ extension Notification.Name {
     static let openSettingsToAI = Notification.Name("openSettingsToAI")
     static let toggleHistoryModal = Notification.Name("toggleHistoryModal")
     static let historyItemSelected = Notification.Name("historyItemSelected")
+    static let toggleRecording = Notification.Name("toggleRecording")
 }
 
 // MARK: - Hotkey Recorder View

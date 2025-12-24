@@ -12,6 +12,7 @@
 		4BAF8B4D4D4B03A3ABFF6097 /* DictumApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 233D620BE4A1F2BB693CAB21 /* DictumApp.swift */; };
 		4C8C41D8611BBE119F4411FD /* Updates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FBC1D81F0E448A8F026F8B4 /* Updates.swift */; };
 		4F05D3BC06A0A08DB81CE198 /* Snippets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7EA3A14A4BC00F668D12BBA /* Snippets.swift */; };
+		61B774BE111F9A36F710D9A7 /* Onboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = D119708F1FA4F5A00C8176CE /* Onboarding.swift */; };
 		7CB79CCCF1DADF821F5D6945 /* History.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FC9E1DCAA1A6E857127465 /* History.swift */; };
 		97F1E87700F8A58E12311006 /* Hotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */; };
 		9E9C00549F13F6B40FF581D7 /* sound in Resources */ = {isa = PBXBuildFile; fileRef = 6CFF6BAB6AF455F8C94BB4B3 /* sound */; };
@@ -35,6 +36,7 @@
 		A1F74750E0CF8B1EAB09B94D /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		A52C02DC25B522AB15CF93A1 /* Dictum.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Dictum.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C7EA3A14A4BC00F668D12BBA /* Snippets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snippets.swift; sourceTree = "<group>"; };
+		D119708F1FA4F5A00C8176CE /* Onboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Onboarding.swift; sourceTree = "<group>"; };
 		EEB9A8517BE59E9B73CF663C /* AI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AI.swift; sourceTree = "<group>"; };
 		F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Hotkeys.swift; sourceTree = "<group>"; };
 		F6E3F811455ACCFD649BCBFF /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
@@ -83,6 +85,7 @@
 				00FC9E1DCAA1A6E857127465 /* History.swift */,
 				F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */,
 				12B87D63DB9833713690EFA3 /* InputModal.swift */,
+				D119708F1FA4F5A00C8176CE /* Onboarding.swift */,
 				FAD156401813A36F4B8FFB7D /* Prompts.swift */,
 				F6E3F811455ACCFD649BCBFF /* Settings.swift */,
 				C7EA3A14A4BC00F668D12BBA /* Snippets.swift */,
@@ -176,6 +179,7 @@
 				7CB79CCCF1DADF821F5D6945 /* History.swift in Sources */,
 				97F1E87700F8A58E12311006 /* Hotkeys.swift in Sources */,
 				E3498BA760FB5B3EF2937A63 /* InputModal.swift in Sources */,
+				61B774BE111F9A36F710D9A7 /* Onboarding.swift in Sources */,
 				C3FC8A79D0B6C366C1C429C0 /* Prompts.swift in Sources */,
 				9F79EEE2C0F3CC4164049680 /* Settings.swift in Sources */,
 				4F05D3BC06A0A08DB81CE198 /* Snippets.swift in Sources */,
