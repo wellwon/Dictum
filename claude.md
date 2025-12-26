@@ -415,6 +415,7 @@ for buttonType: NSWindow.ButtonType in [.closeButton, .zoomButton] {
 3. **`delegate = nil` перед `window = nil`** — избегаем повторных вызовов
 4. **`isReleasedWhenClosed = false`** — мы сами управляем lifecycle окон
 5. **`showWindow()` создаёт окно если его нет** — защита от nil reference
+6. **После сборки ВСЕГДА запускать через скрипт** — `/bin/bash scripts/reset-permissions.sh`
 
 ### 🚫 При ошибках компиляции — ИСПРАВЛЯТЬ КОД, не настройки!
 
@@ -760,6 +761,19 @@ open ./build/Build/Products/Debug/Dictum.app
 # Release:
 ./scripts/dictum_reload.sh --release
 ```
+
+#### ⚠️ Для Claude: запуск после сборки
+
+**Claude должен запускать приложение через скрипт:**
+```bash
+/bin/bash /Users/macbookpro/PycharmProjects/Dictum/scripts/reset-permissions.sh
+```
+
+Этот скрипт:
+1. Убивает все запущенные версии Dictum
+2. Сбрасывает TCC разрешения (Accessibility, Microphone, ScreenCapture)
+3. Сбрасывает флаг onboarding
+4. Запускает приложение из `./build/`
 
 #### Xcode
 

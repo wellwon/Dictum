@@ -36,8 +36,15 @@
 | Название | HEX | Использование |
 |----------|-----|---------------|
 | **Toggle Active** | `#1AAF87` | Включенные тумблеры |
+| **Toggle Background** | `#3D3D3D` | Фон выключенного тумблера |
 | **Destructive** | `#FF3B30` | Удаление, ошибки |
 | **Warning** | `Color.orange` | Предупреждения |
+
+### Cards (Tahoe style)
+| Название | Значение | Использование |
+|----------|----------|---------------|
+| **Card Background** | `Color.white.opacity(0.03)` | Фон карточек в стиле Tahoe |
+| **Card Border** | `Color.white.opacity(0.15)` | Рамка карточек в стиле Tahoe |
 
 ---
 
@@ -71,6 +78,8 @@
 | **Button** | 4px | Кнопки, чипы |
 | **Card** | 6px | Карточки, поля ввода |
 | **Panel** | 8px | Панели, модалки |
+| **Card Tahoe** | 8px | Карточки в стиле macOS Tahoe |
+| **Window** | 26px | Окна macOS Tahoe Toolbar Window |
 
 ---
 
@@ -112,15 +121,62 @@ VStack {
 
 ---
 
+## Тумблеры (Toggle Style)
+
+### TahoeToggleStyle (основной)
+
+iOS-style тумблер для macOS Tahoe — pill shape (Capsule), тёмный фон, белый круг.
+
+| Свойство | Значение | Описание |
+|----------|----------|----------|
+| **Размер** | 44×26 | Стандарт iOS |
+| **Кружок** | 22×22 | Белый круг с padding 2 |
+| **Фон выключен** | `#3D3D3D` | Тёмно-серый |
+| **Фон включён** | `#1AAF87` | Зелёный accent |
+| **Анимация** | spring | response: 0.25, dampingFraction: 0.7 |
+| **Тень кружка** | opacity 0.15, radius 2, y: 1 | Лёгкая тень |
+
+### Использование
+
+```swift
+Toggle("", isOn: $value)
+    .toggleStyle(TahoeToggleStyle())
+    .labelsHidden()
+```
+
+### Примеры
+
+```swift
+// В SettingsRow
+SettingsRow(title: "Автозапуск") {
+    Toggle("", isOn: $settings.launchAtLogin)
+        .toggleStyle(TahoeToggleStyle())
+        .labelsHidden()
+}
+
+// Standalone
+Toggle("Включить функцию", isOn: $isEnabled)
+    .toggleStyle(TahoeToggleStyle())
+```
+
+### ⚠️ GreenToggleStyle — deprecated
+
+Старый прямоугольный стиль. Используйте `TahoeToggleStyle` вместо него.
+
+---
+
 ## Использование в коде
 
 ```swift
 // Цвета
 DesignSystem.Colors.accent              // Зеленый #1AAF87
 DesignSystem.Colors.toggleActive        // Цвет активного тумблера
+DesignSystem.Colors.toggleBackground    // Фон выключенного тумблера #3D3D3D
 DesignSystem.Colors.textSecondary       // Серый текст
 DesignSystem.Colors.buttonAreaBackground // Фон области кнопок #272729
 DesignSystem.Colors.borderColor         // Бордер модалки #4c4d4d
+DesignSystem.Colors.cardBackgroundTahoe // Фон карточек Tahoe (0.03 opacity)
+DesignSystem.Colors.cardBorderTahoe     // Рамка карточек Tahoe (0.15 opacity)
 
 // Отступы
 DesignSystem.Spacing.sm                 // 8px
@@ -128,9 +184,15 @@ DesignSystem.Spacing.lg                 // 16px
 
 // Радиусы
 DesignSystem.CornerRadius.button        // 4px
+DesignSystem.CornerRadius.cardTahoe     // 8px
+DesignSystem.CornerRadius.window        // 26px (macOS Tahoe)
 
 // Шрифты
 DesignSystem.Typography.sectionHeader   // Font.system(size: 11, weight: .semibold)
+
+// Тумблеры
+Toggle("", isOn: $value)
+    .toggleStyle(TahoeToggleStyle())    // iOS-style pill toggle
 ```
 
 ---
@@ -298,3 +360,76 @@ HStack(spacing: 8) {
     }
 }
 ```
+
+---
+
+## ⚠️ Overlay-модалки (вложенные окна)
+
+### Проблема острых углов
+
+Когда модалка показывается внутри другой модалки через `.overlay { }` или `ZStack`, тень **ОБРЕЗАЕТСЯ** на границе родителя.
+
+```
+┌─────────────────────────────────────────┐
+│  Parent Modal (720×450)                 │
+│  ┌─────────────────────────────────┐    │
+│  │  Child Modal                    │    │
+│  │  .shadow(radius: 30) ← ОБРЕЗКА! │    │
+│  │                          ┌──────┼────┤ ← Тень обрезается здесь
+│  │                          │██████│    │   = ОСТРЫЕ УГЛЫ!
+│  └─────────────────────────────────┘    │
+└─────────────────────────────────────────┘
+```
+
+**Результат:** Тень пытается выйти за границы 720×450, но обрезается → острые углы там, где обрезка.
+
+### Решение: НЕ использовать тени на вложенных модалках
+
+Для overlay-модалок (NoteAddView, NoteDetailView и т.п.) — **БЕЗ ТЕНИ**:
+
+```swift
+// ✅ ПРАВИЛЬНО — overlay-модалка БЕЗ тени
+.frame(width: 720, height: 450)
+.background(
+    RoundedRectangle(cornerRadius: 26)
+        .fill(Color(red: 24/255, green: 24/255, blue: 26/255))
+        // БЕЗ shadow! Тень обрезается границами окна
+)
+.background(
+    VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+        .clipShape(RoundedRectangle(cornerRadius: 26))
+)
+.clipShape(RoundedRectangle(cornerRadius: 26))
+.overlay(
+    RoundedRectangle(cornerRadius: 26)
+        .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+)
+.focusable()
+.focusEffectDisabled()
+```
+
+```swift
+// ❌ ЗАПРЕЩЕНО — тень на overlay-модалке
+.background(
+    RoundedRectangle(cornerRadius: 26)
+        .fill(...)
+        .shadow(color: .black.opacity(0.5), radius: 30, y: 15)  // ← НЕЛЬЗЯ!
+)
+```
+
+### Когда МОЖНО использовать тени
+
+| Тип модалки | Тень | Причина |
+|-------------|------|---------|
+| **Главная модалка** (InputModalView) | ❌ Нет | Floating panel, не нужна |
+| **Overlay-модалки** (NoteAddView, NoteDetailView) | ❌ Нет | Обрезается границами родителя |
+| **Отдельное окно** (HistoryModalView, NotesModalView) | ✅ Да | Рендерится независимо, тень не обрезается |
+
+### Чеклист для overlay-модалок
+
+- [ ] `.frame(width: 720, height: 450)` — фиксированный размер
+- [ ] `.background(RoundedRectangle.fill())` — **БЕЗ .shadow()!**
+- [ ] `.background(VisualEffectBackground.clipShape())` — blur-эффект
+- [ ] `.clipShape(RoundedRectangle(cornerRadius: 26))` — обрезка контента
+- [ ] `.overlay(strokeBorder)` — тонкий бордер
+- [ ] `.focusable()` + `.focusEffectDisabled()` — фокус без рамки

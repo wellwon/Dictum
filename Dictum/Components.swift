@@ -266,8 +266,36 @@ struct VisualEffectBackground: NSViewRepresentable {
 
 // MARK: - Toggle Styles
 
-/// Кастомный стиль тумблера - компактный, прямоугольный, с цветом #1aaf87
-/// Остается зеленым даже при потере фокуса окна (не серый как стандартный SwitchToggleStyle)
+/// iOS-style тумблер для macOS Tahoe — pill shape, тёмный фон, белый круг
+/// Размер 44×26 (стандарт iOS), spring анимация
+struct TahoeToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack {
+            configuration.label
+            Spacer()
+            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                // Фон — Capsule (pill shape)
+                Capsule()
+                    .fill(configuration.isOn ? DesignSystem.Colors.accent : DesignSystem.Colors.toggleBackground)
+                    .frame(width: 44, height: 26)
+
+                // Кружок — Circle
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 22, height: 22)
+                    .padding(2)
+                    .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+            }
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isOn)
+            .onTapGesture {
+                configuration.isOn.toggle()
+            }
+        }
+    }
+}
+
+/// Старый стиль тумблера (deprecated, используйте TahoeToggleStyle)
+@available(*, deprecated, message: "Use TahoeToggleStyle instead")
 struct GreenToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack {
@@ -304,7 +332,7 @@ struct CheckboxToggleStyle: ToggleStyle {
     }
 }
 
-// MARK: - Settings Section
+// MARK: - Settings Section (Tahoe Card Style)
 struct SettingsSection<Content: View>: View {
     let title: String
     let content: Content
@@ -317,16 +345,25 @@ struct SettingsSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.gray)
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
+                .textCase(.uppercase)
+                .padding(.horizontal, 4)
 
             VStack(spacing: 0) {
                 content
             }
-            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
+            .background(DesignSystem.Colors.cardBackgroundTahoe)
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.cardTahoe)
+                    .stroke(DesignSystem.Colors.cardBorderTahoe, lineWidth: 1)
+            )
+            .cornerRadius(DesignSystem.CornerRadius.cardTahoe)
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
     }
 }
 
@@ -375,7 +412,7 @@ struct PermissionRow: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 20))
-                .foregroundColor(isGranted ? DesignSystem.Colors.accent : .orange)
+                .foregroundColor(isGranted ? DesignSystem.Colors.accent : DesignSystem.Colors.deepgramOrange)
                 .frame(width: 32)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -400,7 +437,7 @@ struct PermissionRow: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Color(red: 1.0, green: 0.4, blue: 0.2))
+                        .background(DesignSystem.Colors.deepgramOrange)
                         .cornerRadius(6)
                         .contentShape(Rectangle())
                 }
@@ -416,6 +453,7 @@ struct HotkeyRow: View {
     let action: String
     let keys: [String]
     let note: String?
+    var isWarning: Bool = false
 
     var body: some View {
         HStack {
@@ -426,10 +464,16 @@ struct HotkeyRow: View {
             Spacer()
 
             if let note = note {
-                Text(note)
-                    .font(.system(size: 11))
-                    .foregroundColor(note.contains("⚠️") ? .orange : .green)
-                    .padding(.trailing, 8)
+                HStack(spacing: 4) {
+                    if isWarning {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                    }
+                    Text(note)
+                        .font(.system(size: 11))
+                }
+                .foregroundColor(isWarning ? .orange : .green)
+                .padding(.trailing, 8)
             }
 
             HStack(spacing: 4) {

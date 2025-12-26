@@ -368,7 +368,7 @@ struct UpdatesSettingsSection: View {
                     subtitle: "Проверять раз в день при запуске"
                 ) {
                     Toggle("", isOn: $settings.autoCheckUpdates)
-                        .toggleStyle(GreenToggleStyle())
+                        .toggleStyle(TahoeToggleStyle())
                         .labelsHidden()
                 }
 

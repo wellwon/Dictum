@@ -328,14 +328,9 @@ class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
     init() {
         Task {
             await checkModelStatus()
-            if modelStatus == .notDownloaded {
-                return
-            }
-            // Автоматически загружаем модель только если onboarding уже пройден
-            // При первом запуске модель загрузится через кнопку в onboarding
-            if SettingsManager.shared.hasCompletedOnboarding {
-                await initializeModelsIfNeeded()
-            }
+            // НЕ вызываем initializeModelsIfNeeded() здесь!
+            // Загрузка происходит явно в applicationDidFinishLaunching
+            // чтобы избежать race condition с двумя Task
         }
     }
 
@@ -450,9 +445,28 @@ class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
             return
         }
 
+        // Если модель не в памяти но файлы есть — автоматически загружаем
+        if !isModelLoaded && modelStatus == .ready {
+            NSLog("🔄 Модель не в памяти, файлы есть — автозагрузка...")
+            await initializeModelsIfNeeded()
+        }
+
         guard isModelLoaded, asrManager != nil else {
-            // Статус модели теперь отображается через typewriter-анимацию в поле ввода
-            // Всплывающее сообщение не нужно — пользователь видит статус напрямую
+            NSLog("⚠️ Локальная модель не загружена: isModelLoaded=\(isModelLoaded), asrManager=\(asrManager != nil), modelStatus=\(modelStatus)")
+            await MainActor.run {
+                switch modelStatus {
+                case .downloading:
+                    errorMessage = "Модель скачивается. Подождите завершения."
+                case .loading:
+                    errorMessage = "Модель загружается в память. Подождите..."
+                case .notDownloaded:
+                    errorMessage = "Модель не скачана. Откройте Настройки → Голос."
+                case .error(let msg):
+                    errorMessage = "Ошибка модели: \(msg)"
+                default:
+                    errorMessage = "Модель не готова. Попробуйте ещё раз."
+                }
+            }
             return
         }
 
@@ -681,9 +695,6 @@ class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
         }
     }
 }
-
-// MARK: - Alias for backward compatibility
-typealias SherpaASRProvider = ParakeetASRProvider
 
 // MARK: - Real-time Streaming Audio Manager (WebSocket)
 class AudioRecordingManager: NSObject, ObservableObject, URLSessionWebSocketDelegate, @unchecked Sendable {

@@ -282,7 +282,7 @@ struct PromptRowView: View {
     }
 }
 
-// MARK: - Prompt Edit View (Sheet)
+// MARK: - Prompt Edit View
 struct PromptEditView: View {
     let prompt: CustomPrompt
     let onSave: (CustomPrompt) -> Void
@@ -291,6 +291,7 @@ struct PromptEditView: View {
     @State private var editedLabel: String
     @State private var editedDescription: String
     @State private var editedPrompt: String
+    @FocusState private var isLabelFocused: Bool
 
     init(prompt: CustomPrompt, onSave: @escaping (CustomPrompt) -> Void, onCancel: @escaping () -> Void) {
         self.prompt = prompt
@@ -301,61 +302,174 @@ struct PromptEditView: View {
         _editedPrompt = State(initialValue: prompt.prompt)
     }
 
+    private var canSave: Bool {
+        !editedLabel.isEmpty && !editedPrompt.isEmpty
+    }
+
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Редактировать промпт")
-                .font(.system(size: 16, weight: .semibold))
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Редактировать промпт")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: onCancel) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .padding(8)
+                        .background(Circle().fill(Color.white.opacity(0.1)))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
 
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Label (2-4 символа)")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextField("WB", text: $editedLabel)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .disabled(prompt.isSystem)
+            // Fields
+            VStack(spacing: 16) {
+                // Label + Описание в одной строке
+                HStack(alignment: .top, spacing: 12) {
+                    // Label (30%)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Label")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                        TextField("WB", text: $editedLabel)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .font(.system(size: 15))
+                            .foregroundColor(.white)
+                            .tint(DesignSystem.Colors.accent)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white.opacity(0.05))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                            )
+                            .disabled(prompt.isSystem)
+                            .opacity(prompt.isSystem ? 0.5 : 1)
+                            .focused($isLabelFocused)
+                    }
+                    .frame(width: 100)
+
+                    // Описание (70%)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Описание")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                        TextField("Описание промпта", text: $editedDescription)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .font(.system(size: 15))
+                            .foregroundColor(.white)
+                            .tint(DesignSystem.Colors.accent)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white.opacity(0.05))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                            )
+                    }
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Описание")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextField("Описание промпта", text: $editedDescription)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
+                // Prompt text field
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Текст промпта")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
                     TextEditor(text: $editedPrompt)
-                        .font(.system(size: 13))
-                        .frame(height: 120)
-                        .border(Color.gray.opacity(0.3), width: 1)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                        .tint(DesignSystem.Colors.accent)
+                        .scrollContentBackground(.hidden)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                        )
+                        .frame(height: 150)
                 }
             }
+            .padding(.horizontal, 24)
 
+            Spacer(minLength: 0)
+
+            // Footer
             HStack {
-                Button("Отмена") { onCancel() }
-                    .keyboardShortcut(.escape)
+                Button(action: onCancel) {
+                    Text("Отмена")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
+                }
+                .buttonStyle(PlainButtonStyle())
+
                 Spacer()
-                Button("Сохранить") {
+
+                Button(action: {
                     var updated = prompt
                     updated.label = editedLabel
                     updated.description = editedDescription
                     updated.prompt = editedPrompt
                     onSave(updated)
+                }) {
+                    HStack(spacing: 6) {
+                        Text("Сохранить")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("↵")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.white.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(canSave ? DesignSystem.Colors.accent : Color.gray.opacity(0.3)))
                 }
-                .keyboardShortcut(.return)
-                .disabled(editedLabel.isEmpty || editedPrompt.isEmpty)
+                .buttonStyle(PlainButtonStyle())
+                .disabled(!canSave)
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
         }
-        .padding(20)
-        .frame(width: 400)
+        .frame(width: 720, height: 450)
+        .background(
+            RoundedRectangle(cornerRadius: 26)
+                .fill(Color(red: 24/255, green: 24/255, blue: 26/255))
+        )
+        .background(
+            VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+                .clipShape(RoundedRectangle(cornerRadius: 26))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+        .focusable()
+        .focusEffectDisabled()
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isLabelFocused = true }
+        }
+        .onKeyPress(.escape) { onCancel(); return .handled }
+        .onKeyPress(.return) {
+            if canSave {
+                var updated = prompt
+                updated.label = editedLabel
+                updated.description = editedDescription
+                updated.prompt = editedPrompt
+                onSave(updated)
+            }
+            return .handled
+        }
     }
 }
 
-// MARK: - Prompt Add View (Sheet)
+// MARK: - Prompt Add View
 struct PromptAddView: View {
     let onSave: (CustomPrompt) -> Void
     let onCancel: () -> Void
@@ -363,45 +477,116 @@ struct PromptAddView: View {
     @State private var label: String = ""
     @State private var description: String = ""
     @State private var promptText: String = ""
+    @FocusState private var isLabelFocused: Bool
+
+    private var canSave: Bool {
+        !label.isEmpty && !promptText.isEmpty
+    }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Новый AI промпт")
-                .font(.system(size: 16, weight: .semibold))
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Новый AI промпт")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: onCancel) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .padding(8)
+                        .background(Circle().fill(Color.white.opacity(0.1)))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
 
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Label (2-4 символа)")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextField("FIX", text: $label)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
+            // Fields
+            VStack(spacing: 16) {
+                // Label + Описание в одной строке
+                HStack(alignment: .top, spacing: 12) {
+                    // Label (30%)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Label")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                        TextField("FIX", text: $label)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .font(.system(size: 15))
+                            .foregroundColor(.white)
+                            .tint(DesignSystem.Colors.accent)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white.opacity(0.05))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                            )
+                            .focused($isLabelFocused)
+                    }
+                    .frame(width: 100)
+
+                    // Описание (70%)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Описание")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                        TextField("Исправить ошибки", text: $description)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .font(.system(size: 15))
+                            .foregroundColor(.white)
+                            .tint(DesignSystem.Colors.accent)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white.opacity(0.05))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                            )
+                    }
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Описание")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextField("Исправить ошибки", text: $description)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
+                // Prompt text field
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Текст промпта")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
                     TextEditor(text: $promptText)
-                        .font(.system(size: 13))
-                        .frame(height: 120)
-                        .border(Color.gray.opacity(0.3), width: 1)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                        .tint(DesignSystem.Colors.accent)
+                        .scrollContentBackground(.hidden)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                        )
+                        .frame(height: 150)
                 }
             }
+            .padding(.horizontal, 24)
 
+            Spacer(minLength: 0)
+
+            // Footer
             HStack {
-                Button("Отмена") { onCancel() }
-                    .keyboardShortcut(.escape)
+                Button(action: onCancel) {
+                    Text("Отмена")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
+                }
+                .buttonStyle(PlainButtonStyle())
+
                 Spacer()
-                Button("Добавить") {
+
+                Button(action: {
                     let newPrompt = CustomPrompt(
                         id: UUID(),
                         label: label,
@@ -413,13 +598,457 @@ struct PromptAddView: View {
                         order: 0
                     )
                     onSave(newPrompt)
+                }) {
+                    HStack(spacing: 6) {
+                        Text("Добавить")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("↵")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.white.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(canSave ? DesignSystem.Colors.accent : Color.gray.opacity(0.3)))
                 }
-                .keyboardShortcut(.return)
-                .disabled(label.isEmpty || promptText.isEmpty)
+                .buttonStyle(PlainButtonStyle())
+                .disabled(!canSave)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+        }
+        .frame(width: 720, height: 450)
+        .background(
+            RoundedRectangle(cornerRadius: 26)
+                .fill(Color(red: 24/255, green: 24/255, blue: 26/255))
+                // БЕЗ shadow! Тень обрезается границами окна
+        )
+        .background(
+            VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+                .clipShape(RoundedRectangle(cornerRadius: 26))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+        .focusable()
+        .focusEffectDisabled()
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isLabelFocused = true }
+        }
+        .onKeyPress(.escape) { onCancel(); return .handled }
+        .onKeyPress(.return) {
+            if canSave {
+                let newPrompt = CustomPrompt(
+                    id: UUID(),
+                    label: label,
+                    description: description,
+                    prompt: promptText,
+                    isVisible: true,
+                    isFavorite: false,
+                    isSystem: false,
+                    order: 0
+                )
+                onSave(newPrompt)
+            }
+            return .handled
+        }
+    }
+}
+
+// MARK: - Prompts Modal Row View
+struct PromptsModalRowView: View {
+    let prompt: CustomPrompt
+    var isSelected: Bool = false
+    var isExpanded: Bool = false
+    var isKeyboardNavigating: Bool = false
+    let onTap: () -> Void
+    @State private var isHovered = false
+
+    private var isHighlighted: Bool {
+        isSelected || isHovered
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Звезда избранного
+            Image(systemName: prompt.isFavorite ? "star.fill" : "star")
+                .font(.system(size: 12))
+                .foregroundColor(prompt.isFavorite ? .yellow : .gray)
+
+            // Label badge
+            Text(prompt.label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white)
+                .frame(width: 32, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isHighlighted ? Color.white.opacity(0.15) : Color.white.opacity(0.1))
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(prompt.description)
+                    .foregroundColor(.white)
+                    .font(.system(size: 14))
+                    .lineLimit(isExpanded ? nil : 1)
+
+                if isExpanded {
+                    Text(prompt.prompt)
+                        .foregroundColor(.gray)
+                        .font(.system(size: 12))
+                        .lineLimit(3)
+                }
+            }
+
+            Spacer()
+
+            // Системный индикатор
+            if prompt.isSystem {
+                Text("system")
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.white.opacity(0.05))
+                    .cornerRadius(4)
             }
         }
-        .padding(20)
-        .frame(width: 400)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(isHighlighted ? Color(red: 36/255, green: 36/255, blue: 37/255) : Color.clear)  // #242425
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
+        .onHover { hovering in
+            if !isKeyboardNavigating {
+                isHovered = hovering
+            }
+        }
     }
+}
+
+// MARK: - Prompts Modal View
+struct PromptsModalView: View {
+    @Binding var isPresented: Bool
+    let onSelect: (CustomPrompt) -> Void
+
+    @State private var searchQuery = ""
+    @State private var selectedIndex = 0
+    @State private var expandedIndex: Int? = nil
+    @State private var isKeyboardNavigating = false
+    @State private var mouseMonitor: Any?
+    @State private var showAddSheet = false
+    @FocusState private var isSearchFocused: Bool
+
+    private var filteredItems: [CustomPrompt] {
+        let visible = PromptsManager.shared.visiblePrompts
+        if searchQuery.isEmpty {
+            return visible
+        }
+        let query = searchQuery.lowercased()
+        return visible.filter {
+            $0.label.lowercased().contains(query) ||
+            $0.description.lowercased().contains(query) ||
+            $0.prompt.lowercased().contains(query)
+        }
+    }
+
+    // MARK: - Search Field
+
+    private var searchFieldView: some View {
+        HStack(spacing: 12) {
+            // Поле поиска (capsule)
+            HStack(spacing: 12) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.3))
+
+                TextField("Поиск промптов...", text: $searchQuery)
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.9))
+                    .focused($isSearchFocused)
+                    .onSubmit {
+                        if selectedIndex < filteredItems.count {
+                            onSelect(filteredItems[selectedIndex])
+                            isPresented = false
+                        }
+                    }
+
+                if !searchQuery.isEmpty {
+                    Button(action: {
+                        searchQuery = ""
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white.opacity(0.4))
+                            .padding(4)
+                            .background(Circle().fill(Color.white.opacity(0.1)))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                // Hotkey badge ⌘1
+                HStack(spacing: 2) {
+                    Text("⌘")
+                        .font(.system(size: 11))
+                    Text("1")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundColor(.white.opacity(0.3))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.white.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
+                .cornerRadius(4)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.05))
+                    .overlay(Capsule().stroke(Color.white.opacity(0.1), lineWidth: 1))
+            )
+
+            // Кнопка создания — круглая зелёная 32×32
+            Button(action: { showAddSheet = true }) {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(DesignSystem.Colors.accent))
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 20)
+        .padding(.bottom, 20)
+    }
+
+    // MARK: - Results List
+
+    private var resultsListView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, prompt in
+                        PromptsModalRowView(
+                            prompt: prompt,
+                            isSelected: index == selectedIndex,
+                            isExpanded: index == expandedIndex,
+                            isKeyboardNavigating: isKeyboardNavigating,
+                            onTap: {
+                                onSelect(prompt)
+                                isPresented = false
+                            }
+                        )
+                        .id(index)
+                    }
+                }
+            }
+            .onChange(of: selectedIndex) { _, newIndex in
+                withAnimation(.easeOut(duration: 0.1)) {
+                    proxy.scrollTo(newIndex, anchor: nil)
+                }
+            }
+        }
+        .frame(maxHeight: 320)
+    }
+
+    // MARK: - Empty State
+
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: searchQuery.isEmpty ? "sparkles" : "magnifyingglass")
+                .font(.system(size: 40))
+                .foregroundColor(.white.opacity(0.2))
+            Text(searchQuery.isEmpty ? "Нет промптов" : "Ничего не найдено")
+                .font(.system(size: 15))
+                .foregroundColor(.white.opacity(0.4))
+
+            if searchQuery.isEmpty {
+                Button(action: { showAddSheet = true }) {
+                    Text("Создать промпт")
+                        .font(.system(size: 13))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.vertical, 60)
+    }
+
+    // MARK: - Footer
+
+    private var footerView: some View {
+        HStack {
+            // Кнопка отмены слева
+            Button(action: { isPresented = false }) {
+                Text("Отмена")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Spacer()
+
+            // Все хоткеи справа
+            HStack(spacing: 20) {
+                hotkeyHint("ENTER", "выбрать")
+                hotkeyHint("↑↓", "навигация")
+                hotkeyHint("←→", "свернуть")
+                hotkeyHint("ESC", "закрыть")
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 14)
+        .background(Color(red: 39/255, green: 39/255, blue: 41/255))  // #272729
+    }
+
+    private func hotkeyHint(_ key: String, _ label: String) -> some View {
+        HStack(spacing: 8) {
+            Text(key)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.5))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(Color.white.opacity(0.08))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                .cornerRadius(4)
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.4))
+        }
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        ZStack {
+            // MARK: - Main Content
+            VStack(spacing: 0) {
+                searchFieldView
+
+                if filteredItems.isEmpty {
+                    emptyStateView
+                } else {
+                    resultsListView
+                }
+
+                Spacer(minLength: 0)
+
+                footerView
+            }
+            .frame(width: 720, height: 450)
+            .background(
+                RoundedRectangle(cornerRadius: 26)
+                    .fill(Color(red: 24/255, green: 24/255, blue: 26/255))
+                    // БЕЗ shadow! Тень обрезается границами окна
+            )
+            .background(
+                VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+                    .clipShape(RoundedRectangle(cornerRadius: 26))
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 26))
+            .overlay(
+                RoundedRectangle(cornerRadius: 26)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            )
+            .opacity(showAddSheet ? 0 : 1)  // Скрываем при показе Add View
+
+            // MARK: - Add Prompt Overlay
+            if showAddSheet {
+                PromptAddView(
+                    onSave: { prompt in
+                        PromptsManager.shared.addPrompt(prompt)
+                        showAddSheet = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            isSearchFocused = true
+                        }
+                    },
+                    onCancel: {
+                        showAddSheet = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            isSearchFocused = true
+                        }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: showAddSheet)
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(.downArrow) {
+            isKeyboardNavigating = true
+            if selectedIndex < filteredItems.count - 1 {
+                selectedIndex += 1
+            }
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            isKeyboardNavigating = true
+            if selectedIndex > 0 {
+                selectedIndex -= 1
+            }
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            expandedIndex = selectedIndex
+            return .handled
+        }
+        .onKeyPress(.leftArrow) {
+            expandedIndex = nil
+            return .handled
+        }
+        .onKeyPress(.return) {
+            if selectedIndex < filteredItems.count {
+                onSelect(filteredItems[selectedIndex])
+                isPresented = false
+            }
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            NotificationCenter.default.post(name: .togglePromptsModal, object: nil)
+            return .handled
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isSearchFocused = true
+            }
+            mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { event in
+                isKeyboardNavigating = false
+                return event
+            }
+        }
+        .onDisappear {
+            if let monitor = mouseMonitor {
+                NSEvent.removeMonitor(monitor)
+                mouseMonitor = nil
+            }
+        }
+        .onChange(of: searchQuery) { _, _ in
+            selectedIndex = 0
+        }
+    }
+}
+
+// MARK: - SwiftUI Previews
+#Preview("PromptsModalView") {
+    PromptsModalView(
+        isPresented: .constant(true),
+        onSelect: { _ in }
+    )
+    .frame(width: 800, height: 500)
+    .background(Color.black.opacity(0.5))
 }
 

@@ -1085,6 +1085,13 @@ extension Notification.Name {
     static let toggleHistoryModal = Notification.Name("toggleHistoryModal")
     static let historyItemSelected = Notification.Name("historyItemSelected")
     static let toggleRecording = Notification.Name("toggleRecording")
+    // Модалки CMD+1/2/3/4
+    static let togglePromptsModal = Notification.Name("togglePromptsModal")
+    static let toggleSnippetsModal = Notification.Name("toggleSnippetsModal")
+    static let toggleNotesModal = Notification.Name("toggleNotesModal")
+    static let promptSelected = Notification.Name("promptSelected")
+    static let snippetSelected = Notification.Name("snippetSelected")
+    static let noteSelected = Notification.Name("noteSelected")
 }
 
 // MARK: - Hotkey Recorder View
@@ -1168,8 +1175,10 @@ enum SettingsTab: String, CaseIterable {
     case hotkeys = "Хоткеи"
     case features = "Инструменты"
     case speech = "Диктовка"
+    case enhancer = "Улучшайзер"
     case ai = "AI промпты"
     case snippets = "Сниппеты"
+    case textSwitcher = "Текст свитчер"
     case updates = "Обновления"
 
     var icon: String {
@@ -1178,8 +1187,10 @@ enum SettingsTab: String, CaseIterable {
         case .hotkeys: return "keyboard"
         case .features: return "camera.fill"
         case .speech: return "waveform"
+        case .enhancer: return "wand.and.stars"
         case .ai: return "sparkles"
         case .snippets: return "text.quote"
+        case .textSwitcher: return "keyboard.badge.ellipsis"
         case .updates: return "arrow.triangle.2.circlepath"
         }
     }
@@ -1307,8 +1318,10 @@ struct SettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(red: 30/255, green: 30/255, blue: 32/255))
-        .clipShape(RoundedRectangle(cornerRadius: 26))  // macOS Tahoe: 26pt
+        .background(
+            VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.window))
         .ignoresSafeArea(.all, edges: .top)
         .onAppear {
             hasAccessibility = PermissionManager.shared.hasAccessibility()
@@ -1332,8 +1345,10 @@ struct SettingsView: View {
         case .hotkeys: hotkeysTabContent
         case .features: featuresTabContent
         case .speech: speechTabContent
+        case .enhancer: enhancerTabContent
         case .ai: aiTabContent
         case .snippets: snippetsTabContent
+        case .textSwitcher: TextSwitcherSettingsSection()
         case .updates: updatesTabContent
         }
     }
@@ -1419,10 +1434,14 @@ struct SettingsView: View {
                        (SettingsManager.shared.screenshotFeatureEnabled && !hasScreenRecordingPermission) {
                         Divider().background(Color.white.opacity(0.1))
 
-                        Text("⚠️ Некоторые функции могут работать некорректно без необходимых разрешений")
-                            .font(.system(size: 11))
-                            .foregroundColor(.orange)
-                            .padding(.top, 4)
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 11))
+                            Text("Некоторые функции могут работать некорректно без необходимых разрешений")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(DesignSystem.Colors.deepgramOrange)
+                        .padding(.top, 4)
                     }
                 }
                 .padding(.vertical, 8)
@@ -1435,7 +1454,7 @@ struct SettingsView: View {
                     subtitle: "Dictum будет автоматически запускаться при старте macOS"
                 ) {
                     Toggle("", isOn: $launchAtLogin)
-                        .toggleStyle(GreenToggleStyle())
+                        .toggleStyle(TahoeToggleStyle())
                         .labelsHidden()
                         .onChange(of: launchAtLogin) { _, newValue in
                             LaunchAtLoginManager.shared.isEnabled = newValue
@@ -1450,7 +1469,7 @@ struct SettingsView: View {
                     subtitle: "Воспроизводить звук при открытии и копировании"
                 ) {
                     Toggle("", isOn: $settings.soundEnabled)
-                        .toggleStyle(GreenToggleStyle())
+                        .toggleStyle(TahoeToggleStyle())
                         .labelsHidden()
                 }
             }
@@ -1465,7 +1484,7 @@ struct SettingsView: View {
                         get: { SettingsManager.shared.highlightForeignWords },
                         set: { SettingsManager.shared.highlightForeignWords = $0 }
                     ))
-                        .toggleStyle(GreenToggleStyle())
+                        .toggleStyle(TahoeToggleStyle())
                         .labelsHidden()
                 }
             }
@@ -1575,15 +1594,6 @@ struct SettingsView: View {
                     }
                 }
                 .padding(.vertical, 8)
-                .padding(.horizontal, 16)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white.opacity(0.03))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                )
             }
         }
     }
@@ -1681,7 +1691,7 @@ struct SettingsView: View {
                             get: { SettingsManager.shared.screenshotFeatureEnabled },
                             set: { SettingsManager.shared.screenshotFeatureEnabled = $0 }
                         ))
-                            .toggleStyle(GreenToggleStyle())
+                            .toggleStyle(TahoeToggleStyle())
                             .labelsHidden()
                     }
                     .padding(.vertical, 8)
@@ -1761,15 +1771,6 @@ struct SettingsView: View {
                     }
                 }
                 .padding(.vertical, 8)
-                .padding(.horizontal, 16)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white.opacity(0.03))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                )
             }
         }
     }
@@ -1778,6 +1779,13 @@ struct SettingsView: View {
     var speechTabContent: some View {
         VStack(spacing: 0) {
             ASRProviderSection()
+        }
+    }
+
+    // === TAB: УЛУЧШАЙЗЕР ===
+    var enhancerTabContent: some View {
+        VStack(spacing: 0) {
+            EnhancerSettingsSection()
         }
     }
 
@@ -2506,17 +2514,10 @@ struct ASRProviderSection: View {
                 } else {
                     DeepgramSettingsPanel()
 
-                    // Статистика Deepgram (отдельная серая плашка)
+                    // Статистика Deepgram
                     if settings.hasDeepgramAPIKey {
                         DeepgramBillingPanel()
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 16)
-                            .background(Color.white.opacity(0.03))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                            )
-                            .cornerRadius(8)
+                            .padding(.top, 8)
                     }
                 }
             }
@@ -2525,45 +2526,74 @@ struct ASRProviderSection: View {
     }
 }
 
-// MARK: - LLM Settings Inline View (в рамке под локальной моделью)
+// MARK: - LLM Settings Inline View (статус модели под локальной моделью)
 struct LLMSettingsInlineView: View {
-    @ObservedObject private var settings = SettingsManager.shared
+    @ObservedObject private var localASRManager = ParakeetASRProvider.shared
 
     var body: some View {
         VStack(spacing: 12) {
-            // === ПЛАШКА 0: Статус модели Parakeet (если не загружена) ===
+            // Статус модели Parakeet
             ParakeetModelStatusView()
 
-            // === ПЛАШКА 1: API ключ + Модель (зелёная рамка) ===
-            VStack(alignment: .leading, spacing: 14) {
-                // API Key Status
-                GeminiAPIKeyStatus()
+            // Описание локальной модели (показывать только когда модель готова)
+            // Полная ширина без вложенной карточки
+            if case .ready = localASRManager.modelStatus {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Как работает локальная модель")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white)
 
-                // Model Picker (только если ключ есть)
-                if settings.hasGeminiAPIKey {
-                    Divider().background(Color.white.opacity(0.1))
-                    GeminiModelPicker(selection: $settings.selectedGeminiModel, label: "Модель")
+                    Text("Parakeet v3 — нейросетевая модель от NVIDIA, работающая полностью на вашем устройстве. Использует Apple Neural Engine для ускорения (~190× real-time). Модель занимает ~600 MB и поддерживает 25 европейских языков. Интернет не требуется.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .padding(.top, 4)
             }
-            .padding(14)
-            .background(DesignSystem.Colors.accent.opacity(0.05))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(DesignSystem.Colors.accent.opacity(0.3), lineWidth: 1)
-            )
-            .cornerRadius(8)
+        }
+    }
+}
 
-            // === ПЛАШКА 2: Улучшайзер текста + Дополнительные инструкции ===
-            VStack(alignment: .leading, spacing: 16) {
-                // Улучшайзер текста
+// MARK: - Enhancer Settings Section (отдельный таб для улучшайзера)
+struct EnhancerSettingsSection: View {
+    @ObservedObject private var settings = SettingsManager.shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // API ключ + Модель (зелёная плашка — БЕЗ вложенности в SettingsSection)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("GEMINI API KEY")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.gray)
+                    .textCase(.uppercase)
+                    .padding(.horizontal, 4)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    GeminiAPIKeyStatus()
+
+                    if settings.hasGeminiAPIKey {
+                        Divider().background(Color.white.opacity(0.1))
+                        GeminiModelPicker(selection: $settings.selectedGeminiModel, label: "Модель")
+                    }
+                }
+                .padding(14)
+                .background(DesignSystem.Colors.accent.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(DesignSystem.Colors.accent.opacity(0.3), lineWidth: 1)
+                )
+                .cornerRadius(8)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+
+            // Промпт улучшайзера
+            SettingsSection(title: "ПРОМПТ УЛУЧШЕНИЯ") {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("Улучшайзер текста")
-                            .font(.system(size: 14))
+                        Text("Промпт для LLM обработки текста")
+                            .font(.system(size: 12))
                             .foregroundColor(.white)
-                        Text("— промпт для LLM обработки текста")
-                            .font(.system(size: 11))
-                            .foregroundColor(.gray)
                         Spacer()
                         if settings.llmProcessingPrompt != SettingsManager.defaultLLMPrompt {
                             Button("Сбросить") {
@@ -2582,21 +2612,15 @@ struct LLMSettingsInlineView: View {
                         .background(Color.black.opacity(0.3))
                         .cornerRadius(6)
                 }
+            }
 
-                Divider().background(Color.white.opacity(0.1))
-
-                // Дополнительные инструкции
+            // Дополнительные инструкции
+            SettingsSection(title: "ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ") {
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Дополнительные инструкции")
-                            .font(.system(size: 14))
-                            .foregroundColor(.white)
-                        Text("— добавляются к системному промпту")
-                            .font(.system(size: 11))
-                            .foregroundColor(.gray)
-                    }
+                    Text("Добавляются к системному промпту")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
 
-                    // Динамическая высота: 1 строка по умолчанию, до 10 строк макс
                     let lineCount = max(1, settings.llmAdditionalInstructions.components(separatedBy: "\n").count)
                     let dynamicHeight = min(CGFloat(lineCount) * 18 + 16, 180)
 
@@ -2609,16 +2633,6 @@ struct LLMSettingsInlineView: View {
                         .cornerRadius(6)
                 }
             }
-            .padding(.vertical, 16)
-            .padding(.horizontal, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.white.opacity(0.03))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
-            )
         }
     }
 }
@@ -2747,162 +2761,173 @@ struct AISettingsSection: View {
     @ObservedObject private var settings = SettingsManager.shared
 
     var body: some View {
-        SettingsSection(title: "AI ОБРАБОТКА") {
-            VStack(alignment: .leading, spacing: 16) {
-                // Тумблер включения
+        VStack(spacing: 0) {
+            // Карточка 1: Включение AI функций
+            SettingsSection(title: "AI ОБРАБОТКА") {
                 SettingsRow(
                     title: "Включить AI функции",
-                    subtitle: "Кнопки WB, RU, EN, CH для обработки текста через Gemini AI"
+                    subtitle: "Обработка текста через Gemini AI"
                 ) {
                     Toggle("", isOn: $aiEnabled)
-                        .toggleStyle(GreenToggleStyle())
+                        .toggleStyle(TahoeToggleStyle())
                         .labelsHidden()
                 }
+                .padding(.vertical, 8)
+            }
 
-                // Gemini API Key (только если включено)
-                if aiEnabled {
-                    Divider().background(Color.white.opacity(0.1))
+            // Gemini API Key (только если включено) - БЕЗ двойной вложенности
+            if aiEnabled {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("GEMINI API KEY")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.gray)
+                        .textCase(.uppercase)
+                        .padding(.horizontal, 4)
 
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 8) {
-                                Image(systemName: settings.hasGeminiAPIKey ? "sparkles.rectangle.stack.fill" : "sparkles.rectangle.stack")
-                                    .foregroundColor(settings.hasGeminiAPIKey ? .green : .orange)
-                                Text("Gemini API Key")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.white)
-                            }
+                    VStack(alignment: .leading, spacing: 14) {
+                        // API Key статус
+                        HStack {
                             if settings.hasGeminiAPIKey {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(DesignSystem.Colors.accent)
+                                Text("API ключ установлен")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(DesignSystem.Colors.accent)
+                                Text("•")
+                                    .foregroundColor(.gray)
                                 Text(settings.getGeminiAPIKeyMasked())
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundColor(.gray)
                             } else {
-                                Text("Требуется для работы AI функций")
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                                Text("Требуется API ключ")
                                     .font(.system(size: 11))
                                     .foregroundColor(.orange)
                             }
-                        }
 
-                        Spacer()
+                            Spacer()
 
-                        Button(settings.hasGeminiAPIKey ? "Изменить" : "Добавить") {
-                            showGeminiAPIKeyInput.toggle()
-                        }
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(DesignSystem.Colors.accent.opacity(0.3))
-                        .cornerRadius(6)
-                        .buttonStyle(PlainButtonStyle())
-                    }
-
-                    if showGeminiAPIKeyInput {
-                        HStack {
-                            TextField("AIzaSy...", text: $geminiAPIKeyInput)
-                                .textFieldStyle(PlainTextFieldStyle())
-                                .font(.system(size: 12, design: .monospaced))
-                                .padding(8)
-                                .background(Color.white.opacity(0.05))
-                                .cornerRadius(6)
-
-                            Button("Сохранить") {
-                                if settings.saveGeminiAPIKey(geminiAPIKeyInput) {
-                                    showSaveSuccess = true
-                                    geminiAPIKeyInput = ""
-                                    showGeminiAPIKeyInput = false
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                        showSaveSuccess = false
-                                    }
-                                }
+                            Button(settings.hasGeminiAPIKey ? "Изменить" : "Добавить") {
+                                showGeminiAPIKeyInput.toggle()
                             }
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(geminiAPIKeyInput.isEmpty ? Color.gray : Color(red: 1.0, green: 0.4, blue: 0.2))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(DesignSystem.Colors.accent.opacity(0.3))
                             .cornerRadius(6)
                             .buttonStyle(PlainButtonStyle())
-                            .disabled(geminiAPIKeyInput.isEmpty)
                         }
-                    }
 
-                    if showSaveSuccess {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(DesignSystem.Colors.accent)
-                            Text("Ключ сохранён")
-                                .font(.system(size: 11))
-                                .foregroundColor(DesignSystem.Colors.accent)
-                        }
-                    }
+                        if showGeminiAPIKeyInput {
+                            HStack {
+                                TextField("AIzaSy...", text: $geminiAPIKeyInput)
+                                    .textFieldStyle(PlainTextFieldStyle())
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .padding(8)
+                                    .background(Color.white.opacity(0.05))
+                                    .cornerRadius(6)
 
-                    Button(action: {
-                        NSWorkspace.shared.open(URL(string: "https://aistudio.google.com/app/apikey")!)
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "link")
-                            Text("Получить Gemini API ключ")
-                        }
-                        .font(.system(size: 12))
-                        .foregroundColor(.blue)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-
-                    Divider().background(Color.white.opacity(0.1))
-
-                    // Model Picker для AI функций
-                    GeminiModelPicker(selection: $settings.selectedGeminiModelForAI, label: "Модель для AI")
-
-                    Divider().background(Color.white.opacity(0.1))
-
-                    // Max Output Tokens Slider
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Макс. длина ответа")
-                                .font(.system(size: 13))
+                                Button("Сохранить") {
+                                    if settings.saveGeminiAPIKey(geminiAPIKeyInput) {
+                                        showSaveSuccess = true
+                                        geminiAPIKeyInput = ""
+                                        showGeminiAPIKeyInput = false
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                            showSaveSuccess = false
+                                        }
+                                    }
+                                }
+                                .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(.white)
-                            Spacer()
-                            Text("\(settings.maxOutputTokens) токенов")
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundColor(.gray)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(geminiAPIKeyInput.isEmpty ? Color.gray : DesignSystem.Colors.deepgramOrange)
+                                .cornerRadius(6)
+                                .buttonStyle(PlainButtonStyle())
+                                .disabled(geminiAPIKeyInput.isEmpty)
+                            }
                         }
 
-                        HStack(spacing: 12) {
-                            Text("512")
-                                .font(.system(size: 10))
-                                .foregroundColor(.gray)
-
-                            Slider(
-                                value: Binding(
-                                    get: { Double(settings.maxOutputTokens) },
-                                    set: { settings.maxOutputTokens = Int($0) }
-                                ),
-                                in: 512...20000
-                            )
-                            .tint(DesignSystem.Colors.accent)
-
-                            Text("20K")
-                                .font(.system(size: 10))
-                                .foregroundColor(.gray)
+                        if showSaveSuccess {
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(DesignSystem.Colors.accent)
+                                Text("Ключ сохранён")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(DesignSystem.Colors.accent)
+                            }
                         }
 
-                        Text("Больше токенов = длиннее ответы AI, но медленнее и дороже")
-                            .font(.system(size: 10))
-                            .foregroundColor(.gray.opacity(0.7))
+                        Button(action: {
+                            NSWorkspace.shared.open(URL(string: "https://aistudio.google.com/app/apikey")!)
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "link")
+                                Text("Получить Gemini API ключ")
+                            }
+                            .font(.system(size: 12))
+                            .foregroundColor(.blue)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        if settings.hasGeminiAPIKey {
+                            Divider().background(Color.white.opacity(0.1))
+
+                            // Model Picker для AI функций
+                            GeminiModelPicker(selection: $settings.selectedGeminiModelForAI, label: "Модель для AI")
+
+                            Divider().background(Color.white.opacity(0.1))
+
+                            // Max Output Tokens Slider
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text("Макс. длина ответа")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.white)
+                                    Spacer()
+                                    Text("\(settings.maxOutputTokens) токенов")
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundColor(.gray)
+                                }
+
+                                HStack(spacing: 12) {
+                                    Text("512")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.gray)
+
+                                    Slider(
+                                        value: Binding(
+                                            get: { Double(settings.maxOutputTokens) },
+                                            set: { settings.maxOutputTokens = Int($0) }
+                                        ),
+                                        in: 512...20000
+                                    )
+                                    .tint(DesignSystem.Colors.accent)
+
+                                    Text("20K")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.gray)
+                                }
+
+                                Text("Больше токенов = длиннее ответы AI, но медленнее и дороже")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.gray.opacity(0.7))
+                            }
+                        }
                     }
+                    .padding(14)
+                    .background(DesignSystem.Colors.accent.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(DesignSystem.Colors.accent.opacity(0.3), lineWidth: 1)
+                    )
+                    .cornerRadius(8)
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
             }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.white.opacity(0.03))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
-            )
         }
     }
 }
@@ -2923,7 +2948,7 @@ struct AIPromptsSection: View {
                     .padding(.bottom, 4)
 
                 // Список промптов с drag-n-drop
-                VStack(spacing: 4) {
+                List {
                     ForEach(promptsManager.prompts.sorted { $0.order < $1.order }) { prompt in
                         SettingsPromptRowView(
                             prompt: prompt,
@@ -2934,11 +2959,17 @@ struct AIPromptsSection: View {
                                 editingPrompt = prompt
                             }
                         )
+                        .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
                     .onMove { from, to in
                         promptsManager.movePrompt(from: from, to: to)
                     }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 150, maxHeight: 300)
 
                 // Кнопки добавления и восстановления
                 HStack(spacing: 16) {
@@ -3040,7 +3071,7 @@ struct SettingsPromptRowView: View {
     }
 }
 
-// MARK: - Add Prompt Sheet
+// MARK: - Add Prompt Sheet (Tahoe Style)
 struct AddPromptSheet: View {
     let onAdd: (CustomPrompt) -> Void
     @Environment(\.dismiss) var dismiss
@@ -3072,22 +3103,43 @@ struct AddPromptSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Новый промпт")
-                .font(.headline)
-                .foregroundColor(.white)
+        VStack(spacing: 0) {
+            // HEADER
+            HStack {
+                Text("Новый промпт")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .frame(width: 24, height: 24)
+                        .background(Color.white.opacity(0.1))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
 
-            VStack(alignment: .leading, spacing: 14) {
+            // CONTENT
+            VStack(alignment: .leading, spacing: 20) {
                 // Label
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Кнопка (до 10 символов)")
                         .font(.system(size: 11))
                         .foregroundColor(.gray)
                     TextField("", text: $label)
-                        .textFieldStyle(PlainTextFieldStyle())
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
                         .padding(10)
-                        .background(Color(hex: "#1a1a1b"))
+                        .background(Color.black.opacity(0.3))
                         .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        )
                         .frame(width: 140)
                         .onChange(of: label) { _, newValue in
                             label = String(newValue.prefix(10)).uppercased()
@@ -3101,10 +3153,15 @@ struct AddPromptSheet: View {
                         .font(.system(size: 11))
                         .foregroundColor(.gray)
                     TextField("", text: $description)
-                        .textFieldStyle(PlainTextFieldStyle())
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
                         .padding(10)
-                        .background(Color(hex: "#1a1a1b"))
+                        .background(Color.black.opacity(0.3))
                         .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        )
                         .onSubmit { addPrompt() }
                 }
 
@@ -3114,37 +3171,67 @@ struct AddPromptSheet: View {
                         .font(.system(size: 11))
                         .foregroundColor(.gray)
                     TextEditor(text: $promptText)
-                        .font(.system(size: 12))
-                        .frame(height: 160)
-                        .padding(6)
+                        .font(.system(size: 12, design: .monospaced))
                         .scrollContentBackground(.hidden)
-                        .background(Color(hex: "#1a1a1b"))
+                        .padding(10)
+                        .background(Color.black.opacity(0.3))
                         .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                        .frame(minHeight: 160)
                 }
             }
+            .padding(.horizontal, 32)
+            .padding(.top, 8)
 
+            Spacer()
+
+            // FOOTER
             HStack {
+                Button(action: { dismiss() }) {
+                    Text("Отмена")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.escape)
+
                 Spacer()
 
-                Button("Отмена") {
-                    dismiss()
+                Button(action: addPrompt) {
+                    Text("Добавить")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(isValid ? DesignSystem.Colors.accent : Color.gray.opacity(0.3))
+                        .cornerRadius(8)
                 }
-                .buttonStyle(.bordered)
-
-                Button("Добавить", action: addPrompt)
-                .buttonStyle(.borderedProminent)
-                .tint(DesignSystem.Colors.accent)
+                .buttonStyle(.plain)
                 .disabled(!isValid)
                 .keyboardShortcut(.return, modifiers: .command)
             }
+            .padding(.horizontal, 32)
+            .padding(.vertical, 20)
+            .background(DesignSystem.Colors.buttonAreaBackground)
         }
-        .padding(24)
-        .frame(width: 520, height: 455)
-        .background(Color(red: 30/255, green: 30/255, blue: 32/255))
+        .frame(width: 520, height: 500)
+        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
+        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .overlay(
+            RoundedRectangle(cornerRadius: 26)
+                .strokeBorder(DesignSystem.Colors.borderColor, lineWidth: 1)
+        )
     }
 }
 
-// MARK: - Edit Prompt Sheet
+// MARK: - Edit Prompt Sheet (Tahoe Style)
 struct EditPromptSheet: View {
     let prompt: CustomPrompt
     let onSave: (CustomPrompt) -> Void
@@ -3173,9 +3260,6 @@ struct EditPromptSheet: View {
         !promptText.isEmpty
     }
 
-    // Цвет фона полей ввода
-    private let fieldBackground = Color(red: 26/255, green: 26/255, blue: 27/255)  // #1a1a1b
-
     private func saveChanges() {
         guard isValid else { return }
         var updated = prompt
@@ -3188,135 +3272,175 @@ struct EditPromptSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Редактировать промпт")
-                .font(.headline)
-                .foregroundColor(.white)
-
-            VStack(alignment: .leading, spacing: 14) {
-                // Label (редактируется для всех промптов)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Кнопка (до 10 символов)")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextField("", text: $label)
-                        .font(.system(size: 13))
-                        .padding(10)
-                        .background(fieldBackground)
-                        .cornerRadius(6)
-                        .frame(width: 140)
-                        .onChange(of: label) { _, newValue in
-                            label = String(newValue.prefix(10)).uppercased()
-                        }
-                        .onSubmit { saveChanges() }
+        VStack(spacing: 0) {
+            // HEADER
+            HStack {
+                Text("Редактировать промпт")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .frame(width: 24, height: 24)
+                        .background(Color.white.opacity(0.1))
+                        .clipShape(Circle())
                 }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
 
-                // Description (редактируется для всех промптов)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Описание")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextField("", text: $description)
-                        .font(.system(size: 13))
-                        .padding(10)
-                        .background(fieldBackground)
-                        .cornerRadius(6)
-                        .onSubmit { saveChanges() }
-                }
-
-                // Prompt text
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Текст промпта")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextEditor(text: $promptText)
-                        .font(.system(size: 12, design: .monospaced))
-                        .scrollContentBackground(.hidden)
-                        .padding(8)
-                        .background(fieldBackground)
-                        .cornerRadius(6)
-                        .frame(minHeight: 200)
-                }
-
-                // Favorite toggle
-                Toggle(isOn: $isFavorite) {
-                    Text("Показывать в быстром доступе")
-                        .font(.system(size: 12))
-                        .foregroundColor(.white)
-                }
-                .toggleStyle(GreenToggleStyle())
-
-                // Reset button for system prompts
-                if prompt.isSystem {
-                    Button(action: {
-                        if let defaultPrompt = CustomPrompt.defaultSystemPrompts.first(where: { $0.label == prompt.label }) {
-                            promptText = defaultPrompt.prompt
-                            label = defaultPrompt.label
-                            description = defaultPrompt.description
-                        }
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.counterclockwise")
-                            Text("Сбросить по умолчанию")
-                        }
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
+            // CONTENT
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Label
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Кнопка (до 10 символов)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                        TextField("", text: $label)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13))
+                            .padding(10)
+                            .background(Color.black.opacity(0.3))
+                            .cornerRadius(6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                            )
+                            .frame(width: 140)
+                            .onChange(of: label) { _, newValue in
+                                label = String(newValue.prefix(10)).uppercased()
+                            }
+                            .onSubmit { saveChanges() }
                     }
-                    .buttonStyle(PlainButtonStyle())
+
+                    // Description
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Описание")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                        TextField("", text: $description)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13))
+                            .padding(10)
+                            .background(Color.black.opacity(0.3))
+                            .cornerRadius(6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                            )
+                            .onSubmit { saveChanges() }
+                    }
+
+                    // Prompt text
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Текст промпта")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                        TextEditor(text: $promptText)
+                            .font(.system(size: 12, design: .monospaced))
+                            .scrollContentBackground(.hidden)
+                            .padding(10)
+                            .background(Color.black.opacity(0.3))
+                            .cornerRadius(6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                            )
+                            .frame(minHeight: 160)
+                    }
+
+                    // Favorite toggle
+                    Toggle(isOn: $isFavorite) {
+                        Text("Показывать в быстром доступе")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white)
+                    }
+                    .toggleStyle(TahoeToggleStyle())
+
+                    // Reset button for system prompts
+                    if prompt.isSystem {
+                        Button(action: {
+                            if let defaultPrompt = CustomPrompt.defaultSystemPrompts.first(where: { $0.label == prompt.label }) {
+                                promptText = defaultPrompt.prompt
+                                label = defaultPrompt.label
+                                description = defaultPrompt.description
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.counterclockwise")
+                                Text("Сбросить по умолчанию")
+                            }
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                .padding(.horizontal, 32)
+                .padding(.top, 8)
             }
 
-            // Кнопки: [Удалить] — Spacer — [Отмена] [Сохранить]
+            Spacer()
+
+            // FOOTER
             HStack {
+                Button(action: { dismiss() }) {
+                    Text("Отмена")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.escape)
+
                 // Кнопка удаления (если есть callback)
                 if onDelete != nil {
-                    Button(action: {
-                        showDeleteConfirmation = true
-                    }) {
-                        HStack(spacing: 4) {
+                    Button(action: { showDeleteConfirmation = true }) {
+                        HStack(spacing: 6) {
                             Image(systemName: "trash")
                             Text("Удалить")
                         }
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(DesignSystem.Colors.destructive)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(DesignSystem.Colors.destructive.opacity(0.15))
-                        .cornerRadius(6)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
                     }
-                    .buttonStyle(PlainButtonStyle())
+                    .buttonStyle(.plain)
                 }
 
                 Spacer()
 
-                Button("Отмена") {
-                    dismiss()
-                }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Color.white.opacity(0.1))
-                .cornerRadius(6)
-                .buttonStyle(PlainButtonStyle())
-
                 Button(action: saveChanges) {
                     Text("Сохранить")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(isValid ? DesignSystem.Colors.accent : Color.gray)
-                        .cornerRadius(6)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(isValid ? DesignSystem.Colors.accent : Color.gray.opacity(0.3))
+                        .cornerRadius(8)
                 }
-                .buttonStyle(PlainButtonStyle())
+                .buttonStyle(.plain)
                 .disabled(!isValid)
                 .keyboardShortcut(.return, modifiers: .command)
             }
+            .padding(.horizontal, 32)
+            .padding(.vertical, 20)
+            .background(DesignSystem.Colors.buttonAreaBackground)
         }
-        .padding(24)
-        .frame(width: 520, height: 580)
-        .background(Color(red: 30/255, green: 30/255, blue: 32/255))
+        .frame(width: 520, height: 540)
+        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
+        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .overlay(
+            RoundedRectangle(cornerRadius: 26)
+                .strokeBorder(DesignSystem.Colors.borderColor, lineWidth: 1)
+        )
         .alert("Удалить промпт?", isPresented: $showDeleteConfirmation) {
             Button("Отмена", role: .cancel) { }
             Button("Да, удалить", role: .destructive) {
@@ -3360,7 +3484,7 @@ struct SnippetsSettingsSection: View {
                         Spacer()
                     }
                 } else {
-                    VStack(spacing: 4) {
+                    List {
                         ForEach(snippetsManager.snippets.sorted { $0.order < $1.order }) { snippet in
                             SettingsSnippetRowView(
                                 snippet: snippet,
@@ -3374,11 +3498,17 @@ struct SnippetsSettingsSection: View {
                                     snippetsManager.deleteSnippet(snippet)
                                 }
                             )
+                            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                         }
                         .onMove { from, to in
                             snippetsManager.moveSnippet(from: from, to: to)
                         }
                     }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 100, maxHeight: 250)
                 }
 
                 // Кнопка добавления
@@ -3402,9 +3532,15 @@ struct SnippetsSettingsSection: View {
             }
         }
         .sheet(item: $editingSnippet) { snippet in
-            EditSnippetSheet(snippet: snippet) { updatedSnippet in
-                snippetsManager.updateSnippet(updatedSnippet)
-            }
+            EditSnippetSheet(
+                snippet: snippet,
+                onSave: { updatedSnippet in
+                    snippetsManager.updateSnippet(updatedSnippet)
+                },
+                onDelete: {
+                    snippetsManager.deleteSnippet(snippet)
+                }
+            )
         }
     }
 }
@@ -3416,10 +3552,10 @@ struct SettingsSnippetRowView: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
-    @State private var isExpanded: Bool = false
+    @State private var isHovered: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 // Иконка избранного (звезда)
                 Button(action: onToggleFavorite) {
@@ -3449,54 +3585,35 @@ struct SettingsSnippetRowView: View {
 
                 Spacer()
 
-                // Expand/Collapse
-                Button(action: { isExpanded.toggle() }) {
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10))
-                        .foregroundColor(.gray)
+                // Edit (показывается при наведении)
+                if isHovered {
+                    Button(action: onEdit) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
-
-                // Edit
-                Button(action: onEdit) {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                // Delete
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 11))
-                        .foregroundColor(DesignSystem.Colors.destructive.opacity(0.7))
-                }
-                .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(Color.white.opacity(0.02))
-            .cornerRadius(4)
 
-            // Expanded content preview
-            if isExpanded {
-                Text(snippet.content)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.gray)
-                    .lineLimit(5)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.black.opacity(0.2))
-                    .cornerRadius(4)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 4)
-            }
+            // Content preview (всегда видно)
+            Text(snippet.content)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.gray)
+                .lineLimit(2)
+                .padding(.leading, 24) // Выравнивание с title
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(isHovered ? Color.white.opacity(0.04) : Color.white.opacity(0.02))
+        .cornerRadius(4)
+        .onHover { hovering in
+            isHovered = hovering
         }
     }
 }
 
-// MARK: - Add Snippet Sheet
+// MARK: - Add Snippet Sheet (Tahoe Style)
 struct AddSnippetSheet: View {
     let onAdd: (Snippet) -> Void
     @Environment(\.dismiss) var dismiss
@@ -3526,20 +3643,44 @@ struct AddSnippetSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Новый сниппет")
-                .font(.headline)
-                .foregroundColor(.white)
+        VStack(spacing: 0) {
+            // HEADER
+            HStack {
+                Text("Новый сниппет")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .frame(width: 24, height: 24)
+                        .background(Color.white.opacity(0.1))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
 
-            VStack(alignment: .leading, spacing: 12) {
+            // CONTENT
+            VStack(alignment: .leading, spacing: 20) {
                 // Shortcut
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Код (2-6 символов)")
                         .font(.system(size: 11))
                         .foregroundColor(.gray)
                     TextField("", text: $shortcut)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 100)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .padding(10)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                        .frame(width: 120)
                         .onChange(of: shortcut) { _, newValue in
                             shortcut = String(newValue.prefix(6)).lowercased()
                         }
@@ -3547,71 +3688,114 @@ struct AddSnippetSheet: View {
                 }
 
                 // Title
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Название")
                         .font(.system(size: 11))
                         .foregroundColor(.gray)
                     TextField("", text: $title)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .padding(10)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        )
                         .onSubmit { addSnippet() }
                 }
 
                 // Content
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Текст сниппета")
                         .font(.system(size: 11))
                         .foregroundColor(.gray)
                     TextEditor(text: $content)
-                        .font(.system(size: 11, design: .monospaced))
-                        .frame(height: 120)
-                        .padding(4)
-                        .background(Color.white.opacity(0.1))
+                        .font(.system(size: 12, design: .monospaced))
+                        .scrollContentBackground(.hidden)
+                        .padding(10)
+                        .background(Color.black.opacity(0.3))
                         .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                        .frame(minHeight: 160)
                 }
 
                 // Favorite toggle
                 Toggle(isOn: $isFavorite) {
                     Text("Показывать в быстром доступе")
-                        .font(.system(size: 11))
+                        .font(.system(size: 12))
                         .foregroundColor(.white)
                 }
-                .toggleStyle(GreenToggleStyle())
+                .toggleStyle(TahoeToggleStyle())
             }
+            .padding(.horizontal, 32)
+            .padding(.top, 8)
 
+            Spacer()
+
+            // FOOTER
             HStack {
-                Button("Отмена") {
-                    dismiss()
+                Button(action: { dismiss() }) {
+                    Text("Отмена")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(8)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .keyboardShortcut(.escape)
 
                 Spacer()
 
-                Button("Добавить", action: addSnippet)
-                .buttonStyle(.borderedProminent)
+                Button(action: addSnippet) {
+                    Text("Добавить")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(isValid ? DesignSystem.Colors.accent : Color.gray.opacity(0.3))
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
                 .disabled(!isValid)
                 .keyboardShortcut(.return, modifiers: .command)
             }
+            .padding(.horizontal, 32)
+            .padding(.vertical, 20)
+            .background(DesignSystem.Colors.buttonAreaBackground)
         }
-        .padding(20)
-        .frame(width: 400, height: 400)
-        .background(Color(red: 30/255, green: 30/255, blue: 32/255))
+        .frame(width: 520, height: 500)
+        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
+        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .overlay(
+            RoundedRectangle(cornerRadius: 26)
+                .strokeBorder(DesignSystem.Colors.borderColor, lineWidth: 1)
+        )
     }
 }
 
-// MARK: - Edit Snippet Sheet
+// MARK: - Edit Snippet Sheet (Tahoe Style)
 struct EditSnippetSheet: View {
     let snippet: Snippet
     let onSave: (Snippet) -> Void
+    var onDelete: (() -> Void)? = nil
     @Environment(\.dismiss) var dismiss
 
     @State private var shortcut: String
     @State private var title: String
     @State private var content: String
     @State private var isFavorite: Bool
+    @State private var showDeleteConfirm = false
 
-    init(snippet: Snippet, onSave: @escaping (Snippet) -> Void) {
+    init(snippet: Snippet, onSave: @escaping (Snippet) -> Void, onDelete: (() -> Void)? = nil) {
         self.snippet = snippet
         self.onSave = onSave
+        self.onDelete = onDelete
         _shortcut = State(initialValue: snippet.shortcut)
         _title = State(initialValue: snippet.title)
         _content = State(initialValue: snippet.content)
@@ -3636,75 +3820,165 @@ struct EditSnippetSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Редактировать сниппет")
-                .font(.headline)
-                .foregroundColor(.white)
-
-            VStack(alignment: .leading, spacing: 12) {
-                // Shortcut
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Код (2-6 символов)")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextField("", text: $shortcut)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 100)
-                        .onChange(of: shortcut) { _, newValue in
-                            shortcut = String(newValue.prefix(6)).lowercased()
-                        }
-                        .onSubmit { saveChanges() }
-                }
-
-                // Title
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Название")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextField("", text: $title)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .onSubmit { saveChanges() }
-                }
-
-                // Content
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Текст сниппета")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextEditor(text: $content)
-                        .font(.system(size: 11, design: .monospaced))
-                        .frame(height: 120)
-                        .padding(4)
+        VStack(spacing: 0) {
+            // HEADER
+            HStack {
+                Text("Редактировать сниппет")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .frame(width: 24, height: 24)
                         .background(Color.white.opacity(0.1))
-                        .cornerRadius(6)
+                        .clipShape(Circle())
                 }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
 
-                // Favorite toggle
-                Toggle(isOn: $isFavorite) {
-                    Text("Показывать в быстром доступе")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white)
+            // CONTENT
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Shortcut
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Код (2-6 символов)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                        TextField("", text: $shortcut)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13))
+                            .padding(10)
+                            .background(Color.black.opacity(0.3))
+                            .cornerRadius(6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                            )
+                            .frame(width: 120)
+                            .onChange(of: shortcut) { _, newValue in
+                                shortcut = String(newValue.prefix(6)).lowercased()
+                            }
+                            .onSubmit { saveChanges() }
+                    }
+
+                    // Title
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Название")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                        TextField("", text: $title)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13))
+                            .padding(10)
+                            .background(Color.black.opacity(0.3))
+                            .cornerRadius(6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                            )
+                            .onSubmit { saveChanges() }
+                    }
+
+                    // Content
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Текст сниппета")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                        TextEditor(text: $content)
+                            .font(.system(size: 12, design: .monospaced))
+                            .scrollContentBackground(.hidden)
+                            .padding(10)
+                            .background(Color.black.opacity(0.3))
+                            .cornerRadius(6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                            )
+                            .frame(minHeight: 160)
+                    }
+
+                    // Favorite toggle
+                    Toggle(isOn: $isFavorite) {
+                        Text("Показывать в быстром доступе")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white)
+                    }
+                    .toggleStyle(TahoeToggleStyle())
                 }
-                .toggleStyle(GreenToggleStyle())
+                .padding(.horizontal, 32)
+                .padding(.top, 8)
             }
 
+            Spacer()
+
+            // FOOTER
             HStack {
-                Button("Отмена") {
-                    dismiss()
+                Button(action: { dismiss() }) {
+                    Text("Отмена")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(8)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .keyboardShortcut(.escape)
+
+                // Кнопка удаления (если есть callback)
+                if onDelete != nil {
+                    Button(action: { showDeleteConfirm = true }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "trash")
+                            Text("Удалить")
+                        }
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 Spacer()
 
-                Button("Сохранить", action: saveChanges)
-                .buttonStyle(.borderedProminent)
+                Button(action: saveChanges) {
+                    Text("Сохранить")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(isValid ? DesignSystem.Colors.accent : Color.gray.opacity(0.3))
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
                 .disabled(!isValid)
                 .keyboardShortcut(.return, modifiers: .command)
             }
+            .padding(.horizontal, 32)
+            .padding(.vertical, 20)
+            .background(DesignSystem.Colors.buttonAreaBackground)
         }
-        .padding(20)
-        .frame(width: 400, height: 400)
-        .background(Color(red: 30/255, green: 30/255, blue: 32/255))
+        .frame(width: 520, height: 540)
+        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
+        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .overlay(
+            RoundedRectangle(cornerRadius: 26)
+                .strokeBorder(DesignSystem.Colors.borderColor, lineWidth: 1)
+        )
+        .alert("Удалить сниппет?", isPresented: $showDeleteConfirm) {
+            Button("Отмена", role: .cancel) { }
+            Button("Удалить", role: .destructive) {
+                onDelete?()
+                dismiss()
+            }
+        } message: {
+            Text("Это действие нельзя отменить")
+        }
     }
 }
 

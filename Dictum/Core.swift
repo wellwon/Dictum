@@ -56,8 +56,13 @@ enum DesignSystem {
 
         // States
         static let toggleActive = accent  // Зеленый для тумблеров
+        static let toggleBackground = Color(hex: "#3D3D3D")  // Фон выключенного тумблера
         static let destructive = Color(red: 1.0, green: 0.231, blue: 0.188)  // #FF3B30
         static let warning = Color.orange
+
+        // Cards (Tahoe style)
+        static let cardBackgroundTahoe = Color.white.opacity(0.03)
+        static let cardBorderTahoe = Color.white.opacity(0.15)
     }
 
     enum Spacing {
@@ -72,6 +77,8 @@ enum DesignSystem {
         static let button: CGFloat = 4
         static let card: CGFloat = 6
         static let panel: CGFloat = 8
+        static let cardTahoe: CGFloat = 8   // Карточки в стиле Tahoe
+        static let window: CGFloat = 26      // macOS Tahoe Toolbar Window
     }
 
     enum Typography {

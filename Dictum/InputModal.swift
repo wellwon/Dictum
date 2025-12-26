@@ -11,7 +11,7 @@ import AppKit
 // MARK: - Input Modal View
 struct InputModalView: View {
     @StateObject private var audioManager = AudioRecordingManager()  // Deepgram
-    @ObservedObject private var localASRManager = SherpaASRProvider.shared   // Локальная модель Parakeet v3
+    @ObservedObject private var localASRManager = ParakeetASRProvider.shared   // Локальная модель Parakeet v3
     @ObservedObject private var settings = SettingsManager.shared
 
     // Computed properties для текущего ASR провайдера
@@ -53,6 +53,7 @@ struct InputModalView: View {
     @State private var showAddPromptSheet: Bool = false  // Sheet для добавления промпта
     @State private var editingPrompt: CustomPrompt? = nil  // Редактируемый промпт
     @State private var editingSnippet: Snippet? = nil  // Редактируемый сниппет
+    @State private var isToggling: Bool = false  // Guard для debouncing toggle записи
 
     // Максимум 30 строк (~600px), минимум 40px
     private let lineHeight: CGFloat = 20
@@ -213,8 +214,20 @@ struct InputModalView: View {
                                 } else {
                                     // Проверить возможность записи
                                     if !canStartASR() {
-                                        NSLog("❌ canStartASR() вернул false")
-                                        setASRError("API ключ не найден. Откройте Настройки (Cmd+,)")
+                                        NSLog("❌ canStartASR() вернул false, provider=\(settings.asrProviderType), modelStatus=\(localASRManager.modelStatus)")
+                                        if settings.asrProviderType == .local {
+                                            // canStartASR() вернул false = модель не скачана или ошибка
+                                            switch localASRManager.modelStatus {
+                                            case .downloading:
+                                                setASRError("Модель скачивается...")
+                                            case .error(let msg):
+                                                setASRError("Ошибка модели: \(msg)")
+                                            default:
+                                                setASRError("Модель не скачана. Откройте Настройки → Голос")
+                                            }
+                                        } else {
+                                            setASRError("API ключ не найден. Откройте Настройки (Cmd+,)")
+                                        }
                                         return
                                     }
                                     NSLog("▶️ Запускаем запись...")
@@ -255,6 +268,27 @@ struct InputModalView: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "clock")
                                 Text("История")
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 8)
+                            .background(Color.clear)
+                            .foregroundColor(Color.white.opacity(0.8))
+                            .cornerRadius(6)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        Divider()
+                            .frame(height: 16)
+                            .background(Color.white.opacity(0.2))
+
+                        // Кнопка Заметки (открывает модалку заметок)
+                        Button(action: {
+                            NotificationCenter.default.post(name: .toggleNotesModal, object: nil)
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "note.text")
+                                Text("Заметки")
                             }
                             .font(.system(size: 12, weight: .medium))
                             .padding(.vertical, 4)
@@ -520,11 +554,20 @@ struct InputModalView: View {
         }
         // Toggle записи по хоткею § или ` (без модификаторов)
         .onReceive(NotificationCenter.default.publisher(for: .toggleRecording)) { _ in
+            // Guard от быстрых повторных нажатий
+            guard !isToggling else { return }
+            isToggling = true
+
             Task {
                 if isRecording {
                     await stopASR()
                 } else if canStartASR() {
                     await startASR(existingText: inputText)
+                }
+                // Сбрасываем isToggling ПОСЛЕ завершения операции
+                // await MainActor.run гарантирует синхронное выполнение до выхода из Task
+                await MainActor.run {
+                    isToggling = false
                 }
             }
         }
@@ -741,10 +784,13 @@ struct InputModalView: View {
 
     // MARK: - ASR Helper Methods
 
-    /// Проверяет можно ли начать запись (для Deepgram нужен API key)
+    /// Проверяет можно ли начать запись (для Deepgram нужен API key, для локальной — модель доступна)
     private func canStartASR() -> Bool {
         if settings.asrProviderType == .local {
-            return true  // Локальная модель всегда доступна
+            // Разрешаем если:
+            // 1. Модель уже загружена в память, ИЛИ
+            // 2. Файлы модели есть на диске (будут загружены автоматически в startRecording)
+            return localASRManager.isModelLoaded || localASRManager.modelStatus == .ready
         } else {
             return SettingsManager.shared.hasAPIKey()  // Deepgram требует API key
         }
@@ -1148,6 +1194,10 @@ struct UnifiedQuickAccessRow: View {
     @Binding var editingPrompt: CustomPrompt?
     @Binding var editingSnippet: Snippet?
 
+    // Для подтверждения удаления
+    @State private var promptToDelete: CustomPrompt? = nil
+    @State private var snippetToDelete: Snippet? = nil
+
     // Только избранные элементы для быстрого доступа
     private var favoritePrompts: [CustomPrompt] {
         promptsManager.prompts.filter { $0.isFavorite }.sorted { $0.order < $1.order }
@@ -1159,6 +1209,20 @@ struct UnifiedQuickAccessRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            // Кнопка меню всех промптов
+            Button(action: {
+                NotificationCenter.default.post(name: .togglePromptsModal, object: nil)
+            }) {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 12))
+                    .frame(width: 24, height: 24)
+                    .background(Color.white.opacity(0.1))
+                    .foregroundColor(Color.white.opacity(0.6))
+                    .cornerRadius(4)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .help("Все промпты (⌘1)")
+
             // Избранные промпты
             ForEach(favoritePrompts) { prompt in
                 LoadingLanguageButton(
@@ -1172,7 +1236,7 @@ struct UnifiedQuickAccessRow: View {
                         editingPrompt = prompt
                     },
                     onDelete: prompt.isSystem ? nil : {
-                        promptsManager.deletePrompt(prompt)
+                        promptToDelete = prompt
                     },
                     isSystem: prompt.isSystem
                 )
@@ -1192,13 +1256,57 @@ struct UnifiedQuickAccessRow: View {
                         editingSnippet = snippet
                     },
                     onDelete: {
-                        snippetsManager.deleteSnippet(snippet)
+                        snippetToDelete = snippet
                     }
                 )
             }
+
+            // Кнопка меню всех сниппетов
+            Button(action: {
+                NotificationCenter.default.post(name: .toggleSnippetsModal, object: nil)
+            }) {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 12))
+                    .frame(width: 24, height: 24)
+                    .background(Color.white.opacity(0.1))
+                    .foregroundColor(Color.white.opacity(0.6))
+                    .cornerRadius(4)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .help("Все сниппеты (⌘2)")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+        // Alert для удаления промпта
+        .alert("Удалить промпт?", isPresented: .init(
+            get: { promptToDelete != nil },
+            set: { if !$0 { promptToDelete = nil } }
+        )) {
+            Button("Отмена", role: .cancel) { promptToDelete = nil }
+            Button("Удалить", role: .destructive) {
+                if let prompt = promptToDelete {
+                    promptsManager.deletePrompt(prompt)
+                }
+                promptToDelete = nil
+            }
+        } message: {
+            Text("Вы уверены? Это действие нельзя отменить")
+        }
+        // Alert для удаления сниппета
+        .alert("Удалить сниппет?", isPresented: .init(
+            get: { snippetToDelete != nil },
+            set: { if !$0 { snippetToDelete = nil } }
+        )) {
+            Button("Отмена", role: .cancel) { snippetToDelete = nil }
+            Button("Удалить", role: .destructive) {
+                if let snippet = snippetToDelete {
+                    snippetsManager.deleteSnippet(snippet)
+                }
+                snippetToDelete = nil
+            }
+        } message: {
+            Text("Вы уверены? Это действие нельзя отменить")
+        }
     }
 }
 

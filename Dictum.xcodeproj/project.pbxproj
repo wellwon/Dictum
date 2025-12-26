@@ -7,12 +7,20 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		14F8066447CBE7F73747AA2D /* Notes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F764B7FEDEF714C2350FFC29 /* Notes.swift */; };
+		15B8072BD589E803F87AD3BF /* TextSwitcherSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0776B255C67EE899BA6D3E3 /* TextSwitcherSettingsView.swift */; };
 		193A665DD50433D61C772BEA /* Dictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04EAB0B76FD5694386037F0F /* Dictation.swift */; };
+		1DDB930858661CE389EA157F /* KeyboardLayoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B6612247D8949C4690AF75 /* KeyboardLayoutManager.swift */; };
+		241A6DEB230434FA1E30B71D /* SecureFieldDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FEE062E09B9C10D4D7CEEE8 /* SecureFieldDetector.swift */; };
+		2D032BAC5D34D7DB86AAE417 /* TextSwitcherManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6135EFEC70B1E7D9FE8F327 /* TextSwitcherManager.swift */; };
+		42BE99D789EA458CF5B07F8D /* WordValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C6A104942EC852791DFE75 /* WordValidator.swift */; };
 		434D4D894E603557903D7E7A /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 265C6A0B76E2696619723684 /* AppIcon.icns */; };
 		4BAF8B4D4D4B03A3ABFF6097 /* DictumApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 233D620BE4A1F2BB693CAB21 /* DictumApp.swift */; };
 		4C8C41D8611BBE119F4411FD /* Updates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FBC1D81F0E448A8F026F8B4 /* Updates.swift */; };
+		4DF26863DDD5DCA22E5FC3F8 /* KeyboardEventMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4AB74FC8A423F612A2F2D3E /* KeyboardEventMonitor.swift */; };
 		4F05D3BC06A0A08DB81CE198 /* Snippets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7EA3A14A4BC00F668D12BBA /* Snippets.swift */; };
 		61B774BE111F9A36F710D9A7 /* Onboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = D119708F1FA4F5A00C8176CE /* Onboarding.swift */; };
+		67BD7999C111DB4346863C47 /* TextConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C6E9304D0F619CF6C93B9EA /* TextConverter.swift */; };
 		7CB79CCCF1DADF821F5D6945 /* History.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FC9E1DCAA1A6E857127465 /* History.swift */; };
 		97F1E87700F8A58E12311006 /* Hotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */; };
 		9E9C00549F13F6B40FF581D7 /* sound in Resources */ = {isa = PBXBuildFile; fileRef = 6CFF6BAB6AF455F8C94BB4B3 /* sound */; };
@@ -20,9 +28,11 @@
 		B43EA4A3E9EA21A0B7D2FF1A /* AI.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEB9A8517BE59E9B73CF663C /* AI.swift */; };
 		B5796459F38954025FC586E5 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F74750E0CF8B1EAB09B94D /* Components.swift */; };
 		BB3BB22AB1F1A28EE7C3FCDA /* Core.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD88433191E1DCD7C878A9AE /* Core.swift */; };
+		C0B52E9766479BA23D2330EA /* ShiftTapHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECDEFFB3393540FB7919C4A /* ShiftTapHandler.swift */; };
 		C3FC8A79D0B6C366C1C429C0 /* Prompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD156401813A36F4B8FFB7D /* Prompts.swift */; };
 		D0F3552B34D51CBFCB4B8BA4 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 936EA6F30269CB2105AC0A38 /* FluidAudio */; };
 		E3498BA760FB5B3EF2937A63 /* InputModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12B87D63DB9833713690EFA3 /* InputModal.swift */; };
+		EC3900025FEF2A3A5BB92082 /* TextSwitcherConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ECD9928C59B7BEE95410662 /* TextSwitcherConfig.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,15 +41,25 @@
 		12B87D63DB9833713690EFA3 /* InputModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputModal.swift; sourceTree = "<group>"; };
 		233D620BE4A1F2BB693CAB21 /* DictumApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictumApp.swift; sourceTree = "<group>"; };
 		265C6A0B76E2696619723684 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		56C6A104942EC852791DFE75 /* WordValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordValidator.swift; sourceTree = "<group>"; };
+		5ECDEFFB3393540FB7919C4A /* ShiftTapHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShiftTapHandler.swift; sourceTree = "<group>"; };
+		5FEE062E09B9C10D4D7CEEE8 /* SecureFieldDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureFieldDetector.swift; sourceTree = "<group>"; };
 		6CFF6BAB6AF455F8C94BB4B3 /* sound */ = {isa = PBXFileReference; lastKnownFileType = folder; path = sound; sourceTree = SOURCE_ROOT; };
+		7ECD9928C59B7BEE95410662 /* TextSwitcherConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSwitcherConfig.swift; sourceTree = "<group>"; };
 		7FBC1D81F0E448A8F026F8B4 /* Updates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Updates.swift; sourceTree = "<group>"; };
+		8C6E9304D0F619CF6C93B9EA /* TextConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextConverter.swift; sourceTree = "<group>"; };
 		A1F74750E0CF8B1EAB09B94D /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		A52C02DC25B522AB15CF93A1 /* Dictum.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Dictum.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B0776B255C67EE899BA6D3E3 /* TextSwitcherSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSwitcherSettingsView.swift; sourceTree = "<group>"; };
 		C7EA3A14A4BC00F668D12BBA /* Snippets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snippets.swift; sourceTree = "<group>"; };
 		D119708F1FA4F5A00C8176CE /* Onboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Onboarding.swift; sourceTree = "<group>"; };
+		D4AB74FC8A423F612A2F2D3E /* KeyboardEventMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardEventMonitor.swift; sourceTree = "<group>"; };
 		EEB9A8517BE59E9B73CF663C /* AI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AI.swift; sourceTree = "<group>"; };
+		F0B6612247D8949C4690AF75 /* KeyboardLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutManager.swift; sourceTree = "<group>"; };
 		F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Hotkeys.swift; sourceTree = "<group>"; };
+		F6135EFEC70B1E7D9FE8F327 /* TextSwitcherManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSwitcherManager.swift; sourceTree = "<group>"; };
 		F6E3F811455ACCFD649BCBFF /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
+		F764B7FEDEF714C2350FFC29 /* Notes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notes.swift; sourceTree = "<group>"; };
 		FAD156401813A36F4B8FFB7D /* Prompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Prompts.swift; sourceTree = "<group>"; };
 		FD88433191E1DCD7C878A9AE /* Core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -66,6 +86,22 @@
 			);
 			sourceTree = "<group>";
 		};
+		BA10070FFF99BDDCE4514966 /* TextSwitcher */ = {
+			isa = PBXGroup;
+			children = (
+				D4AB74FC8A423F612A2F2D3E /* KeyboardEventMonitor.swift */,
+				F0B6612247D8949C4690AF75 /* KeyboardLayoutManager.swift */,
+				5FEE062E09B9C10D4D7CEEE8 /* SecureFieldDetector.swift */,
+				5ECDEFFB3393540FB7919C4A /* ShiftTapHandler.swift */,
+				8C6E9304D0F619CF6C93B9EA /* TextConverter.swift */,
+				7ECD9928C59B7BEE95410662 /* TextSwitcherConfig.swift */,
+				F6135EFEC70B1E7D9FE8F327 /* TextSwitcherManager.swift */,
+				B0776B255C67EE899BA6D3E3 /* TextSwitcherSettingsView.swift */,
+				56C6A104942EC852791DFE75 /* WordValidator.swift */,
+			);
+			path = TextSwitcher;
+			sourceTree = "<group>";
+		};
 		C8222A1FA74A22D09DA6898F /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -85,11 +121,13 @@
 				00FC9E1DCAA1A6E857127465 /* History.swift */,
 				F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */,
 				12B87D63DB9833713690EFA3 /* InputModal.swift */,
+				F764B7FEDEF714C2350FFC29 /* Notes.swift */,
 				D119708F1FA4F5A00C8176CE /* Onboarding.swift */,
 				FAD156401813A36F4B8FFB7D /* Prompts.swift */,
 				F6E3F811455ACCFD649BCBFF /* Settings.swift */,
 				C7EA3A14A4BC00F668D12BBA /* Snippets.swift */,
 				7FBC1D81F0E448A8F026F8B4 /* Updates.swift */,
+				BA10070FFF99BDDCE4514966 /* TextSwitcher */,
 			);
 			path = Dictum;
 			sourceTree = "<group>";
@@ -179,11 +217,21 @@
 				7CB79CCCF1DADF821F5D6945 /* History.swift in Sources */,
 				97F1E87700F8A58E12311006 /* Hotkeys.swift in Sources */,
 				E3498BA760FB5B3EF2937A63 /* InputModal.swift in Sources */,
+				4DF26863DDD5DCA22E5FC3F8 /* KeyboardEventMonitor.swift in Sources */,
+				1DDB930858661CE389EA157F /* KeyboardLayoutManager.swift in Sources */,
+				14F8066447CBE7F73747AA2D /* Notes.swift in Sources */,
 				61B774BE111F9A36F710D9A7 /* Onboarding.swift in Sources */,
 				C3FC8A79D0B6C366C1C429C0 /* Prompts.swift in Sources */,
+				241A6DEB230434FA1E30B71D /* SecureFieldDetector.swift in Sources */,
 				9F79EEE2C0F3CC4164049680 /* Settings.swift in Sources */,
+				C0B52E9766479BA23D2330EA /* ShiftTapHandler.swift in Sources */,
 				4F05D3BC06A0A08DB81CE198 /* Snippets.swift in Sources */,
+				67BD7999C111DB4346863C47 /* TextConverter.swift in Sources */,
+				EC3900025FEF2A3A5BB92082 /* TextSwitcherConfig.swift in Sources */,
+				2D032BAC5D34D7DB86AAE417 /* TextSwitcherManager.swift in Sources */,
+				15B8072BD589E803F87AD3BF /* TextSwitcherSettingsView.swift in Sources */,
 				4C8C41D8611BBE119F4411FD /* Updates.swift in Sources */,
+				42BE99D789EA458CF5B07F8D /* WordValidator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

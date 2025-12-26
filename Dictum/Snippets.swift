@@ -230,29 +230,53 @@ struct SnippetsPanel: View {
             }
         }
         .background(Color.black.opacity(0.2))
-        .sheet(item: $editingSnippet) { snippet in
-            SnippetEditView(
-                snippet: snippet,
-                onSave: { updated in
-                    snippetsManager.updateSnippet(updated)
-                    editingSnippet = nil
-                },
-                onCancel: {
-                    editingSnippet = nil
-                }
-            )
+        .overlay {
+            if let snippet = editingSnippet {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        editingSnippet = nil
+                    }
+
+                SnippetEditView(
+                    snippet: snippet,
+                    onSave: { updated in
+                        snippetsManager.updateSnippet(updated)
+                        editingSnippet = nil
+                    },
+                    onCancel: {
+                        editingSnippet = nil
+                    },
+                    onDelete: {
+                        snippetsManager.deleteSnippet(snippet)
+                        editingSnippet = nil
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
         }
-        .sheet(isPresented: $showAddSheet) {
-            SnippetAddView(
-                onSave: { newSnippet in
-                    snippetsManager.addSnippet(newSnippet)
-                    showAddSheet = false
-                },
-                onCancel: {
-                    showAddSheet = false
-                }
-            )
+        .animation(.easeOut(duration: 0.15), value: editingSnippet)
+        .overlay {
+            if showAddSheet {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        showAddSheet = false
+                    }
+
+                SnippetAddView(
+                    onSave: { newSnippet in
+                        snippetsManager.addSnippet(newSnippet)
+                        showAddSheet = false
+                    },
+                    onCancel: {
+                        showAddSheet = false
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
         }
+        .animation(.easeOut(duration: 0.15), value: showAddSheet)
     }
 }
 
@@ -265,10 +289,9 @@ struct SnippetRowView: View {
     let onInsert: () -> Void
 
     @State private var isHovered = false
-    @State private var isExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 12) {
                 // Звезда избранного
                 Button(action: onToggleFavorite) {
@@ -297,128 +320,248 @@ struct SnippetRowView: View {
 
                 Spacer()
 
-                // Expand/collapse
-                Button(action: { isExpanded.toggle() }) {
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10))
-                        .foregroundColor(.gray)
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                // Actions
+                // Actions (показываются при наведении)
                 if isHovered {
-                    HStack(spacing: 8) {
-                        Button(action: onEdit) {
-                            Image(systemName: "pencil")
-                                .font(.system(size: 11))
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .foregroundColor(.gray)
-
-                        Button(action: onDelete) {
-                            Image(systemName: "trash")
-                                .font(.system(size: 11))
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .foregroundColor(.red.opacity(0.7))
+                    Button(action: onEdit) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 11))
                     }
+                    .buttonStyle(PlainButtonStyle())
+                    .foregroundColor(.gray)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-            .background(isHovered ? Color.white.opacity(0.05) : Color.clear)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onInsert)
-            .onHover { hovering in
-                isHovered = hovering
-            }
 
-            // Expanded content
-            if isExpanded {
-                Text(snippet.content)
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .lineLimit(3)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 10)
-            }
+            // Content preview (всегда видно)
+            Text(snippet.content)
+                .font(.system(size: 11))
+                .foregroundColor(.gray)
+                .lineLimit(2)
+                .padding(.leading, 46) // Выравнивание с title (star + badge)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(isHovered ? Color.white.opacity(0.05) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onInsert)
+        .onHover { hovering in
+            isHovered = hovering
         }
     }
 }
 
-// MARK: - Snippet Edit View (Sheet)
+// MARK: - Snippet Edit View
 struct SnippetEditView: View {
     let snippet: Snippet
     let onSave: (Snippet) -> Void
     let onCancel: () -> Void
+    var onDelete: (() -> Void)? = nil
 
     @State private var editedShortcut: String
     @State private var editedTitle: String
     @State private var editedContent: String
+    @State private var showDeleteConfirm = false
+    @FocusState private var isShortcutFocused: Bool
 
-    init(snippet: Snippet, onSave: @escaping (Snippet) -> Void, onCancel: @escaping () -> Void) {
+    init(snippet: Snippet, onSave: @escaping (Snippet) -> Void, onCancel: @escaping () -> Void, onDelete: (() -> Void)? = nil) {
         self.snippet = snippet
         self.onSave = onSave
         self.onCancel = onCancel
+        self.onDelete = onDelete
         _editedShortcut = State(initialValue: snippet.shortcut)
         _editedTitle = State(initialValue: snippet.title)
         _editedContent = State(initialValue: snippet.content)
     }
 
+    private var canSave: Bool {
+        !editedShortcut.isEmpty && !editedContent.isEmpty
+    }
+
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Редактировать сниппет")
-                .font(.system(size: 16, weight: .semibold))
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Редактировать сниппет")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: onCancel) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .padding(8)
+                        .background(Circle().fill(Color.white.opacity(0.1)))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
 
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Shortcut (2-6 символов)")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextField("addr", text: $editedShortcut)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
+            // Fields
+            VStack(spacing: 16) {
+                // Shortcut + Название в одной строке
+                HStack(alignment: .top, spacing: 12) {
+                    // Shortcut (30%)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Shortcut")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                        TextField("addr", text: $editedShortcut)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .font(.system(size: 15))
+                            .foregroundColor(.white)
+                            .tint(DesignSystem.Colors.accent)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white.opacity(0.05))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                            )
+                            .focused($isShortcutFocused)
+                    }
+                    .frame(width: 100)
+
+                    // Название (70%)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Название")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                        TextField("Домашний адрес", text: $editedTitle)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .font(.system(size: 15))
+                            .foregroundColor(.white)
+                            .tint(DesignSystem.Colors.accent)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white.opacity(0.05))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                            )
+                    }
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Название")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextField("Домашний адрес", text: $editedTitle)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Текст сниппета")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
                     TextEditor(text: $editedContent)
-                        .font(.system(size: 13))
-                        .frame(height: 120)
-                        .border(Color.gray.opacity(0.3), width: 1)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                        .tint(DesignSystem.Colors.accent)
+                        .scrollContentBackground(.hidden)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                        )
+                        .frame(height: 150)
                 }
             }
+            .padding(.horizontal, 24)
 
+            Spacer(minLength: 0)
+
+            // Footer
             HStack {
-                Button("Отмена") { onCancel() }
-                    .keyboardShortcut(.escape)
+                if let deleteAction = onDelete {
+                    Button(action: { showDeleteConfirm = true }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash")
+                            Text("Удалить")
+                        }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.red.opacity(0.8))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.red.opacity(0.1)))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .alert("Удалить сниппет?", isPresented: $showDeleteConfirm) {
+                        Button("Отмена", role: .cancel) { }
+                        Button("Удалить", role: .destructive) { deleteAction() }
+                    } message: {
+                        Text("Это действие нельзя отменить")
+                    }
+                }
+
+                Button(action: onCancel) {
+                    Text("Отмена")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.white.opacity(0.08))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+
                 Spacer()
-                Button("Сохранить") {
+
+                Button(action: {
                     var updated = snippet
                     updated.shortcut = editedShortcut
                     updated.title = editedTitle
                     updated.content = editedContent
                     onSave(updated)
+                }) {
+                    HStack(spacing: 6) {
+                        Text("Сохранить")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("↵")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.white.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(canSave ? DesignSystem.Colors.accent : Color.gray.opacity(0.3)))
                 }
-                .keyboardShortcut(.return)
-                .disabled(editedShortcut.isEmpty || editedContent.isEmpty)
+                .buttonStyle(PlainButtonStyle())
+                .disabled(!canSave)
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
         }
-        .padding(20)
-        .frame(width: 400)
+        .frame(width: 720, height: 450)
+        .background(
+            RoundedRectangle(cornerRadius: 26)
+                .fill(Color(red: 24/255, green: 24/255, blue: 26/255))
+                // БЕЗ shadow! Тень обрезается границами окна
+        )
+        .background(
+            VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+                .clipShape(RoundedRectangle(cornerRadius: 26))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+        .focusable()
+        .focusEffectDisabled()
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isShortcutFocused = true }
+        }
+        .onKeyPress(.escape) { onCancel(); return .handled }
+        .onKeyPress(.return) {
+            if canSave {
+                var updated = snippet
+                updated.shortcut = editedShortcut
+                updated.title = editedTitle
+                updated.content = editedContent
+                onSave(updated)
+            }
+            return .handled
+        }
     }
 }
 
-// MARK: - Snippet Add View (Sheet)
+// MARK: - Snippet Add View
 struct SnippetAddView: View {
     let onSave: (Snippet) -> Void
     let onCancel: () -> Void
@@ -426,58 +569,552 @@ struct SnippetAddView: View {
     @State private var shortcut: String = ""
     @State private var title: String = ""
     @State private var content: String = ""
+    @FocusState private var isShortcutFocused: Bool
+
+    private var canSave: Bool {
+        !shortcut.isEmpty && !content.isEmpty
+    }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Новый сниппет")
-                .font(.system(size: 16, weight: .semibold))
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Новый сниппет")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: onCancel) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .padding(8)
+                        .background(Circle().fill(Color.white.opacity(0.1)))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
 
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Shortcut (2-6 символов)")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextField("addr", text: $shortcut)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
+            // Fields
+            VStack(spacing: 16) {
+                // Shortcut + Название в одной строке
+                HStack(alignment: .top, spacing: 12) {
+                    // Shortcut (30%)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Shortcut")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                        TextField("addr", text: $shortcut)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .font(.system(size: 15))
+                            .foregroundColor(.white)
+                            .tint(DesignSystem.Colors.accent)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white.opacity(0.05))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                            )
+                            .focused($isShortcutFocused)
+                    }
+                    .frame(width: 100)
+
+                    // Название (70%)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Название")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                        TextField("Домашний адрес", text: $title)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .font(.system(size: 15))
+                            .foregroundColor(.white)
+                            .tint(DesignSystem.Colors.accent)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white.opacity(0.05))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                            )
+                    }
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Название")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                    TextField("Домашний адрес", text: $title)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Текст сниппета")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
                     TextEditor(text: $content)
-                        .font(.system(size: 13))
-                        .frame(height: 120)
-                        .border(Color.gray.opacity(0.3), width: 1)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                        .tint(DesignSystem.Colors.accent)
+                        .scrollContentBackground(.hidden)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                        )
+                        .frame(height: 150)
+                }
+            }
+            .padding(.horizontal, 24)
+
+            Spacer(minLength: 0)
+
+            // Footer
+            HStack {
+                Button(action: onCancel) {
+                    Text("Отмена")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.white.opacity(0.08))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                Spacer()
+
+                Button(action: {
+                    let newSnippet = Snippet.create(shortcut: shortcut, title: title, content: content)
+                    onSave(newSnippet)
+                }) {
+                    HStack(spacing: 6) {
+                        Text("Добавить")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("↵")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.white.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(canSave ? DesignSystem.Colors.accent : Color.gray.opacity(0.3)))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(!canSave)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+        }
+        .frame(width: 720, height: 450)
+        .background(
+            RoundedRectangle(cornerRadius: 26)
+                .fill(Color(red: 24/255, green: 24/255, blue: 26/255))
+                // БЕЗ shadow! Тень обрезается границами окна
+        )
+        .background(
+            VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+                .clipShape(RoundedRectangle(cornerRadius: 26))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+        .focusable()
+        .focusEffectDisabled()
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isShortcutFocused = true }
+        }
+        .onKeyPress(.escape) { onCancel(); return .handled }
+        .onKeyPress(.return) {
+            if canSave {
+                let newSnippet = Snippet.create(shortcut: shortcut, title: title, content: content)
+                onSave(newSnippet)
+            }
+            return .handled
+        }
+    }
+}
+
+// MARK: - Snippets Modal Row View
+struct SnippetsModalRowView: View {
+    let snippet: Snippet
+    var isSelected: Bool = false
+    var isExpanded: Bool = false
+    var isKeyboardNavigating: Bool = false
+    let onTap: () -> Void
+    @State private var isHovered = false
+
+    private var isHighlighted: Bool {
+        isSelected || isHovered
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Звезда избранного
+            Image(systemName: snippet.isFavorite ? "star.fill" : "star")
+                .font(.system(size: 12))
+                .foregroundColor(snippet.isFavorite ? .yellow : .gray)
+
+            // Shortcut badge
+            Text(snippet.shortcut)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isHighlighted ? DesignSystem.Colors.accent.opacity(0.3) : DesignSystem.Colors.accent.opacity(0.2))
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(snippet.title)
+                    .foregroundColor(.white)
+                    .font(.system(size: 14))
+                    .lineLimit(isExpanded ? nil : 1)
+
+                if isExpanded {
+                    Text(snippet.content)
+                        .foregroundColor(.gray)
+                        .font(.system(size: 12))
+                        .lineLimit(3)
                 }
             }
 
-            HStack {
-                Button("Отмена") { onCancel() }
-                    .keyboardShortcut(.escape)
-                Spacer()
-                Button("Добавить") {
-                    let newSnippet = Snippet.create(
-                        shortcut: shortcut,
-                        title: title,
-                        content: content
-                    )
-                    onSave(newSnippet)
-                }
-                .keyboardShortcut(.return)
-                .disabled(shortcut.isEmpty || content.isEmpty)
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(isHighlighted ? Color(red: 36/255, green: 36/255, blue: 37/255) : Color.clear)  // #242425
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
+        .onHover { hovering in
+            if !isKeyboardNavigating {
+                isHovered = hovering
             }
         }
-        .padding(20)
-        .frame(width: 400)
     }
+}
+
+// MARK: - Snippets Modal View
+struct SnippetsModalView: View {
+    @Binding var isPresented: Bool
+    let onSelect: (Snippet) -> Void
+
+    @State private var searchQuery = ""
+    @State private var selectedIndex = 0
+    @State private var expandedIndex: Int? = nil
+    @State private var isKeyboardNavigating = false
+    @State private var mouseMonitor: Any?
+    @State private var showAddSheet = false
+    @FocusState private var isSearchFocused: Bool
+
+    private var filteredItems: [Snippet] {
+        let all = SnippetsManager.shared.allSnippets
+        if searchQuery.isEmpty {
+            return all
+        }
+        let query = searchQuery.lowercased()
+        return all.filter {
+            $0.shortcut.lowercased().contains(query) ||
+            $0.title.lowercased().contains(query) ||
+            $0.content.lowercased().contains(query)
+        }
+    }
+
+    // MARK: - Search Field
+
+    private var searchFieldView: some View {
+        HStack(spacing: 12) {
+            // Поле поиска (capsule)
+            HStack(spacing: 12) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.3))
+
+                TextField("Поиск сниппетов...", text: $searchQuery)
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.9))
+                    .focused($isSearchFocused)
+                    .onSubmit {
+                        if selectedIndex < filteredItems.count {
+                            onSelect(filteredItems[selectedIndex])
+                            isPresented = false
+                        }
+                    }
+
+                if !searchQuery.isEmpty {
+                    Button(action: {
+                        searchQuery = ""
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white.opacity(0.4))
+                            .padding(4)
+                            .background(Circle().fill(Color.white.opacity(0.1)))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                // Hotkey badge ⌘2
+                HStack(spacing: 2) {
+                    Text("⌘")
+                        .font(.system(size: 11))
+                    Text("2")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundColor(.white.opacity(0.3))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.white.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
+                .cornerRadius(4)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.05))
+                    .overlay(Capsule().stroke(Color.white.opacity(0.1), lineWidth: 1))
+            )
+
+            // Кнопка создания — круглая зелёная 32×32
+            Button(action: { showAddSheet = true }) {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(DesignSystem.Colors.accent))
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 20)
+        .padding(.bottom, 20)
+    }
+
+    // MARK: - Results List
+
+    private var resultsListView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, snippet in
+                        SnippetsModalRowView(
+                            snippet: snippet,
+                            isSelected: index == selectedIndex,
+                            isExpanded: index == expandedIndex,
+                            isKeyboardNavigating: isKeyboardNavigating,
+                            onTap: {
+                                onSelect(snippet)
+                                isPresented = false
+                            }
+                        )
+                        .id(index)
+                    }
+                }
+            }
+            .onChange(of: selectedIndex) { _, newIndex in
+                withAnimation(.easeOut(duration: 0.1)) {
+                    proxy.scrollTo(newIndex, anchor: nil)
+                }
+            }
+        }
+        .frame(maxHeight: 320)
+    }
+
+    // MARK: - Empty State
+
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: searchQuery.isEmpty ? "doc.text" : "magnifyingglass")
+                .font(.system(size: 40))
+                .foregroundColor(.white.opacity(0.2))
+            Text(searchQuery.isEmpty ? "Нет сниппетов" : "Ничего не найдено")
+                .font(.system(size: 15))
+                .foregroundColor(.white.opacity(0.4))
+
+            if searchQuery.isEmpty {
+                Button(action: { showAddSheet = true }) {
+                    Text("Создать сниппет")
+                        .font(.system(size: 13))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.vertical, 60)
+    }
+
+    // MARK: - Footer
+
+    private var footerView: some View {
+        HStack {
+            // Кнопка отмены слева
+            Button(action: { isPresented = false }) {
+                Text("Отмена")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Spacer()
+
+            // Все хоткеи справа
+            HStack(spacing: 20) {
+                hotkeyHint("ENTER", "вставить")
+                hotkeyHint("↑↓", "навигация")
+                hotkeyHint("←→", "свернуть")
+                hotkeyHint("ESC", "закрыть")
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 14)
+        .background(Color(red: 39/255, green: 39/255, blue: 41/255))  // #272729
+    }
+
+    private func hotkeyHint(_ key: String, _ label: String) -> some View {
+        HStack(spacing: 8) {
+            Text(key)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.5))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(Color.white.opacity(0.08))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                .cornerRadius(4)
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.4))
+        }
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        ZStack {
+            // MARK: - Main Content
+            VStack(spacing: 0) {
+                searchFieldView
+
+                if filteredItems.isEmpty {
+                    emptyStateView
+                } else {
+                    resultsListView
+                }
+
+                Spacer(minLength: 0)
+
+                footerView
+            }
+            .frame(width: 720, height: 450)
+            .background(
+                RoundedRectangle(cornerRadius: 26)
+                    .fill(Color(red: 24/255, green: 24/255, blue: 26/255))
+                    // БЕЗ shadow! Тень обрезается границами окна
+            )
+            .background(
+                VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+                    .clipShape(RoundedRectangle(cornerRadius: 26))
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 26))
+            .overlay(
+                RoundedRectangle(cornerRadius: 26)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            )
+            .opacity(showAddSheet ? 0 : 1)  // Скрываем при показе Add View
+
+            // MARK: - Add Snippet Overlay
+            if showAddSheet {
+                SnippetAddView(
+                    onSave: { snippet in
+                        SnippetsManager.shared.addSnippet(snippet)
+                        showAddSheet = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            isSearchFocused = true
+                        }
+                    },
+                    onCancel: {
+                        showAddSheet = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            isSearchFocused = true
+                        }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: showAddSheet)
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(.downArrow) {
+            isKeyboardNavigating = true
+            if selectedIndex < filteredItems.count - 1 {
+                selectedIndex += 1
+            }
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            isKeyboardNavigating = true
+            if selectedIndex > 0 {
+                selectedIndex -= 1
+            }
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            expandedIndex = selectedIndex
+            return .handled
+        }
+        .onKeyPress(.leftArrow) {
+            expandedIndex = nil
+            return .handled
+        }
+        .onKeyPress(.return) {
+            if selectedIndex < filteredItems.count {
+                onSelect(filteredItems[selectedIndex])
+                isPresented = false
+            }
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            NotificationCenter.default.post(name: .toggleSnippetsModal, object: nil)
+            return .handled
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isSearchFocused = true
+            }
+            mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { event in
+                isKeyboardNavigating = false
+                return event
+            }
+        }
+        .onDisappear {
+            if let monitor = mouseMonitor {
+                NSEvent.removeMonitor(monitor)
+                mouseMonitor = nil
+            }
+        }
+        .onChange(of: searchQuery) { _, _ in
+            selectedIndex = 0
+        }
+    }
+}
+
+// MARK: - SwiftUI Previews
+#Preview("SnippetsModalView") {
+    SnippetsModalView(
+        isPresented: .constant(true),
+        onSelect: { _ in }
+    )
+    .frame(width: 800, height: 500)
+    .background(Color.black.opacity(0.5))
 }
 

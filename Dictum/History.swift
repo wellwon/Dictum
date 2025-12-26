@@ -23,6 +23,14 @@ struct HistoryItem: Codable, Identifiable, Equatable {
         self.wordCount = text.split(separator: " ").count
     }
 
+    init(id: String, text: String, timestamp: Date) {
+        self.id = id
+        self.text = text
+        self.timestamp = timestamp
+        self.charCount = text.count
+        self.wordCount = text.split(separator: " ").count
+    }
+
     var timeAgo: String {
         let interval = Date().timeIntervalSince(timestamp)
         if interval < 60 { return "Только что" }
@@ -90,6 +98,26 @@ class HistoryManager: ObservableObject, @unchecked Sendable {
 
     func getHistoryCount() -> Int {
         return history.count
+    }
+
+    func delete(_ item: HistoryItem) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.history.removeAll { $0.id == item.id }
+            self.saveHistory()
+            NSLog("🗑️ History item deleted")
+        }
+    }
+
+    func update(_ item: HistoryItem, text: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            if let index = self.history.firstIndex(where: { $0.id == item.id }) {
+                self.history[index] = HistoryItem(id: item.id, text: text, timestamp: item.timestamp)
+                self.saveHistory()
+                NSLog("✏️ History item updated")
+            }
+        }
     }
 
     private func loadHistory() {
@@ -174,7 +202,7 @@ struct HistoryListView: View {
         HStack(spacing: 2) {
             Text("⌘")
                 .font(.system(size: 11))
-            Text("K")
+            Text("4")
                 .font(.system(size: 10, weight: .medium))
         }
         .foregroundColor(.white.opacity(0.3))
@@ -295,6 +323,8 @@ struct HistoryRowView: View {
     var isExpanded: Bool = false
     var isKeyboardNavigating: Bool = false
     let onTap: () -> Void
+    var onEdit: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
     @State private var isHovered = false
 
     private var isHighlighted: Bool {
@@ -303,10 +333,6 @@ struct HistoryRowView: View {
 
     var body: some View {
         HStack {
-            Image(systemName: "clock.arrow.circlepath")
-                .foregroundColor(isHighlighted ? .white : .gray)
-                .font(.system(size: 14))
-
             Text(item.text)
                 .foregroundColor(.white)
                 .font(.system(size: 14))
@@ -330,6 +356,25 @@ struct HistoryRowView: View {
                 isHovered = hovering
             }
         }
+        .contextMenu {
+            if let onEdit = onEdit {
+                Button {
+                    onEdit()
+                } label: {
+                    Label("Редактировать", systemImage: "pencil")
+                }
+            }
+
+            if let onDelete = onDelete {
+                Divider()
+
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Удалить", systemImage: "trash")
+                }
+            }
+        }
     }
 }
 
@@ -343,6 +388,8 @@ struct HistoryModalView: View {
     @State private var expandedIndex: Int? = nil
     @State private var isKeyboardNavigating = false
     @State private var mouseMonitor: Any?
+    @State private var itemToDelete: HistoryItem? = nil
+    @State private var itemToEdit: HistoryItem? = nil
     @FocusState private var isSearchFocused: Bool
 
     // Computed property — пересчитывается при каждом изменении searchQuery
@@ -388,11 +435,11 @@ struct HistoryModalView: View {
                 .buttonStyle(PlainButtonStyle())
             }
 
-            // Hotkey badge ⌘K
+            // Hotkey badge ⌘4
             HStack(spacing: 2) {
                 Text("⌘")
                     .font(.system(size: 11))
-                Text("K")
+                Text("4")
                     .font(.system(size: 10, weight: .medium))
             }
             .foregroundColor(.white.opacity(0.3))
@@ -432,6 +479,12 @@ struct HistoryModalView: View {
                             onTap: {
                                 onSelect(item)
                                 isPresented = false
+                            },
+                            onEdit: {
+                                itemToEdit = item
+                            },
+                            onDelete: {
+                                itemToDelete = item
                             }
                         )
                         .id(index)
@@ -466,13 +519,26 @@ struct HistoryModalView: View {
 
     private var footerView: some View {
         HStack {
+            // Кнопка отмены слева
+            Button(action: { isPresented = false }) {
+                Text("Отмена")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Spacer()
+
+            // Все хоткеи справа
             HStack(spacing: 20) {
                 hotkeyHint("ENTER", "выбрать")
                 hotkeyHint("↑↓", "навигация")
-                hotkeyHint("← →", "свернуть/развернуть")
+                hotkeyHint("←→", "свернуть")
+                hotkeyHint("ESC", "закрыть")
             }
-            Spacer()
-            hotkeyHint("ESC", "закрыть")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 14)
@@ -581,6 +647,91 @@ struct HistoryModalView: View {
         .onChange(of: searchQuery) { _, _ in
             // Сбросить выделение при изменении поиска
             selectedIndex = 0
+        }
+        .alert("Удалить запись?", isPresented: .init(
+            get: { itemToDelete != nil },
+            set: { if !$0 { itemToDelete = nil } }
+        )) {
+            Button("Отмена", role: .cancel) { itemToDelete = nil }
+            Button("Удалить", role: .destructive) {
+                if let item = itemToDelete {
+                    HistoryManager.shared.delete(item)
+                }
+                itemToDelete = nil
+            }
+        } message: {
+            Text("Вы уверены? Это действие нельзя отменить")
+        }
+        .sheet(item: $itemToEdit) { item in
+            HistoryEditSheet(item: item) { updatedText in
+                HistoryManager.shared.update(item, text: updatedText)
+                itemToEdit = nil
+            }
+        }
+    }
+}
+
+// MARK: - History Edit Sheet
+struct HistoryEditSheet: View {
+    let item: HistoryItem
+    let onSave: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String = ""
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Редактировать запись")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
+
+            // Text editor
+            TextEditor(text: $text)
+                .font(.system(size: 14))
+                .foregroundColor(.white)
+                .scrollContentBackground(.hidden)
+                .background(Color.white.opacity(0.05))
+                .cornerRadius(12)
+                .padding(.horizontal, 24)
+                .frame(minHeight: 150)
+
+            // Footer
+            HStack {
+                Button("Отмена") {
+                    dismiss()
+                }
+                .buttonStyle(PlainButtonStyle())
+                .foregroundColor(.white.opacity(0.6))
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
+
+                Spacer()
+
+                Button("Сохранить") {
+                    onSave(text)
+                    dismiss()
+                }
+                .buttonStyle(PlainButtonStyle())
+                .foregroundColor(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 10).fill(DesignSystem.Colors.accent))
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+        }
+        .frame(width: 500, height: 300)
+        .background(Color(red: 24/255, green: 24/255, blue: 26/255))
+        .onAppear {
+            text = item.text
         }
     }
 }

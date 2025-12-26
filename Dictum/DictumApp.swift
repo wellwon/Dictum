@@ -162,7 +162,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var statusItem: NSStatusItem?
     var window: NSWindow?
     var settingsWindow: NSWindow?
-    var historyWindow: NSWindow?  // Отдельное окно для истории
+    var historyWindow: NSWindow?  // Отдельное окно для истории (CMD+4)
+    var promptsWindow: NSWindow?  // Окно AI промптов (CMD+1)
+    var snippetsWindow: NSWindow?  // Окно сниппетов (CMD+2)
+    var notesWindow: NSWindow?  // Окно заметок (CMD+3)
     var onboardingWindow: NSWindow?  // Окно первоначальной настройки
     var hotKeyRefs: [EventHotKeyRef] = []
     var localEventMonitor: Any?
@@ -176,6 +179,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     var screenshotNotificationWindow: NSWindow?  // Окно уведомления о скриншоте
     private var settingsKeyMonitor: Any?  // ESC monitor для закрытия настроек
+    private var lastToggleTime: Date = .distantPast  // Debouncing для toggle записи (§/`)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Убить предыдущие экземпляры приложения (при пересборке)
@@ -200,7 +204,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // При первом запуске модель скачается в onboarding по кнопке
         if SettingsManager.shared.hasCompletedOnboarding && SettingsManager.shared.asrProviderType == .local {
             Task {
+                // Сначала проверяем статус файлов модели
+                await ParakeetASRProvider.shared.checkModelStatus()
+                // Затем загружаем модель в память (если файлы есть)
                 await ParakeetASRProvider.shared.initializeModelsIfNeeded()
+                NSLog("✅ Локальная модель загружена при старте приложения")
             }
         }
 
@@ -209,6 +217,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Хоткеи
         setupHotKeys()
+
+        // TextSwitcher — запускаем если включён
+        if TextSwitcherConfig.shared.enabled {
+            Task { @MainActor in
+                TextSwitcherManager.shared.start()
+            }
+        }
 
         // Окно
         setupWindow()
@@ -221,6 +236,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(disableGlobalHotkeys), name: .disableGlobalHotkeys, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(enableGlobalHotkeys), name: .enableGlobalHotkeys, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(toggleHistoryWindow), name: .toggleHistoryModal, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(togglePromptsWindow), name: .togglePromptsModal, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(toggleSnippetsWindow), name: .toggleSnippetsModal, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(toggleNotesWindow), name: .toggleNotesModal, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleOnboardingCompleted), name: .onboardingCompleted, object: nil)
 
         // Авто-проверка Accessibility при возврате в приложение
@@ -648,10 +666,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 )
 
                 // Обрабатываем в зависимости от ID
-                if hotKeyID.id == 6 {
+                switch hotKeyID.id {
+                case 6:
                     // Screenshot hotkey
                     appDelegate.handleScreenshotHotkey()
-                } else {
+                case 10:
+                    // CMD+1 = Промпты
+                    appDelegate.togglePromptsWindow()
+                case 11:
+                    // CMD+2 = Сниппеты
+                    appDelegate.toggleSnippetsWindow()
+                case 12:
+                    // CMD+3 = Заметки
+                    appDelegate.toggleNotesWindow()
+                case 13:
+                    // CMD+4 = История
+                    appDelegate.toggleHistoryWindow()
+                default:
                     // Toggle window hotkeys (1-5)
                     appDelegate.toggleWindow()
                 }
@@ -665,16 +696,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         )
 
         // Регистрируем настроенный хоткей с модификаторами (если есть)
+        // ВАЖНО: Регистрируем только ОДИН keyCode — тот что в настройках
+        // Двойная регистрация (ISO + ANSI) вызывала конфликты и double-triggering
         if hotkey.modifiers != 0 {
             registerCarbonHotKey(keyCode: UInt32(hotkey.keyCode), modifiers: hotkey.modifiers, id: 1)
-
-            // Если это § или ` — регистрируем также альтернативную клавишу
-            // для совместимости с разными раскладками клавиатуры (ISO vs ANSI)
-            if hotkey.keyCode == 10 { // § (ISO)
-                registerCarbonHotKey(keyCode: 50, modifiers: hotkey.modifiers, id: 2) // ` (ANSI)
-            } else if hotkey.keyCode == 50 { // ` (ANSI)
-                registerCarbonHotKey(keyCode: 10, modifiers: hotkey.modifiers, id: 2) // § (ISO)
-            }
         }
 
         // Register screenshot hotkey (ID=6) if feature is enabled
@@ -687,6 +712,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             )
             NSLog("📸 Screenshot hotkey registered: \(screenshotHotkey.displayString)")
         }
+
+        // Register modal hotkeys (CMD+1/2/3/4)
+        // CMD+1 = Промпты (keyCode 18)
+        registerCarbonHotKey(keyCode: 18, modifiers: UInt32(cmdKey), id: 10)
+        // CMD+2 = Сниппеты (keyCode 19)
+        registerCarbonHotKey(keyCode: 19, modifiers: UInt32(cmdKey), id: 11)
+        // CMD+3 = Заметки (keyCode 20)
+        registerCarbonHotKey(keyCode: 20, modifiers: UInt32(cmdKey), id: 12)
+        // CMD+4 = История (keyCode 21)
+        registerCarbonHotKey(keyCode: 21, modifiers: UInt32(cmdKey), id: 13)
+        NSLog("⌨️ Modal hotkeys registered: CMD+1/2/3/4")
 
         // Локальный монитор (когда окно активно)
         // Перехватываем настроенный хоткей ДО того как символ попадёт в текстовое поле
@@ -701,6 +737,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                !event.modifierFlags.contains(.option) &&
                !event.modifierFlags.contains(.control) &&
                self?.window?.isVisible == true {
+                // Debouncing: игнорируем если прошло меньше 300ms
+                let now = Date()
+                if now.timeIntervalSince(self?.lastToggleTime ?? .distantPast) < 0.3 {
+                    return nil  // Поглощаем, но не отправляем notification
+                }
+                self?.lastToggleTime = now
+
                 // Отправляем notification для toggle записи
                 NotificationCenter.default.post(name: .toggleRecording, object: nil)
                 return nil  // Поглощаем — символ не попадёт в текстовое поле
@@ -807,6 +850,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let hostingView = NSHostingView(rootView: contentView)
         hostingView.wantsLayer = true
         hostingView.layer?.masksToBounds = true  // Обрезать по границам окна
+        hostingView.layer?.cornerRadius = 26  // Синхронизировать с SwiftUI clipShape
+        hostingView.layer?.shadowOpacity = 0  // Явно отключить тень на слое
         panel.contentView = hostingView
 
         self.window = panel
@@ -1097,6 +1142,196 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
     }
 
+    // MARK: - Prompts Modal (CMD+1)
+
+    @objc func togglePromptsWindow() {
+        if promptsWindow?.isVisible == true {
+            promptsWindow?.close()
+            promptsWindow = nil
+        } else {
+            showPromptsWindow()
+        }
+    }
+
+    func showPromptsWindow() {
+        // Закрываем если уже открыто
+        if promptsWindow != nil {
+            promptsWindow?.close()
+            promptsWindow = nil
+        }
+
+        let modalWidth: CGFloat = 720
+        let modalHeight: CGFloat = 450
+
+        let panel = FloatingPanel(
+            contentRect: NSRect(x: 0, y: 0, width: modalWidth, height: modalHeight),
+            styleMask: [.nonactivatingPanel, .fullSizeContentView, .borderless],
+            backing: .buffered,
+            defer: false
+        )
+
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.isMovableByWindowBackground = true
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+
+        let promptsView = PromptsModalView(
+            isPresented: .constant(true),
+            onSelect: { [weak self] prompt in
+                NotificationCenter.default.post(name: .promptSelected, object: prompt)
+                self?.promptsWindow?.close()
+                self?.promptsWindow = nil
+            }
+        )
+
+        let hostingView = NSHostingView(rootView: promptsView)
+        panel.contentView = hostingView
+
+        if let mainWindow = window, mainWindow.isVisible {
+            let mainFrame = mainWindow.frame
+            let x = mainFrame.origin.x + (mainFrame.width - modalWidth) / 2
+            let y = mainFrame.origin.y + (mainFrame.height - modalHeight) / 2
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+        } else {
+            panel.center()
+        }
+
+        promptsWindow = panel
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    // MARK: - Snippets Modal (CMD+2)
+
+    @objc func toggleSnippetsWindow() {
+        if snippetsWindow?.isVisible == true {
+            snippetsWindow?.close()
+            snippetsWindow = nil
+        } else {
+            showSnippetsWindow()
+        }
+    }
+
+    func showSnippetsWindow() {
+        if snippetsWindow != nil {
+            snippetsWindow?.close()
+            snippetsWindow = nil
+        }
+
+        let modalWidth: CGFloat = 720
+        let modalHeight: CGFloat = 450
+
+        let panel = FloatingPanel(
+            contentRect: NSRect(x: 0, y: 0, width: modalWidth, height: modalHeight),
+            styleMask: [.nonactivatingPanel, .fullSizeContentView, .borderless],
+            backing: .buffered,
+            defer: false
+        )
+
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.isMovableByWindowBackground = true
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+
+        let snippetsView = SnippetsModalView(
+            isPresented: .constant(true),
+            onSelect: { [weak self] snippet in
+                NotificationCenter.default.post(name: .snippetSelected, object: snippet)
+                self?.snippetsWindow?.close()
+                self?.snippetsWindow = nil
+            }
+        )
+
+        let hostingView = NSHostingView(rootView: snippetsView)
+        panel.contentView = hostingView
+
+        if let mainWindow = window, mainWindow.isVisible {
+            let mainFrame = mainWindow.frame
+            let x = mainFrame.origin.x + (mainFrame.width - modalWidth) / 2
+            let y = mainFrame.origin.y + (mainFrame.height - modalHeight) / 2
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+        } else {
+            panel.center()
+        }
+
+        snippetsWindow = panel
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    // MARK: - Notes Modal (CMD+3)
+
+    @objc func toggleNotesWindow() {
+        if notesWindow?.isVisible == true {
+            notesWindow?.close()
+            notesWindow = nil
+        } else {
+            showNotesWindow()
+        }
+    }
+
+    func showNotesWindow() {
+        if notesWindow != nil {
+            notesWindow?.close()
+            notesWindow = nil
+        }
+
+        let modalWidth: CGFloat = 720
+        let modalHeight: CGFloat = 450
+
+        let panel = FloatingPanel(
+            contentRect: NSRect(x: 0, y: 0, width: modalWidth, height: modalHeight),
+            styleMask: [.nonactivatingPanel, .fullSizeContentView, .borderless],
+            backing: .buffered,
+            defer: false
+        )
+
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.isMovableByWindowBackground = true
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+
+        let notesView = NotesModalView(
+            isPresented: .constant(true),
+            onSelect: { [weak self] note in
+                NotificationCenter.default.post(name: .noteSelected, object: note)
+                self?.notesWindow?.close()
+                self?.notesWindow = nil
+            }
+        )
+
+        let hostingView = NSHostingView(rootView: notesView)
+        panel.contentView = hostingView
+
+        if let mainWindow = window, mainWindow.isVisible {
+            let mainFrame = mainWindow.frame
+            let x = mainFrame.origin.x + (mainFrame.width - modalWidth) / 2
+            let y = mainFrame.origin.y + (mainFrame.height - modalHeight) / 2
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+        } else {
+            panel.center()
+        }
+
+        notesWindow = panel
+        panel.makeKeyAndOrderFront(nil)
+    }
+
     @objc func checkForUpdatesMenu() {
         UpdateManager.shared.checkForUpdates(force: true)
 
@@ -1146,6 +1381,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if closedWindow == historyWindow {
             historyWindow?.delegate = nil
             historyWindow = nil
+            return
+        }
+
+        // Окно промптов
+        if closedWindow == promptsWindow {
+            promptsWindow?.delegate = nil
+            promptsWindow = nil
+            return
+        }
+
+        // Окно сниппетов
+        if closedWindow == snippetsWindow {
+            snippetsWindow?.delegate = nil
+            snippetsWindow = nil
+            return
+        }
+
+        // Окно заметок
+        if closedWindow == notesWindow {
+            notesWindow?.delegate = nil
+            notesWindow = nil
             return
         }
 
