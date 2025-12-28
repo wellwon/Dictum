@@ -340,7 +340,7 @@ struct PromptEditView: View {
                             .textFieldStyle(PlainTextFieldStyle())
                             .font(.system(size: 15))
                             .foregroundColor(.white)
-                            .tint(DesignSystem.Colors.accent)
+                            .tint(.white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(
@@ -363,7 +363,7 @@ struct PromptEditView: View {
                             .textFieldStyle(PlainTextFieldStyle())
                             .font(.system(size: 15))
                             .foregroundColor(.white)
-                            .tint(DesignSystem.Colors.accent)
+                            .tint(.white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(
@@ -382,7 +382,7 @@ struct PromptEditView: View {
                     TextEditor(text: $editedPrompt)
                         .font(.system(size: 14))
                         .foregroundColor(.white)
-                        .tint(DesignSystem.Colors.accent)
+                        .tint(.white)
                         .scrollContentBackground(.hidden)
                         .padding(12)
                         .background(
@@ -517,7 +517,7 @@ struct PromptAddView: View {
                             .textFieldStyle(PlainTextFieldStyle())
                             .font(.system(size: 15))
                             .foregroundColor(.white)
-                            .tint(DesignSystem.Colors.accent)
+                            .tint(.white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(
@@ -538,7 +538,7 @@ struct PromptAddView: View {
                             .textFieldStyle(PlainTextFieldStyle())
                             .font(.system(size: 15))
                             .foregroundColor(.white)
-                            .tint(DesignSystem.Colors.accent)
+                            .tint(.white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(
@@ -557,7 +557,7 @@ struct PromptAddView: View {
                     TextEditor(text: $promptText)
                         .font(.system(size: 14))
                         .foregroundColor(.white)
-                        .tint(DesignSystem.Colors.accent)
+                        .tint(.white)
                         .scrollContentBackground(.hidden)
                         .padding(12)
                         .background(
@@ -565,7 +565,7 @@ struct PromptAddView: View {
                                 .fill(Color.white.opacity(0.05))
                                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
                         )
-                        .frame(height: 150)
+                        .frame(minHeight: 150, maxHeight: .infinity)
                 }
             }
             .padding(.horizontal, 24)
@@ -599,20 +599,12 @@ struct PromptAddView: View {
                     )
                     onSave(newPrompt)
                 }) {
-                    HStack(spacing: 6) {
-                        Text("Добавить")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("↵")
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Color.white.opacity(0.15))
-                            .cornerRadius(4)
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(canSave ? DesignSystem.Colors.accent : Color.gray.opacity(0.3)))
+                    Text("Добавить")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(canSave ? DesignSystem.Colors.accent : Color.gray.opacity(0.3)))
                 }
                 .buttonStyle(PlainButtonStyle())
                 .disabled(!canSave)
@@ -664,6 +656,8 @@ struct PromptsModalRowView: View {
     var isExpanded: Bool = false
     var isKeyboardNavigating: Bool = false
     let onTap: () -> Void
+    var onEdit: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
     @State private var isHovered = false
 
     private var isHighlighted: Bool {
@@ -726,6 +720,24 @@ struct PromptsModalRowView: View {
                 isHovered = hovering
             }
         }
+        .contextMenu {
+            if let onEdit = onEdit, !prompt.isSystem {
+                Button {
+                    onEdit()
+                } label: {
+                    Label("Редактировать", systemImage: "pencil")
+                }
+            }
+
+            if let onDelete = onDelete, !prompt.isSystem {
+                Divider()
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Удалить", systemImage: "trash")
+                }
+            }
+        }
     }
 }
 
@@ -740,6 +752,10 @@ struct PromptsModalView: View {
     @State private var isKeyboardNavigating = false
     @State private var mouseMonitor: Any?
     @State private var showAddSheet = false
+    @State private var showEditSheet = false
+    @State private var promptToEdit: CustomPrompt? = nil
+    @State private var showDeleteConfirm = false
+    @State private var promptToDelete: CustomPrompt? = nil
     @FocusState private var isSearchFocused: Bool
 
     private var filteredItems: [CustomPrompt] {
@@ -845,6 +861,14 @@ struct PromptsModalView: View {
                             onTap: {
                                 onSelect(prompt)
                                 isPresented = false
+                            },
+                            onEdit: prompt.isSystem ? nil : {
+                                promptToEdit = prompt
+                                showEditSheet = true
+                            },
+                            onDelete: prompt.isSystem ? nil : {
+                                promptToDelete = prompt
+                                showDeleteConfirm = true
                             }
                         )
                         .id(index)
@@ -1038,6 +1062,201 @@ struct PromptsModalView: View {
         }
         .onChange(of: searchQuery) { _, _ in
             selectedIndex = 0
+        }
+        .alert("Удалить промпт?", isPresented: $showDeleteConfirm) {
+            Button("Отмена", role: .cancel) {
+                promptToDelete = nil
+            }
+            Button("Удалить", role: .destructive) {
+                if let prompt = promptToDelete {
+                    PromptsManager.shared.deletePrompt(prompt)
+                    promptToDelete = nil
+                    // Сбросить индекс после удаления
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        let count = filteredItems.count
+                        if count == 0 {
+                            selectedIndex = 0
+                        } else if selectedIndex >= count {
+                            selectedIndex = count - 1
+                        }
+                    }
+                }
+            }
+        } message: {
+            Text("Это действие нельзя отменить")
+        }
+        .sheet(isPresented: $showEditSheet) {
+            if let prompt = promptToEdit {
+                PromptEditSheet(
+                    prompt: prompt,
+                    onSave: { updated in
+                        PromptsManager.shared.updatePrompt(updated)
+                        showEditSheet = false
+                        promptToEdit = nil
+                    },
+                    onCancel: {
+                        showEditSheet = false
+                        promptToEdit = nil
+                    }
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Prompt Edit Sheet
+struct PromptEditSheet: View {
+    let prompt: CustomPrompt
+    let onSave: (CustomPrompt) -> Void
+    let onCancel: () -> Void
+
+    @State private var label: String
+    @State private var description: String
+    @State private var promptText: String
+    @FocusState private var isLabelFocused: Bool
+
+    init(prompt: CustomPrompt, onSave: @escaping (CustomPrompt) -> Void, onCancel: @escaping () -> Void) {
+        self.prompt = prompt
+        self.onSave = onSave
+        self.onCancel = onCancel
+        self._label = State(initialValue: prompt.label)
+        self._description = State(initialValue: prompt.description)
+        self._promptText = State(initialValue: prompt.prompt)
+    }
+
+    private var canSave: Bool {
+        !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Редактировать промпт")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: onCancel) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .padding(8)
+                        .background(Circle().fill(Color.white.opacity(0.1)))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
+
+            // Form
+            VStack(spacing: 16) {
+                // Label
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Ярлык (2-4 символа)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                    TextField("WB", text: $label)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 15))
+                        .foregroundColor(.white)
+                        .tint(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                        )
+                        .focused($isLabelFocused)
+                }
+                .padding(.horizontal, 24)
+
+                // Description
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Описание")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                    TextField("Описание промпта", text: $description)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 15))
+                        .foregroundColor(.white)
+                        .tint(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                        )
+                }
+                .padding(.horizontal, 24)
+
+                // Prompt text
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Текст промпта")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                    TextEditor(text: $promptText)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                        .tint(.white)
+                        .scrollContentBackground(.hidden)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                        )
+                        .frame(minHeight: 150, maxHeight: .infinity)
+                }
+                .padding(.horizontal, 24)
+            }
+
+            Spacer(minLength: 0)
+
+            // Footer
+            HStack {
+                Button(action: onCancel) {
+                    Text("Отмена")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                Spacer()
+
+                Button(action: {
+                    var updated = prompt
+                    updated.label = label.trimmingCharacters(in: .whitespacesAndNewlines)
+                    updated.description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+                    updated.prompt = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    onSave(updated)
+                }) {
+                    Text("Сохранить")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(canSave ? DesignSystem.Colors.accent : Color.gray.opacity(0.3)))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(!canSave)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+        }
+        .frame(width: 500, height: 450)
+        .background(Color(red: 24/255, green: 24/255, blue: 26/255))
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isLabelFocused = true
+            }
         }
     }
 }

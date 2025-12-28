@@ -1178,7 +1178,6 @@ enum SettingsTab: String, CaseIterable {
     case enhancer = "Улучшайзер"
     case ai = "AI промпты"
     case snippets = "Сниппеты"
-    case textSwitcher = "Текст свитчер"
     case updates = "Обновления"
 
     var icon: String {
@@ -1190,7 +1189,6 @@ enum SettingsTab: String, CaseIterable {
         case .enhancer: return "wand.and.stars"
         case .ai: return "sparkles"
         case .snippets: return "text.quote"
-        case .textSwitcher: return "keyboard.badge.ellipsis"
         case .updates: return "arrow.triangle.2.circlepath"
         }
     }
@@ -1348,7 +1346,6 @@ struct SettingsView: View {
         case .enhancer: enhancerTabContent
         case .ai: aiTabContent
         case .snippets: snippetsTabContent
-        case .textSwitcher: TextSwitcherSettingsSection()
         case .updates: updatesTabContent
         }
     }

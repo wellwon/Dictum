@@ -11,6 +11,10 @@ packages:
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio.git
     from: 0.8.0
+  # MLX-Swift LLM для Qwen
+  MLXSwiftLM:
+    url: https://github.com/ml-explore/mlx-swift-lm
+    from: 2.29.1
 
 targets:
   Dictum:
@@ -51,5 +55,9 @@ targets:
     dependencies:
       - package: FluidAudio
         product: FluidAudio
+      - package: MLXSwiftLM
+        product: MLXLLM
+      - package: MLXSwiftLM
+        product: MLXLMCommon
     entitlements:
       path: Dictum.entitlements

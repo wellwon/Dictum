@@ -410,7 +410,7 @@ struct SnippetEditView: View {
                             .textFieldStyle(PlainTextFieldStyle())
                             .font(.system(size: 15))
                             .foregroundColor(.white)
-                            .tint(DesignSystem.Colors.accent)
+                            .tint(.white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(
@@ -431,7 +431,7 @@ struct SnippetEditView: View {
                             .textFieldStyle(PlainTextFieldStyle())
                             .font(.system(size: 15))
                             .foregroundColor(.white)
-                            .tint(DesignSystem.Colors.accent)
+                            .tint(.white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(
@@ -449,7 +449,7 @@ struct SnippetEditView: View {
                     TextEditor(text: $editedContent)
                         .font(.system(size: 14))
                         .foregroundColor(.white)
-                        .tint(DesignSystem.Colors.accent)
+                        .tint(.white)
                         .scrollContentBackground(.hidden)
                         .padding(12)
                         .background(
@@ -609,7 +609,7 @@ struct SnippetAddView: View {
                             .textFieldStyle(PlainTextFieldStyle())
                             .font(.system(size: 15))
                             .foregroundColor(.white)
-                            .tint(DesignSystem.Colors.accent)
+                            .tint(.white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(
@@ -630,7 +630,7 @@ struct SnippetAddView: View {
                             .textFieldStyle(PlainTextFieldStyle())
                             .font(.system(size: 15))
                             .foregroundColor(.white)
-                            .tint(DesignSystem.Colors.accent)
+                            .tint(.white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(
@@ -648,7 +648,7 @@ struct SnippetAddView: View {
                     TextEditor(text: $content)
                         .font(.system(size: 14))
                         .foregroundColor(.white)
-                        .tint(DesignSystem.Colors.accent)
+                        .tint(.white)
                         .scrollContentBackground(.hidden)
                         .padding(12)
                         .background(
@@ -656,7 +656,7 @@ struct SnippetAddView: View {
                                 .fill(Color.white.opacity(0.05))
                                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
                         )
-                        .frame(height: 150)
+                        .frame(minHeight: 150, maxHeight: .infinity)
                 }
             }
             .padding(.horizontal, 24)
@@ -684,20 +684,12 @@ struct SnippetAddView: View {
                     let newSnippet = Snippet.create(shortcut: shortcut, title: title, content: content)
                     onSave(newSnippet)
                 }) {
-                    HStack(spacing: 6) {
-                        Text("Добавить")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("↵")
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Color.white.opacity(0.15))
-                            .cornerRadius(4)
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(canSave ? DesignSystem.Colors.accent : Color.gray.opacity(0.3)))
+                    Text("Добавить")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(canSave ? DesignSystem.Colors.accent : Color.gray.opacity(0.3)))
                 }
                 .buttonStyle(PlainButtonStyle())
                 .disabled(!canSave)
@@ -740,6 +732,8 @@ struct SnippetsModalRowView: View {
     var isExpanded: Bool = false
     var isKeyboardNavigating: Bool = false
     let onTap: () -> Void
+    var onEdit: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
     @State private var isHovered = false
 
     private var isHighlighted: Bool {
@@ -792,6 +786,24 @@ struct SnippetsModalRowView: View {
                 isHovered = hovering
             }
         }
+        .contextMenu {
+            if let onEdit = onEdit {
+                Button {
+                    onEdit()
+                } label: {
+                    Label("Редактировать", systemImage: "pencil")
+                }
+            }
+
+            if let onDelete = onDelete {
+                Divider()
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Удалить", systemImage: "trash")
+                }
+            }
+        }
     }
 }
 
@@ -806,6 +818,10 @@ struct SnippetsModalView: View {
     @State private var isKeyboardNavigating = false
     @State private var mouseMonitor: Any?
     @State private var showAddSheet = false
+    @State private var showEditSheet = false
+    @State private var snippetToEdit: Snippet? = nil
+    @State private var showDeleteConfirm = false
+    @State private var snippetToDelete: Snippet? = nil
     @FocusState private var isSearchFocused: Bool
 
     private var filteredItems: [Snippet] {
@@ -911,6 +927,14 @@ struct SnippetsModalView: View {
                             onTap: {
                                 onSelect(snippet)
                                 isPresented = false
+                            },
+                            onEdit: {
+                                snippetToEdit = snippet
+                                showEditSheet = true
+                            },
+                            onDelete: {
+                                snippetToDelete = snippet
+                                showDeleteConfirm = true
                             }
                         )
                         .id(index)
@@ -1104,6 +1128,201 @@ struct SnippetsModalView: View {
         }
         .onChange(of: searchQuery) { _, _ in
             selectedIndex = 0
+        }
+        .alert("Удалить сниппет?", isPresented: $showDeleteConfirm) {
+            Button("Отмена", role: .cancel) {
+                snippetToDelete = nil
+            }
+            Button("Удалить", role: .destructive) {
+                if let snippet = snippetToDelete {
+                    SnippetsManager.shared.deleteSnippet(snippet)
+                    snippetToDelete = nil
+                    // Сбросить индекс после удаления
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        let count = filteredItems.count
+                        if count == 0 {
+                            selectedIndex = 0
+                        } else if selectedIndex >= count {
+                            selectedIndex = count - 1
+                        }
+                    }
+                }
+            }
+        } message: {
+            Text("Это действие нельзя отменить")
+        }
+        .sheet(isPresented: $showEditSheet) {
+            if let snippet = snippetToEdit {
+                SnippetEditSheet(
+                    snippet: snippet,
+                    onSave: { updated in
+                        SnippetsManager.shared.updateSnippet(updated)
+                        showEditSheet = false
+                        snippetToEdit = nil
+                    },
+                    onCancel: {
+                        showEditSheet = false
+                        snippetToEdit = nil
+                    }
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Snippet Edit Sheet
+struct SnippetEditSheet: View {
+    let snippet: Snippet
+    let onSave: (Snippet) -> Void
+    let onCancel: () -> Void
+
+    @State private var shortcut: String
+    @State private var title: String
+    @State private var content: String
+    @FocusState private var isShortcutFocused: Bool
+
+    init(snippet: Snippet, onSave: @escaping (Snippet) -> Void, onCancel: @escaping () -> Void) {
+        self.snippet = snippet
+        self.onSave = onSave
+        self.onCancel = onCancel
+        self._shortcut = State(initialValue: snippet.shortcut)
+        self._title = State(initialValue: snippet.title)
+        self._content = State(initialValue: snippet.content)
+    }
+
+    private var canSave: Bool {
+        !shortcut.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Редактировать сниппет")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: onCancel) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .padding(8)
+                        .background(Circle().fill(Color.white.opacity(0.1)))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
+
+            // Form
+            VStack(spacing: 16) {
+                // Shortcut
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Сокращение")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                    TextField("//email", text: $shortcut)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 15))
+                        .foregroundColor(.white)
+                        .tint(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                        )
+                        .focused($isShortcutFocused)
+                }
+                .padding(.horizontal, 24)
+
+                // Title
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Название")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                    TextField("Название сниппета", text: $title)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 15))
+                        .foregroundColor(.white)
+                        .tint(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                        )
+                }
+                .padding(.horizontal, 24)
+
+                // Content
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Текст сниппета")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                    TextEditor(text: $content)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                        .tint(.white)
+                        .scrollContentBackground(.hidden)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                        )
+                        .frame(minHeight: 150, maxHeight: .infinity)
+                }
+                .padding(.horizontal, 24)
+            }
+
+            Spacer(minLength: 0)
+
+            // Footer
+            HStack {
+                Button(action: onCancel) {
+                    Text("Отмена")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                Spacer()
+
+                Button(action: {
+                    var updated = snippet
+                    updated.shortcut = shortcut.trimmingCharacters(in: .whitespacesAndNewlines)
+                    updated.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    updated.content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    onSave(updated)
+                }) {
+                    Text("Сохранить")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(canSave ? DesignSystem.Colors.accent : Color.gray.opacity(0.3)))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(!canSave)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+        }
+        .frame(width: 500, height: 500)
+        .background(Color(red: 24/255, green: 24/255, blue: 26/255))
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isShortcutFocused = true
+            }
         }
     }
 }

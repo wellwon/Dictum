@@ -218,13 +218,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Хоткеи
         setupHotKeys()
 
-        // TextSwitcher — запускаем если включён
-        if TextSwitcherConfig.shared.enabled {
-            Task { @MainActor in
-                TextSwitcherManager.shared.start()
-            }
-        }
-
         // Окно
         setupWindow()
 
