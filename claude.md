@@ -230,7 +230,33 @@ VoiceOverlayView(audioLevel: audioManager.audioLevel)
 ### 4. Enter работает во время записи
 `submitImmediate()` — останавливает запись, собирает текст, вставляет в одно действие.
 
-### 5. КРИТИЧНО: Приложение живёт в menubar — НЕ закрывать при закрытии окон!
+### 5. Разделение уведомлений: запись vs TextSwitcher
+
+**КРИТИЧНО:** Используются ДВА разных уведомления для записи:
+
+| Уведомление | Назначение | Кто слушает |
+|-------------|------------|-------------|
+| `.toggleRecording` | Toggle записи (хоткей §) | InputModal |
+| `.recordingStateChanged` | Информация о состоянии | TextSwitcher |
+
+```swift
+// DictumApp.swift — хоткей § отправляет toggle
+NotificationCenter.default.post(name: .toggleRecording, object: nil)
+
+// InputModal.swift — после старта/стопа информирует TextSwitcher
+NotificationCenter.default.post(
+    name: .recordingStateChanged,  // НЕ .toggleRecording!
+    object: nil,
+    userInfo: ["isRecording": true/false]
+)
+
+// TextSwitcherManager.swift — слушает ТОЛЬКО .recordingStateChanged
+NotificationCenter.default.addObserver(forName: .recordingStateChanged, ...)
+```
+
+**Почему важно:** Если использовать одно уведомление — возникает цикл: InputModal слушает `.toggleRecording`, отправляет его же для TextSwitcher, снова получает и останавливает запись через 50ms.
+
+### 6. КРИТИЧНО: Приложение живёт в menubar — НЕ закрывать при закрытии окон!
 
 **Dictum — menubar приложение.** Закрытие любого окна (настройки, главное окно) НЕ должно завершать приложение!
 
@@ -270,7 +296,7 @@ sw.isReleasedWhenClosed = false  // Мы сами делаем = nil
 }
 ```
 
-### 6. Боковые sliding панели
+### 7. Боковые sliding панели
 ```swift
 // Панели выезжают слева/справа от модалки
 SlidingPromptPanel(...)
@@ -279,7 +305,7 @@ SlidingPromptPanel(...)
     .animation(.easeInOut(duration: 0.25), value: showLeftPanel)
 ```
 
-### 7. Скругление рамки окна (NSWindow) — macOS Tahoe 26pt
+### 8. Скругление рамки окна (NSWindow) — macOS Tahoe 26pt
 
 **ВАЖНО:** Для `.titled` окон скруглять через `superview.layer.cornerRadius`, НЕ через `contentView.layer`!
 
@@ -305,7 +331,7 @@ if let contentView = sw.contentView {
 .clipShape(RoundedRectangle(cornerRadius: 26))
 ```
 
-### 8. Контент в области titlebar (fullSizeContentView)
+### 9. Контент в области titlebar (fullSizeContentView)
 
 Для окон со стилем `.fullSizeContentView` и прозрачным titlebar, чтобы контент (sidebar, дивайдеры) расширялся в область titlebar:
 
@@ -324,7 +350,7 @@ HStack(spacing: 0) {
 
 **НЕ применять `.ignoresSafeArea()` к дочерним элементам** — это не работает, т.к. родительский background перекроет.
 
-### 9. Кнопки окна настроек (traffic lights)
+### 10. Кнопки окна настроек (traffic lights)
 
 Для окна настроек кастомизируются стандартные кнопки окна:
 
@@ -897,6 +923,61 @@ targets:
 | Дублирование текста | finalTranscript не сбрасывается | Всегда `finalTranscript = ""` в начале |
 | Краш при закрытии настроек | Strong capture в async closure | `[weak window]`, `delegate = nil` |
 | Приложение закрывается при закрытии окна | `applicationShouldTerminateAfterLastWindowClosed` = true | Вернуть `false` |
+
+---
+
+## Логирование
+
+### Правила логирования (ОБЯЗАТЕЛЬНО)
+
+**ВСЕГДА использовать `os.Logger`**, НЕ `NSLog` и НЕ `print()`:
+
+```swift
+import os
+
+private let logger = Logger(subsystem: "com.dictum.app", category: "ИмяКласса")
+
+// Уровни логирования:
+logger.debug("...")   // Отладка (не показывается по умолчанию)
+logger.info("...")    // Информация
+logger.warning("...") // Предупреждения
+logger.error("...")   // Ошибки
+```
+
+**Почему os.Logger:**
+- `NSLog` и `print()` не попадают в unified logging
+- `os.Logger` работает с `log stream` и Console.app
+- Можно фильтровать по subsystem/category
+
+### Как смотреть логи
+
+```bash
+# Live streaming всех логов
+./scripts/logs.sh
+
+# Только TextSwitcher
+./scripts/logs.sh -t
+
+# Логи за последние N минут
+./scripts/logs.sh -l 10
+
+# Помощь
+./scripts/logs.sh --help
+```
+
+### Subsystem и Categories
+
+Subsystem: `com.dictum.app`
+
+| Category | Описание |
+|----------|----------|
+| `TextSwitcherManager` | Главный координатор TextSwitcher |
+| `KeyboardMonitor` | Мониторинг клавиатуры |
+| `UserExceptions` | Исключения пользователя |
+| `TextReplacer` | Замена текста через CGEvent |
+| `HybridValidator` | 4-слойная валидация слов |
+| `NgramScorer` | N-gram скоринг |
+| `TechBuzzwords` | Технические термины |
 
 ---
 

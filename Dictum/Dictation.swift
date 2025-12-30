@@ -126,6 +126,12 @@ class PermissionManager: @unchecked Sendable {
         CGPreflightScreenCaptureAccess()
     }
 
+    /// Проверка Input Monitoring (для CGEventTap .listenOnly)
+    /// Работает СРАЗУ после выдачи разрешения, без рестарта!
+    func hasInputMonitoring() -> Bool {
+        CGPreflightListenEventAccess()
+    }
+
     // MARK: - Request Permissions
 
     /// Accessibility: Системный диалог сам открывает Settings если нужно
@@ -205,6 +211,22 @@ class PermissionManager: @unchecked Sendable {
         }
     }
 
+    /// Input Monitoring: Запрашиваем разрешение для CGEventTap .listenOnly
+    /// Работает СРАЗУ после выдачи разрешения, без рестарта!
+    func requestInputMonitoring() {
+        NSLog("⌨️ Requesting Input Monitoring permission...")
+
+        if hasInputMonitoring() {
+            NSLog("⌨️ Input Monitoring already granted")
+            return
+        }
+
+        // CGRequestListenEventAccess() показывает системный диалог
+        // и добавляет приложение в список Input Monitoring
+        CGRequestListenEventAccess()
+        NSLog("⌨️ Input Monitoring dialog triggered")
+    }
+
     /// Планирует перезапуск приложения через 3 секунды
     /// Используется для авто-рестарта после выдачи Screen Recording
     private func scheduleAppRestart() {
@@ -268,6 +290,16 @@ extension PermissionManager {
     /// Legacy: запрос screen recording
     static func requestScreenRecordingPermission() {
         shared.requestScreenRecording()
+    }
+
+    /// Legacy: проверка input monitoring
+    static func hasInputMonitoringPermission() -> Bool {
+        shared.hasInputMonitoring()
+    }
+
+    /// Legacy: запрос input monitoring
+    static func requestInputMonitoringPermission() {
+        shared.requestInputMonitoring()
     }
 }
 

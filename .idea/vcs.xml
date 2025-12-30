@@ -2,5 +2,14 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/SourcePackages/checkouts/FluidAudio" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/SourcePackages/checkouts/mlx-swift" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/SourcePackages/checkouts/mlx-swift-lm" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/SourcePackages/checkouts/mlx-swift/Source/Cmlx/mlx" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/SourcePackages/checkouts/mlx-swift/Source/Cmlx/mlx-c" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/SourcePackages/checkouts/swift-collections" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/SourcePackages/checkouts/swift-jinja" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/SourcePackages/checkouts/swift-numerics" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/SourcePackages/checkouts/swift-transformers" vcs="Git" />
   </component>
 </project>

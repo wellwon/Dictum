@@ -10,13 +10,7 @@ import AppKit
 import Carbon
 import AVFoundation
 
-// MARK: - Text Language Detection
-enum TextLanguage {
-    case cyrillic  // Русский
-    case latin     // Английский
-    case mixed     // Смешанный, не подсвечиваем
-}
-
+// MARK: - Foreign Word Detection
 struct ForeignWord {
     let range: NSRange
 }
@@ -106,50 +100,30 @@ struct CustomTextEditor: NSViewRepresentable {
             self.onHeightChange = parent.onHeightChange
         }
 
-        // MARK: - Language Detection
-        private func detectPrimaryLanguage(_ text: String) -> TextLanguage {
-            var cyrillicCount = 0
-            var latinCount = 0
+        // MARK: - Non-Russian Word Detection
 
-            for char in text where char.isLetter {
-                if ("а"..."я").contains(char.lowercased()) || ("А"..."Я").contains(char) {
-                    cyrillicCount += 1
-                } else if ("a"..."z").contains(char.lowercased()) {
-                    latinCount += 1
-                }
-            }
-
-            let total = cyrillicCount + latinCount
-            guard total > 0 else { return .mixed }
-
-            let cyrillicRatio = Double(cyrillicCount) / Double(total)
-
-            if cyrillicRatio > 0.55 { return .cyrillic }
-            else if cyrillicRatio < 0.45 { return .latin }
-            else { return .mixed }
-        }
-
-        private func findForeignWords(in text: String, primaryLanguage: TextLanguage) -> [ForeignWord] {
-            guard primaryLanguage != .mixed else { return [] }
-
+        /// Находит нерусские слова (содержат латиницу и не содержат кириллицу)
+        private func findNonRussianWords(in text: String) -> [ForeignWord] {
             let nsText = text as NSString
             let matches = Self.wordRegex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
 
             return matches.compactMap { match in
                 let word = nsText.substring(with: match.range)
-                return isWordForeign(word, primaryLanguage) ? ForeignWord(range: match.range) : nil
+                return isNonRussianWord(word) ? ForeignWord(range: match.range) : nil
             }
         }
 
-        private func isWordForeign(_ word: String, _ primaryLanguage: TextLanguage) -> Bool {
-            let hasCyrillic = word.unicodeScalars.contains { ("а"..."я").contains($0) || ("А"..."Я").contains($0) }
-            let hasLatin = word.unicodeScalars.contains { ("a"..."z").contains($0) || ("A"..."Z").contains($0) }
-
-            if primaryLanguage == .cyrillic {
-                return hasLatin && !hasCyrillic
-            } else {
-                return hasCyrillic && !hasLatin
+        /// Проверяет, является ли слово нерусским (латиница без кириллицы)
+        private func isNonRussianWord(_ word: String) -> Bool {
+            let hasCyrillic = word.unicodeScalars.contains {
+                ("а"..."я").contains($0) || ("А"..."Я").contains($0) || $0 == "ё" || $0 == "Ё"
             }
+            let hasLatin = word.unicodeScalars.contains {
+                ("a"..."z").contains($0) || ("A"..."Z").contains($0)
+            }
+
+            // Подсвечиваем только если есть латиница и НЕТ кириллицы
+            return hasLatin && !hasCyrillic
         }
 
         // MARK: - Foreign Word Highlighting
@@ -172,9 +146,8 @@ struct CustomTextEditor: NSViewRepresentable {
                 .foregroundColor: NSColor.white
             ], range: fullRange)
 
-            // Определяем язык и подсвечиваем
-            let language = detectPrimaryLanguage(text)
-            let foreignWords = findForeignWords(in: text, primaryLanguage: language)
+            // Подсвечиваем нерусские слова (латиница без кириллицы)
+            let foreignWords = findNonRussianWords(in: text)
 
             let highlightColor = NSColor(red: 1.0, green: 0.26, blue: 0.27, alpha: 1.0) // #ff4246
 
@@ -438,8 +411,8 @@ struct PermissionRow: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(DesignSystem.Colors.deepgramOrange)
-                        .cornerRadius(6)
                         .contentShape(Rectangle())
+                        .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
             }

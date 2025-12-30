@@ -22,6 +22,17 @@ struct HotkeyConfig: Codable, Equatable {
         case 49: return "Space"
         case 36: return "Return"
         case 53: return "Esc"
+        // Модификаторы как отдельные клавиши
+        case 54: return "Right ⌘"
+        case 55: return "Left ⌘"
+        case 56: return "Left ⇧"
+        case 57: return "Caps Lock"
+        case 58: return "Left ⌥"
+        case 59: return "Left ⌃"
+        case 60: return "Right ⇧"
+        case 61: return "Right ⌥"
+        case 62: return "Right ⌃"
+        case 63: return "Fn"
         default:
             if let char = keyCodeToChar(keyCode) {
                 return String(char).uppercased()
@@ -59,6 +70,6 @@ struct HotkeyConfig: Codable, Equatable {
         return keyMap[code]
     }
 
-    static let defaultToggle = HotkeyConfig(keyCode: 10, modifiers: UInt32(cmdKey)) // ⌘ + §
+    static let defaultToggle = HotkeyConfig(keyCode: 61, modifiers: 0) // Right ⌥ (правый Option)
 }
 

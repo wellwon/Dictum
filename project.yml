@@ -24,10 +24,14 @@ targets:
       - path: Dictum
         excludes:
           - "**/.DS_Store"
+          - "Resources/*.json"
       - path: sound
         type: folder
         buildPhase: resources
       - path: AppIcon.icns
+        buildPhase: resources
+      - path: Dictum/Resources
+        type: folder
         buildPhase: resources
     settings:
       base:

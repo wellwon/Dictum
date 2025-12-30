@@ -27,6 +27,8 @@ DerivedData/
 *.app
 *.dSYM.zip
 *.dSYM
+build-temp/
+test_rust/
 
 # SwiftPM
 .build/

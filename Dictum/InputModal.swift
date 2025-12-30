@@ -803,6 +803,13 @@ struct InputModalView: View {
         } else {
             await audioManager.startRecording(existingText: existingText)
         }
+
+        // Уведомляем TextSwitcher о начале записи
+        NotificationCenter.default.post(
+            name: .recordingStateChanged,
+            object: nil,
+            userInfo: ["isRecording": true]
+        )
     }
 
     /// Останавливает запись текущего ASR провайдера
@@ -814,6 +821,13 @@ struct InputModalView: View {
                 language: SettingsManager.shared.preferredLanguage
             )
         }
+
+        // Уведомляем TextSwitcher об окончании записи
+        NotificationCenter.default.post(
+            name: .recordingStateChanged,
+            object: nil,
+            userInfo: ["isRecording": false]
+        )
     }
 
     /// Устанавливает ошибку для текущего ASR провайдера

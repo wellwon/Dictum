@@ -32,6 +32,8 @@
 	<string>Dictum использует скриншоты для быстрого захвата экрана по горячей клавише.</string>
 	<key>NSAccessibilityUsageDescription</key>
 	<string>Dictum использует Accessibility для вставки текста в другие приложения через системные горячие клавиши.</string>
+	<key>NSInputMonitoringUsageDescription</key>
+	<string>Dictum использует Input Monitoring для глобальных горячих клавиш и автоматической смены раскладки.</string>
 
 	<!-- Sparkle / Update Configuration -->
 	<key>SUFeedURL</key>

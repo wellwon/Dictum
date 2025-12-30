@@ -1,24 +1,3 @@
 {
-  "mcpServers": {
-    "shadcn": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["shadcn@latest", "mcp"]
-    },
-    "postgres": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/dictum"]
-    },
-    "github": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"]
-    },
-    "context7": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp@latest"]
-    }
-  }
+  "mcpServers": {}
 }

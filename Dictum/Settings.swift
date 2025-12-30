@@ -1085,6 +1085,7 @@ extension Notification.Name {
     static let toggleHistoryModal = Notification.Name("toggleHistoryModal")
     static let historyItemSelected = Notification.Name("historyItemSelected")
     static let toggleRecording = Notification.Name("toggleRecording")
+    static let recordingStateChanged = Notification.Name("recordingStateChanged")
     // Модалки CMD+1/2/3/4
     static let togglePromptsModal = Notification.Name("togglePromptsModal")
     static let toggleSnippetsModal = Notification.Name("toggleSnippetsModal")
@@ -1092,6 +1093,8 @@ extension Notification.Name {
     static let promptSelected = Notification.Name("promptSelected")
     static let snippetSelected = Notification.Name("snippetSelected")
     static let noteSelected = Notification.Name("noteSelected")
+    // TextSwitcher
+    static let textSwitcherToggled = Notification.Name("textSwitcherToggled")
 }
 
 // MARK: - Hotkey Recorder View
@@ -1166,6 +1169,31 @@ class HotkeyRecorderNSView: NSView {
 
         onHotkeyRecorded?(event.keyCode, carbonMods)
     }
+
+    override func flagsChanged(with event: NSEvent) {
+        guard isRecording else {
+            super.flagsChanged(with: event)
+            return
+        }
+
+        // Модификаторы как отдельные клавиши (keyCode без модификаторов)
+        // Правый Option: 61, Левый Option: 58
+        // Правый Shift: 60, Левый Shift: 56
+        // Правый Command: 54, Левый Command: 55
+        // Правый Control: 62, Левый Control: 59
+        let modifierKeyCodes: Set<UInt16> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
+
+        // Проверяем что это нажатие (флаг появился), а не отпускание
+        let hasModifier = event.modifierFlags.contains(.command) ||
+                          event.modifierFlags.contains(.shift) ||
+                          event.modifierFlags.contains(.option) ||
+                          event.modifierFlags.contains(.control)
+
+        if modifierKeyCodes.contains(event.keyCode) && hasModifier {
+            // Записываем модификатор как отдельную клавишу (modifiers = 0)
+            onHotkeyRecorded?(event.keyCode, 0)
+        }
+    }
 }
 
 // MARK: - Settings View
@@ -1173,6 +1201,7 @@ class HotkeyRecorderNSView: NSView {
 enum SettingsTab: String, CaseIterable {
     case general = "Основные"
     case hotkeys = "Хоткеи"
+    case textSwitcher = "Свитчер"
     case features = "Инструменты"
     case speech = "Диктовка"
     case enhancer = "Улучшайзер"
@@ -1184,6 +1213,7 @@ enum SettingsTab: String, CaseIterable {
         switch self {
         case .general: return "gearshape"
         case .hotkeys: return "keyboard"
+        case .textSwitcher: return "keyboard.badge.ellipsis"
         case .features: return "camera.fill"
         case .speech: return "waveform"
         case .enhancer: return "wand.and.stars"
@@ -1227,6 +1257,7 @@ struct SettingsView: View {
         return SettingsTab.allCases.first { $0.rawValue == savedTab } ?? .general
     }()
     @State private var launchAtLogin: Bool = LaunchAtLoginManager.shared.isEnabled
+    @State private var hasInputMonitoring: Bool = PermissionManager.shared.hasInputMonitoring()
     @State private var hasAccessibility: Bool = PermissionManager.shared.hasAccessibility()
     @State private var hasMicrophonePermission: Bool = PermissionManager.shared.hasMicrophone()
     @State private var hasScreenRecordingPermission: Bool = PermissionManager.shared.hasScreenRecording()
@@ -1235,6 +1266,9 @@ struct SettingsView: View {
     @State private var isRecordingScreenshotHotkey: Bool = false
     @State private var screenshotHotkey: HotkeyConfig = SettingsManager.shared.screenshotHotkey
     @ObservedObject private var settings = SettingsManager.shared
+    @StateObject private var textSwitcherManager = TextSwitcherManager.shared
+    @StateObject private var userExceptionsManager = UserExceptionsManager.shared
+    @StateObject private var forcedConversionsManager = ForcedConversionsManager.shared
     // Config export/import (все опции включены по умолчанию)
     @State private var exportHistory: Bool = true         // История заметок
     @State private var exportAIFunctions: Bool = true     // AI промпты
@@ -1262,6 +1296,7 @@ struct SettingsView: View {
                 // Версия и проверка разрешений
                 VStack(alignment: .leading, spacing: 8) {
                     Button("Проверить разрешения") {
+                        hasInputMonitoring = PermissionManager.shared.hasInputMonitoring()
                         hasAccessibility = PermissionManager.shared.hasAccessibility()
                         hasMicrophonePermission = PermissionManager.shared.hasMicrophone()
                         hasScreenRecordingPermission = PermissionManager.shared.hasScreenRecording()
@@ -1322,12 +1357,31 @@ struct SettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.window))
         .ignoresSafeArea(.all, edges: .top)
         .onAppear {
+            hasInputMonitoring = PermissionManager.shared.hasInputMonitoring()
             hasAccessibility = PermissionManager.shared.hasAccessibility()
             hasMicrophonePermission = PermissionManager.shared.hasMicrophone()
             hasScreenRecordingPermission = PermissionManager.shared.hasScreenRecording()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            hasAccessibility = PermissionManager.shared.hasAccessibility()
+            let newInputMonitoring = PermissionManager.shared.hasInputMonitoring()
+            let newAccessibility = PermissionManager.shared.hasAccessibility()
+            NSLog("🪟 SettingsView.onReceive(didBecomeActive): inputMonitoring=%@, accessibility=%@",
+                  newInputMonitoring ? "true" : "false",
+                  newAccessibility ? "true" : "false")
+
+            // Если Input Monitoring изменился с false на true — уведомить для перезапуска CGEventTap
+            if newInputMonitoring && !hasInputMonitoring {
+                NSLog("📢 SettingsView: Input Monitoring granted! Отправляю accessibilityStatusChanged")
+                NotificationCenter.default.post(name: .accessibilityStatusChanged, object: nil)
+            }
+            // Если Accessibility изменился с false на true — уведомить DictumApp для перерегистрации хоткеев
+            if newAccessibility && !hasAccessibility {
+                NSLog("📢 SettingsView: отправляю accessibilityStatusChanged")
+                NotificationCenter.default.post(name: .accessibilityStatusChanged, object: nil)
+            }
+
+            hasInputMonitoring = newInputMonitoring
+            hasAccessibility = newAccessibility
             hasMicrophonePermission = PermissionManager.shared.hasMicrophone()
             hasScreenRecordingPermission = PermissionManager.shared.hasScreenRecording()
         }
@@ -1341,6 +1395,7 @@ struct SettingsView: View {
         switch selectedTab {
         case .general: generalTabContent
         case .hotkeys: hotkeysTabContent
+        case .textSwitcher: textSwitcherTabContent
         case .features: featuresTabContent
         case .speech: speechTabContent
         case .enhancer: enhancerTabContent
@@ -1356,7 +1411,7 @@ struct SettingsView: View {
             // Секция: Разрешения
             SettingsSection(title: "РАЗРЕШЕНИЯ") {
                 VStack(alignment: .leading, spacing: 12) {
-                    // Accessibility - ВСЕГДА
+                    // 1. Accessibility — обязательный
                     PermissionRow(
                         icon: "hand.raised.fill",
                         title: "Универсальный доступ",
@@ -1370,7 +1425,13 @@ struct SettingsView: View {
                             // Polling каждую секунду в течение 30 секунд
                             for delay in stride(from: 1.0, through: 30.0, by: 1.0) {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                                    hasAccessibility = PermissionManager.shared.hasAccessibility()
+                                    let newState = PermissionManager.shared.hasAccessibility()
+                                    // Если статус изменился с false на true — уведомить DictumApp для перерегистрации хоткеев
+                                    if newState && !hasAccessibility {
+                                        NSLog("📢 Settings polling (%.0f сек): отправляю accessibilityStatusChanged", delay)
+                                        NotificationCenter.default.post(name: .accessibilityStatusChanged, object: nil)
+                                    }
+                                    hasAccessibility = newState
                                 }
                             }
                         }
@@ -1378,7 +1439,7 @@ struct SettingsView: View {
 
                     Divider().background(Color.white.opacity(0.1))
 
-                    // Microphone - ВСЕГДА
+                    // 2. Microphone — обязательный
                     PermissionRow(
                         icon: "mic.fill",
                         title: "Микрофон",
@@ -1403,7 +1464,33 @@ struct SettingsView: View {
                         }
                     )
 
-                    // Screen Recording - только если Screenshots feature включена
+                    Divider().background(Color.white.opacity(0.1))
+
+                    // 3. Input Monitoring — после основных (системный диалог о рестарте можно игнорировать)
+                    PermissionRow(
+                        icon: "keyboard",
+                        title: "Мониторинг ввода",
+                        subtitle: "Для глобальных хоткеев (работает сразу!)",
+                        isGranted: hasInputMonitoring,
+                        action: {
+                            PermissionManager.shared.requestInputMonitoring()
+
+                            // Polling каждую секунду в течение 30 секунд
+                            for delay in stride(from: 1.0, through: 30.0, by: 1.0) {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                                    let newState = PermissionManager.shared.hasInputMonitoring()
+                                    // Если Input Monitoring изменился с false на true — уведомить для перезапуска CGEventTap
+                                    if newState && !hasInputMonitoring {
+                                        NSLog("📢 Settings polling (%.0f сек): Input Monitoring granted!", delay)
+                                        NotificationCenter.default.post(name: .accessibilityStatusChanged, object: nil)
+                                    }
+                                    hasInputMonitoring = newState
+                                }
+                            }
+                        }
+                    )
+
+                    // 4. Screen Recording — опциональный (только если Screenshots feature включена)
                     if SettingsManager.shared.screenshotFeatureEnabled {
                         Divider().background(Color.white.opacity(0.1))
 
@@ -1427,7 +1514,7 @@ struct SettingsView: View {
                         )
                     }
 
-                    if !hasAccessibility || !hasMicrophonePermission ||
+                    if !hasInputMonitoring || !hasAccessibility || !hasMicrophonePermission ||
                        (SettingsManager.shared.screenshotFeatureEnabled && !hasScreenRecordingPermission) {
                         Divider().background(Color.white.opacity(0.1))
 
@@ -1659,11 +1746,330 @@ struct SettingsView: View {
                     SettingsManager.shared.toggleHotkey = HotkeyConfig.defaultToggle
                     NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
                 }) {
-                    Text("Сбросить (⌘ §)")
+                    Text("Сбросить (Right ⌥)")
                         .font(.system(size: 12))
                         .foregroundColor(.gray)
                 }
                 .buttonStyle(PlainButtonStyle())
+            }
+        }
+    }
+
+    // === TAB: СВИТЧЕР ===
+    var textSwitcherTabContent: some View {
+        VStack(spacing: 0) {
+            // Главный тумблер
+            SettingsSection(title: "АВТОИСПРАВЛЕНИЕ РАСКЛАДКИ") {
+                VStack(spacing: 16) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("TextSwitcher")
+                                .font(.system(size: 14))
+                                .foregroundColor(.white)
+                            Text("Автоматически исправляет текст, набранный в неправильной раскладке (ghbdtn → привет)")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $textSwitcherManager.isEnabled)
+                        .toggleStyle(TahoeToggleStyle())
+                        .labelsHidden()
+                    }
+                    .padding(.vertical, 8)
+
+                    if textSwitcherManager.isEnabled {
+                        Divider().background(Color.white.opacity(0.1))
+
+                        // Тумблер обучения
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Обучение")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.white)
+                                Text("Сохранять слова при ручной смене раскладки (⌘+⇧+Space)")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.gray)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $textSwitcherManager.isLearningEnabled)
+                                .toggleStyle(TahoeToggleStyle())
+                                .labelsHidden()
+                        }
+                        .padding(.vertical, 4)
+
+                        Divider().background(Color.white.opacity(0.1))
+
+                        // Инструкция
+                        HStack {
+                            Image(systemName: "keyboard")
+                                .font(.system(size: 14))
+                                .foregroundColor(DesignSystem.Colors.accent)
+                            Text("⌘+⇧+Space — ручная смена раскладки текста")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray)
+                            Spacer()
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+
+            // Статистика (только если включено)
+            if textSwitcherManager.isEnabled {
+                SettingsSection(title: "СТАТИСТИКА") {
+                    VStack(spacing: 12) {
+                        HStack {
+                            Text("Автоисправлений")
+                                .font(.system(size: 14))
+                                .foregroundColor(.white)
+                            Spacer()
+                            Text("\(textSwitcherManager.autoSwitchCount)")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(DesignSystem.Colors.accent)
+                        }
+
+                        HStack {
+                            Text("Ручных смен (⌘⌘)")
+                                .font(.system(size: 14))
+                                .foregroundColor(.white)
+                            Spacer()
+                            Text("\(textSwitcherManager.manualSwitchCount)")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(DesignSystem.Colors.accent)
+                        }
+
+                        HStack {
+                            Text("Слов в обучении")
+                                .font(.system(size: 14))
+                                .foregroundColor(.white)
+                            Spacer()
+                            Text("\(userExceptionsManager.count)")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(DesignSystem.Colors.accent)
+                        }
+
+                        Divider().background(Color.white.opacity(0.1))
+
+                        Button(action: {
+                            textSwitcherManager.resetStatistics()
+                        }) {
+                            Text("Сбросить статистику")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
+
+            // Принудительные конвертации (белый список)
+            if textSwitcherManager.isEnabled {
+                SettingsSection(title: "ПРИНУДИТЕЛЬНЫЕ КОНВЕРТАЦИИ") {
+                    VStack(spacing: 12) {
+                        // Описание
+                        Text("Слова в этом списке ВСЕГДА конвертируются. Приоритет выше словаря. 🔒 = жёсткое знание (3+ подтверждения)")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        // Список конвертаций (макс 10)
+                        if !forcedConversionsManager.conversions.isEmpty {
+                            ScrollView {
+                                VStack(spacing: 4) {
+                                    ForEach(forcedConversionsManager.conversions.prefix(10)) { conversion in
+                                        HStack {
+                                            // Иконка жёсткого знания
+                                            if conversion.isHardKnowledge {
+                                                Text("🔒")
+                                                    .font(.system(size: 12))
+                                            }
+
+                                            // originalWord → convertedWord
+                                            Text(conversion.originalWord)
+                                                .font(.system(size: 13, design: .monospaced))
+                                                .foregroundColor(.gray)
+
+                                            Text("→")
+                                                .font(.system(size: 13))
+                                                .foregroundColor(.gray.opacity(0.5))
+
+                                            Text(conversion.convertedWord)
+                                                .font(.system(size: 13, design: .monospaced))
+                                                .foregroundColor(DesignSystem.Colors.accent)
+
+                                            Spacer()
+
+                                            // Счётчик подтверждений
+                                            Text("×\(conversion.confirmationCount)")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.gray.opacity(0.6))
+
+                                            Button(action: {
+                                                forcedConversionsManager.removeConversion(id: conversion.id)
+                                            }) {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.system(size: 14))
+                                                    .foregroundColor(.gray.opacity(0.6))
+                                            }
+                                            .buttonStyle(PlainButtonStyle())
+                                        }
+                                        .padding(.vertical, 4)
+                                    }
+                                }
+                            }
+                            .frame(maxHeight: 150)
+
+                            if forcedConversionsManager.count > 10 {
+                                Text("...и ещё \(forcedConversionsManager.count - 10) конвертаций")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.gray)
+                            }
+                        } else {
+                            Text("Пока нет принудительных конвертаций")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray.opacity(0.6))
+                                .padding(.vertical, 8)
+                        }
+
+                        Divider().background(Color.white.opacity(0.1))
+
+                        // Кнопка очистки
+                        HStack {
+                            Text("\(forcedConversionsManager.count) конвертаций (\(forcedConversionsManager.hardKnowledgeCount) 🔒)")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+
+                            Spacer()
+
+                            if !forcedConversionsManager.conversions.isEmpty {
+                                Button(action: {
+                                    forcedConversionsManager.clearAll()
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "trash")
+                                        Text("Очистить")
+                                    }
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.red.opacity(0.8))
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
+
+            // Исключения (чёрный список)
+            if textSwitcherManager.isEnabled {
+                SettingsSection(title: "ИСКЛЮЧЕНИЯ (ЧЁРНЫЙ СПИСОК)") {
+                    VStack(spacing: 12) {
+                        // Описание
+                        Text("Слова в этом списке НЕ конвертируются автоматически. Добавляются как результат ручного переключения (двойной ⌘).")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        // Список исключений (макс 10)
+                        if !userExceptionsManager.exceptions.isEmpty {
+                            ScrollView {
+                                VStack(spacing: 4) {
+                                    ForEach(userExceptionsManager.exceptions.prefix(10)) { exception in
+                                        HStack {
+                                            Text(exception.word)
+                                                .font(.system(size: 13, design: .monospaced))
+                                                .foregroundColor(.white)
+
+                                            Spacer()
+
+                                            Text(exception.reason == .autoLearned ? "авто" : "вручную")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.gray)
+
+                                            Button(action: {
+                                                userExceptionsManager.removeException(id: exception.id)
+                                            }) {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.system(size: 14))
+                                                    .foregroundColor(.gray.opacity(0.6))
+                                            }
+                                            .buttonStyle(PlainButtonStyle())
+                                        }
+                                        .padding(.vertical, 4)
+                                    }
+                                }
+                            }
+                            .frame(maxHeight: 150)
+
+                            if userExceptionsManager.count > 10 {
+                                Text("...и ещё \(userExceptionsManager.count - 10) слов")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.gray)
+                            }
+                        } else {
+                            Text("Пока нет исключений")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray.opacity(0.6))
+                                .padding(.vertical, 8)
+                        }
+
+                        Divider().background(Color.white.opacity(0.1))
+
+                        // Кнопки экспорта/импорта/очистки
+                        HStack(spacing: 12) {
+                            Button(action: {
+                                _ = userExceptionsManager.exportToFile()
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "square.and.arrow.up")
+                                    Text("Экспорт")
+                                }
+                                .font(.system(size: 12))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.white.opacity(0.1))
+                                .cornerRadius(6)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            Button(action: {
+                                _ = userExceptionsManager.importFromFile()
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "square.and.arrow.down")
+                                    Text("Импорт")
+                                }
+                                .font(.system(size: 12))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.white.opacity(0.1))
+                                .cornerRadius(6)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            Spacer()
+
+                            if !userExceptionsManager.exceptions.isEmpty {
+                                Button(action: {
+                                    // TODO: Показать подтверждение
+                                    userExceptionsManager.clearAll()
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "trash")
+                                        Text("Очистить")
+                                    }
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.red.opacity(0.8))
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
             }
         }
     }

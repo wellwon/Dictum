@@ -170,6 +170,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var hotKeyRefs: [EventHotKeyRef] = []
     var localEventMonitor: Any?
     var globalEventMonitor: Any?
+    var localFlagsChangedMonitor: Any?
+
+    // MARK: - CGEventTap для Right Option (Input Monitoring, работает без рестарта)
+    private var rightOptionEventTap: CFMachPort?
+    private var rightOptionRunLoopSource: CFRunLoopSource?
     private var _previousApp: NSRunningApplication?  // Предыдущее активное приложение для авто-вставки
     // Fix 10: NSLock для thread-safe доступа к previousApp
     private let previousAppLock = NSLock()
@@ -180,6 +185,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var screenshotNotificationWindow: NSWindow?  // Окно уведомления о скриншоте
     private var settingsKeyMonitor: Any?  // ESC monitor для закрытия настроек
     private var lastToggleTime: Date = .distantPast  // Debouncing для toggle записи (§/`)
+    var lastAccessibilityState: Bool = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Убить предыдущие экземпляры приложения (при пересборке)
@@ -199,10 +205,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Инициализация менеджеров
         _ = HistoryManager.shared
         _ = SettingsManager.shared
+        _ = TextSwitcherManager.shared  // TextSwitcher
 
-        // Начать загрузку локальной модели в фоне ТОЛЬКО если onboarding уже пройден
-        // При первом запуске модель скачается в onboarding по кнопке
-        if SettingsManager.shared.hasCompletedOnboarding && SettingsManager.shared.asrProviderType == .local {
+        // Предзагрузка локальной модели в фоне (если onboarding пройден)
+        // Модель загружается всегда — будет готова при переключении на локальный провайдер
+        if SettingsManager.shared.hasCompletedOnboarding {
             Task {
                 // Сначала проверяем статус файлов модели
                 await ParakeetASRProvider.shared.checkModelStatus()
@@ -217,6 +224,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Хоткеи
         setupHotKeys()
+        startAccessibilityMonitoring()
 
         // Окно
         setupWindow()
@@ -239,6 +247,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self,
             selector: #selector(appDidActivate),
             name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+
+        // Резервный механизм: NSApplication.didBecomeActiveNotification (более надёжный)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
             object: nil
         )
 
@@ -269,6 +285,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
               app.bundleIdentifier == Bundle.main.bundleIdentifier else { return }
 
         // Приложение стало активным — проверить Accessibility
+        NSLog("📱 appDidActivate (Workspace): отправляю accessibilityStatusChanged")
+        NotificationCenter.default.post(name: .accessibilityStatusChanged, object: nil)
+    }
+
+    @objc func appDidBecomeActive(_ notification: Notification) {
+        // NSApplication.didBecomeActiveNotification — более надёжный для нашего приложения
+        NSLog("📱 appDidBecomeActive (NSApp): отправляю accessibilityStatusChanged")
         NotificationCenter.default.post(name: .accessibilityStatusChanged, object: nil)
     }
 
@@ -579,6 +602,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSEvent.removeMonitor(monitor)
             globalEventMonitor = nil
         }
+        if let monitor = localFlagsChangedMonitor {
+            NSEvent.removeMonitor(monitor)
+            localFlagsChangedMonitor = nil
+        }
+
+        // CGEventTap для Right Option
+        removeRightOptionEventTap()
     }
 
     func setupMenuBar() {
@@ -688,12 +718,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             nil
         )
 
-        // Регистрируем настроенный хоткей с модификаторами (если есть)
-        // ВАЖНО: Регистрируем только ОДИН keyCode — тот что в настройках
-        // Двойная регистрация (ISO + ANSI) вызывала конфликты и double-triggering
-        if hotkey.modifiers != 0 {
-            registerCarbonHotKey(keyCode: UInt32(hotkey.keyCode), modifiers: hotkey.modifiers, id: 1)
-        }
+        // Главный хоткей: правый Option (обрабатывается через flagsChanged мониторы)
+        // Carbon API не поддерживает модификаторы как отдельные клавиши
+        NSLog("⌨️ Главный хоткей: правый Option (обрабатывается через NSEvent monitors)")
 
         // Register screenshot hotkey (ID=6) if feature is enabled
         if SettingsManager.shared.screenshotFeatureEnabled {
@@ -717,6 +744,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         registerCarbonHotKey(keyCode: 21, modifiers: UInt32(cmdKey), id: 13)
         NSLog("⌨️ Modal hotkeys registered: CMD+1/2/3/4")
 
+        // Локальный монитор для правого Option (когда модалка активна)
+        localFlagsChangedMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            // Правый Option: keyCode 61
+            if event.keyCode == 61 && event.modifierFlags.contains(.option) {
+                // Debouncing (150ms для быстрого отклика)
+                let now = Date()
+                if now.timeIntervalSince(self?.lastToggleTime ?? .distantPast) < 0.15 {
+                    return event
+                }
+                self?.lastToggleTime = now
+                self?.hideWindow()
+                return nil  // Поглощаем
+            }
+            return event
+        }
+
         // Локальный монитор (когда окно активно)
         // Перехватываем настроенный хоткей ДО того как символ попадёт в текстовое поле
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -730,9 +773,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                !event.modifierFlags.contains(.option) &&
                !event.modifierFlags.contains(.control) &&
                self?.window?.isVisible == true {
-                // Debouncing: игнорируем если прошло меньше 300ms
+                // Debouncing (150ms для быстрого отклика)
                 let now = Date()
-                if now.timeIntervalSince(self?.lastToggleTime ?? .distantPast) < 0.3 {
+                if now.timeIntervalSince(self?.lastToggleTime ?? .distantPast) < 0.15 {
                     return nil  // Поглощаем, но не отправляем notification
                 }
                 self?.lastToggleTime = now
@@ -760,6 +803,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
             return event
         }
+
+        // CGEventTap для правого Option (Input Monitoring — работает сразу без рестарта!)
+        // Заменяет NSEvent.addGlobalMonitorForEvents который требует Accessibility и рестарт
+        setupRightOptionEventTap()
 
         // Глобальный монитор (требует Accessibility)
         if hasAccess {
@@ -796,6 +843,67 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    // MARK: - Accessibility Monitoring
+    func startAccessibilityMonitoring() {
+        lastAccessibilityState = AccessibilityHelper.checkAccessibility()
+
+        // Подписываемся на notification об изменении статуса Accessibility
+        // (отправляется когда приложение становится активным после System Settings)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAccessibilityStatusChanged),
+            name: .accessibilityStatusChanged,
+            object: nil
+        )
+        NSLog("👀 Подписался на accessibilityStatusChanged")
+    }
+
+    @objc func handleAccessibilityStatusChanged() {
+        let currentState = AccessibilityHelper.checkAccessibility()
+        let hasInputMonitoring = CGPreflightListenEventAccess()
+        NSLog("🔔 handleAccessibilityStatusChanged: accessibility=%@, inputMonitoring=%@, lastState=%@",
+              currentState ? "true" : "false",
+              hasInputMonitoring ? "true" : "false",
+              lastAccessibilityState ? "true" : "false")
+
+        // CGEventTap для Right Option — перезапускаем если есть Input Monitoring
+        // Input Monitoring работает СРАЗУ без рестарта!
+        if hasInputMonitoring {
+            setupRightOptionEventTap()
+        }
+
+        // Если статус изменился с false на true — перерегистрируем хоткеи и TextSwitcher
+        if currentState && !lastAccessibilityState {
+            NSLog("✅ Accessibility получен! Перерегистрирую хоткеи и TextSwitcher...")
+
+            // Первая попытка — немедленно
+            unregisterHotKeys()
+            setupHotKeys()
+
+            // Повторные попытки с задержкой (для NSEvent глобальных мониторов которые всё ещё используются)
+            // CGEventTap с Input Monitoring работает сразу, но NSEvent глобальные мониторы требуют задержку
+            for delay in [0.5, 1.0, 2.0, 3.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self = self else { return }
+                    // Проверяем что Accessibility всё ещё есть
+                    guard AccessibilityHelper.checkAccessibility() else { return }
+
+                    NSLog("🔄 Повторная перерегистрация хоткеев (%.1f сек)", delay)
+                    self.unregisterHotKeys()
+                    self.setupHotKeys()
+                }
+            }
+
+            // Запускаем TextSwitcher если он включён (без перезагрузки!)
+            if TextSwitcherManager.shared.isEnabled {
+                let started = KeyboardMonitor.shared.startMonitoring()
+                NSLog("✅ KeyboardMonitor: %@", started ? "запущен" : "ОШИБКА")
+            }
+        }
+
+        lastAccessibilityState = currentState
+    }
+
     func registerCarbonHotKey(keyCode: UInt32, modifiers: UInt32, id: UInt32) {
         var hotKeyID = EventHotKeyID()
         hotKeyID.signature = OSType(0x4F4C4142) // "OLAB"
@@ -816,6 +924,93 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSLog("✅ Carbon хоткей: id=\(id), code=\(keyCode), mod=\(modifiers)")
         } else {
             NSLog("❌ Ошибка Carbon хоткея: \(status)")
+        }
+    }
+
+    // MARK: - CGEventTap для Right Option (Input Monitoring)
+
+    /// Настраивает CGEventTap для отслеживания Right Option
+    /// Использует Input Monitoring permission (работает сразу без рестарта!)
+    func setupRightOptionEventTap() {
+        // Убираем старый tap если есть
+        removeRightOptionEventTap()
+
+        // Проверяем Input Monitoring permission
+        guard CGPreflightListenEventAccess() else {
+            NSLog("⚠️ Нет Input Monitoring для Right Option — запрашиваю...")
+            CGRequestListenEventAccess()
+            return
+        }
+
+        // Только flagsChanged для отслеживания модификаторов
+        let eventMask = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
+
+        // Создаём event tap
+        // .listenOnly = Input Monitoring permission (работает сразу!)
+        // .defaultTap = Accessibility permission (требует рестарт)
+        guard let eventTap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: eventMask,
+            callback: { (proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? in
+                guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
+                let appDelegate = Unmanaged<AppDelegate>.fromOpaque(refcon).takeUnretainedValue()
+
+                // tapDisabledByTimeout — macOS отключает tap если callback слишком долгий
+                if type == .tapDisabledByTimeout {
+                    if let tap = appDelegate.rightOptionEventTap {
+                        CGEvent.tapEnable(tap: tap, enable: true)
+                        NSLog("🔄 CGEventTap перезапущен после timeout")
+                    }
+                    return Unmanaged.passUnretained(event)
+                }
+
+                // Правый Option: keyCode 61
+                let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+                if keyCode == 61 && event.flags.contains(.maskAlternate) {
+                    // Debouncing (150ms)
+                    let now = Date()
+                    if now.timeIntervalSince(appDelegate.lastToggleTime) >= 0.15 {
+                        appDelegate.lastToggleTime = now
+                        // UI операции на main thread!
+                        DispatchQueue.main.async {
+                            NSLog("✅ [CGEventTap] Right Option → toggleWindow()")
+                            appDelegate.toggleWindow()
+                        }
+                    }
+                }
+
+                return Unmanaged.passUnretained(event)
+            },
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else {
+            NSLog("❌ Не удалось создать CGEventTap для Right Option")
+            return
+        }
+
+        rightOptionEventTap = eventTap
+
+        // Добавляем в RunLoop
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        rightOptionRunLoopSource = source
+
+        // Активируем tap
+        CGEvent.tapEnable(tap: eventTap, enable: true)
+
+        NSLog("✅ CGEventTap для Right Option установлен (Input Monitoring)")
+    }
+
+    /// Удаляет CGEventTap для Right Option
+    func removeRightOptionEventTap() {
+        if let source = rightOptionRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+            rightOptionRunLoopSource = nil
+        }
+        if let tap = rightOptionEventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            rightOptionEventTap = nil
         }
     }
 
@@ -1358,6 +1553,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // Не завершать приложение при закрытии последнего окна (приложение живёт в menubar)
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        unregisterHotKeys()
     }
 
     // MARK: - NSWindowDelegate

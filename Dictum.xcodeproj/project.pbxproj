@@ -9,12 +9,22 @@
 /* Begin PBXBuildFile section */
 		14F8066447CBE7F73747AA2D /* Notes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F764B7FEDEF714C2350FFC29 /* Notes.swift */; };
 		193A665DD50433D61C772BEA /* Dictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04EAB0B76FD5694386037F0F /* Dictation.swift */; };
+		1EC71A4E45A8C41F96265046 /* KeyboardMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17FD6FCF7EDA712C3D17E917 /* KeyboardMonitor.swift */; };
+		2D032BAC5D34D7DB86AAE417 /* TextSwitcherManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6135EFEC70B1E7D9FE8F327 /* TextSwitcherManager.swift */; };
+		2D874E015739E9EE96E785FB /* LayoutMaps.swift in Sources */ = {isa = PBXBuildFile; fileRef = A217BF479246FEC5C7CBAC11 /* LayoutMaps.swift */; };
+		35BB6C13392FE0FB57D46E04 /* NgramScorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 681889163B25FD9F30A719F4 /* NgramScorer.swift */; };
+		3E43F6B45A5297C0CAFE6F4A /* ForcedConversions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239B2B9F3F28AC2108ABD619 /* ForcedConversions.swift */; };
 		434D4D894E603557903D7E7A /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 265C6A0B76E2696619723684 /* AppIcon.icns */; };
 		4BAF8B4D4D4B03A3ABFF6097 /* DictumApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 233D620BE4A1F2BB693CAB21 /* DictumApp.swift */; };
 		4C8C41D8611BBE119F4411FD /* Updates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FBC1D81F0E448A8F026F8B4 /* Updates.swift */; };
+		4E42CCC852A1E5B6F357ECB7 /* NgramData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B12AA3B8C1D04A4ADE3E3E9 /* NgramData.swift */; };
 		4F05D3BC06A0A08DB81CE198 /* Snippets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7EA3A14A4BC00F668D12BBA /* Snippets.swift */; };
 		53378C5D1934736E3738DC69 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 24108E4098C7D8A965EFAEEA /* MLXLMCommon */; };
+		54A1381922F9614827E296E3 /* Resources in Resources */ = {isa = PBXBuildFile; fileRef = 4FD59E2DAB6D1C45C58DD3DC /* Resources */; };
+		5961CF41FE544D120A7B988B /* UserExceptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B7FD1FEE102C6F6D254CB6 /* UserExceptions.swift */; };
+		5EDF2198FD3A3E0067B30896 /* TechBuzzwordsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9E23CB81DE4037D418A2889 /* TechBuzzwordsManager.swift */; };
 		61B774BE111F9A36F710D9A7 /* Onboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = D119708F1FA4F5A00C8176CE /* Onboarding.swift */; };
+		75D5EA00914EED37BF31CAC3 /* TextReplacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80D10B620107EDB38D5BBF61 /* TextReplacer.swift */; };
 		7CB79CCCF1DADF821F5D6945 /* History.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FC9E1DCAA1A6E857127465 /* History.swift */; };
 		97F1E87700F8A58E12311006 /* Hotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */; };
 		9E9C00549F13F6B40FF581D7 /* sound in Resources */ = {isa = PBXBuildFile; fileRef = 6CFF6BAB6AF455F8C94BB4B3 /* sound */; };
@@ -25,6 +35,7 @@
 		BB3BB22AB1F1A28EE7C3FCDA /* Core.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD88433191E1DCD7C878A9AE /* Core.swift */; };
 		C3FC8A79D0B6C366C1C429C0 /* Prompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD156401813A36F4B8FFB7D /* Prompts.swift */; };
 		D0F3552B34D51CBFCB4B8BA4 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 936EA6F30269CB2105AC0A38 /* FluidAudio */; };
+		D176714D14CE257566A1230F /* HybridValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 893DB33F484AADE39A1B6764 /* HybridValidator.swift */; };
 		E3498BA760FB5B3EF2937A63 /* InputModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12B87D63DB9833713690EFA3 /* InputModal.swift */; };
 		E9397678081748EF0E91879E /* vocab.txt in Resources */ = {isa = PBXBuildFile; fileRef = 89C86E7557ED53597B74919A /* vocab.txt */; };
 /* End PBXBuildFile section */
@@ -33,17 +44,28 @@
 		00FC9E1DCAA1A6E857127465 /* History.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = History.swift; sourceTree = "<group>"; };
 		04EAB0B76FD5694386037F0F /* Dictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dictation.swift; sourceTree = "<group>"; };
 		12B87D63DB9833713690EFA3 /* InputModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputModal.swift; sourceTree = "<group>"; };
+		17FD6FCF7EDA712C3D17E917 /* KeyboardMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardMonitor.swift; sourceTree = "<group>"; };
 		233D620BE4A1F2BB693CAB21 /* DictumApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictumApp.swift; sourceTree = "<group>"; };
+		239B2B9F3F28AC2108ABD619 /* ForcedConversions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForcedConversions.swift; sourceTree = "<group>"; };
 		265C6A0B76E2696619723684 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		4B12AA3B8C1D04A4ADE3E3E9 /* NgramData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NgramData.swift; sourceTree = "<group>"; };
+		4FD59E2DAB6D1C45C58DD3DC /* Resources */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Resources; path = Dictum/Resources; sourceTree = SOURCE_ROOT; };
+		681889163B25FD9F30A719F4 /* NgramScorer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NgramScorer.swift; sourceTree = "<group>"; };
 		6CFF6BAB6AF455F8C94BB4B3 /* sound */ = {isa = PBXFileReference; lastKnownFileType = folder; path = sound; sourceTree = SOURCE_ROOT; };
 		7FBC1D81F0E448A8F026F8B4 /* Updates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Updates.swift; sourceTree = "<group>"; };
+		80D10B620107EDB38D5BBF61 /* TextReplacer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextReplacer.swift; sourceTree = "<group>"; };
+		893DB33F484AADE39A1B6764 /* HybridValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HybridValidator.swift; sourceTree = "<group>"; };
 		89C86E7557ED53597B74919A /* vocab.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = vocab.txt; sourceTree = "<group>"; };
+		A1B7FD1FEE102C6F6D254CB6 /* UserExceptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserExceptions.swift; sourceTree = "<group>"; };
 		A1F74750E0CF8B1EAB09B94D /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		A217BF479246FEC5C7CBAC11 /* LayoutMaps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutMaps.swift; sourceTree = "<group>"; };
 		A52C02DC25B522AB15CF93A1 /* Dictum.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Dictum.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C7EA3A14A4BC00F668D12BBA /* Snippets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snippets.swift; sourceTree = "<group>"; };
+		C9E23CB81DE4037D418A2889 /* TechBuzzwordsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TechBuzzwordsManager.swift; sourceTree = "<group>"; };
 		D119708F1FA4F5A00C8176CE /* Onboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Onboarding.swift; sourceTree = "<group>"; };
 		EEB9A8517BE59E9B73CF663C /* AI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AI.swift; sourceTree = "<group>"; };
 		F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Hotkeys.swift; sourceTree = "<group>"; };
+		F6135EFEC70B1E7D9FE8F327 /* TextSwitcherManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSwitcherManager.swift; sourceTree = "<group>"; };
 		F6E3F811455ACCFD649BCBFF /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		F764B7FEDEF714C2350FFC29 /* Notes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notes.swift; sourceTree = "<group>"; };
 		FAD156401813A36F4B8FFB7D /* Prompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Prompts.swift; sourceTree = "<group>"; };
@@ -68,10 +90,27 @@
 			isa = PBXGroup;
 			children = (
 				265C6A0B76E2696619723684 /* AppIcon.icns */,
+				4FD59E2DAB6D1C45C58DD3DC /* Resources */,
 				6CFF6BAB6AF455F8C94BB4B3 /* sound */,
 				DCF5253A450C0F025AD28023 /* Dictum */,
 				C8222A1FA74A22D09DA6898F /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		BA10070FFF99BDDCE4514966 /* TextSwitcher */ = {
+			isa = PBXGroup;
+			children = (
+				239B2B9F3F28AC2108ABD619 /* ForcedConversions.swift */,
+				893DB33F484AADE39A1B6764 /* HybridValidator.swift */,
+				17FD6FCF7EDA712C3D17E917 /* KeyboardMonitor.swift */,
+				A217BF479246FEC5C7CBAC11 /* LayoutMaps.swift */,
+				681889163B25FD9F30A719F4 /* NgramScorer.swift */,
+				C9E23CB81DE4037D418A2889 /* TechBuzzwordsManager.swift */,
+				80D10B620107EDB38D5BBF61 /* TextReplacer.swift */,
+				F6135EFEC70B1E7D9FE8F327 /* TextSwitcherManager.swift */,
+				A1B7FD1FEE102C6F6D254CB6 /* UserExceptions.swift */,
+			);
+			path = TextSwitcher;
 			sourceTree = "<group>";
 		};
 		C21F591FDD9FF4063DC6746F /* Resources */ = {
@@ -101,6 +140,7 @@
 				00FC9E1DCAA1A6E857127465 /* History.swift */,
 				F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */,
 				12B87D63DB9833713690EFA3 /* InputModal.swift */,
+				4B12AA3B8C1D04A4ADE3E3E9 /* NgramData.swift */,
 				F764B7FEDEF714C2350FFC29 /* Notes.swift */,
 				D119708F1FA4F5A00C8176CE /* Onboarding.swift */,
 				FAD156401813A36F4B8FFB7D /* Prompts.swift */,
@@ -108,6 +148,7 @@
 				C7EA3A14A4BC00F668D12BBA /* Snippets.swift */,
 				7FBC1D81F0E448A8F026F8B4 /* Updates.swift */,
 				C21F591FDD9FF4063DC6746F /* Resources */,
+				BA10070FFF99BDDCE4514966 /* TextSwitcher */,
 			);
 			path = Dictum;
 			sourceTree = "<group>";
@@ -181,6 +222,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				434D4D894E603557903D7E7A /* AppIcon.icns in Resources */,
+				54A1381922F9614827E296E3 /* Resources in Resources */,
 				9E9C00549F13F6B40FF581D7 /* sound in Resources */,
 				E9397678081748EF0E91879E /* vocab.txt in Resources */,
 			);
@@ -198,15 +240,25 @@
 				BB3BB22AB1F1A28EE7C3FCDA /* Core.swift in Sources */,
 				193A665DD50433D61C772BEA /* Dictation.swift in Sources */,
 				4BAF8B4D4D4B03A3ABFF6097 /* DictumApp.swift in Sources */,
+				3E43F6B45A5297C0CAFE6F4A /* ForcedConversions.swift in Sources */,
 				7CB79CCCF1DADF821F5D6945 /* History.swift in Sources */,
 				97F1E87700F8A58E12311006 /* Hotkeys.swift in Sources */,
+				D176714D14CE257566A1230F /* HybridValidator.swift in Sources */,
 				E3498BA760FB5B3EF2937A63 /* InputModal.swift in Sources */,
+				1EC71A4E45A8C41F96265046 /* KeyboardMonitor.swift in Sources */,
+				2D874E015739E9EE96E785FB /* LayoutMaps.swift in Sources */,
+				4E42CCC852A1E5B6F357ECB7 /* NgramData.swift in Sources */,
+				35BB6C13392FE0FB57D46E04 /* NgramScorer.swift in Sources */,
 				14F8066447CBE7F73747AA2D /* Notes.swift in Sources */,
 				61B774BE111F9A36F710D9A7 /* Onboarding.swift in Sources */,
 				C3FC8A79D0B6C366C1C429C0 /* Prompts.swift in Sources */,
 				9F79EEE2C0F3CC4164049680 /* Settings.swift in Sources */,
 				4F05D3BC06A0A08DB81CE198 /* Snippets.swift in Sources */,
+				5EDF2198FD3A3E0067B30896 /* TechBuzzwordsManager.swift in Sources */,
+				75D5EA00914EED37BF31CAC3 /* TextReplacer.swift in Sources */,
+				2D032BAC5D34D7DB86AAE417 /* TextSwitcherManager.swift in Sources */,
 				4C8C41D8611BBE119F4411FD /* Updates.swift in Sources */,
+				5961CF41FE544D120A7B988B /* UserExceptions.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

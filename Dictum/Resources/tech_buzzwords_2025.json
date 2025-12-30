@@ -1,0 +1,168 @@
+{
+  "ai_models": [
+    "chatgpt", "gpt", "gpt4", "gpt-4", "claude", "gemini", "copilot", "llama", "llama2", "llama3",
+    "mistral", "palm", "bard", "midjourney", "dalle", "dall-e", "stable-diffusion", "stablediffusion",
+    "whisper", "codex", "llm", "grok", "perplexity", "anthropic", "openai", "deepmind", "huggingface"
+  ],
+  
+  "programming_languages": [
+    "python", "javascript", "typescript", "java", "csharp", "c#", "cpp", "c++", "go", "golang",
+    "rust", "ruby", "php", "swift", "kotlin", "dart", "scala", "elixir", "haskell", "clojure",
+    "r", "julia", "perl", "lua", "zig", "nim", "crystal", "v", "gleam", "erlang", "fsharp", "f#",
+    "ocaml", "racket", "scheme", "solidity", "vyper", "move", "cairo", "bash", "powershell", "sql"
+  ],
+  
+  "web_frameworks": [
+    "react", "vue", "angular", "svelte", "nextjs", "next.js", "nuxt", "gatsby", "remix",
+    "astro", "solid", "solidjs", "qwik", "preact", "lit", "ember", "backbone", "meteor",
+    "rails", "django", "flask", "fastapi", "express", "nestjs", "koa", "hapi", "fastify",
+    "laravel", "symfony", "spring", "springboot", "spring-boot", "dotnet", ".net", "aspnet", "asp.net",
+    "phoenix", "gin", "echo", "fiber", "chi", "actix", "rocket", "axum", "warp", "play", "ktor"
+  ],
+  
+  "mobile_frameworks": [
+    "reactnative", "react-native", "flutter", "swiftui", "jetpackcompose", "jetpack-compose",
+    "ionic", "capacitor", "cordova", "nativescript", "xamarin", "expo", "tauri", "electronjs", "electron"
+  ],
+  
+  "databases": [
+    "postgresql", "postgres", "mysql", "mongodb", "redis", "elasticsearch", "cassandra",
+    "dynamodb", "firestore", "supabase", "planetscale", "cockroachdb", "tidb", "yugabytedb",
+    "clickhouse", "timescaledb", "influxdb", "neo4j", "arangodb", "couchdb", "rethinkdb",
+    "mariadb", "sqlite", "oracle", "mssql", "sqlserver", "snowflake", "bigquery", "redshift",
+    "pinecone", "weaviate", "qdrant", "milvus", "chroma", "faiss", "surrealdb", "edgedb"
+  ],
+  
+  "ides_editors": [
+    "vscode", "vs-code", "visualstudio", "visual-studio", "cursor", "jetbrains", "intellij",
+    "pycharm", "webstorm", "goland", "rider", "clion", "phpstorm", "rubymine", "appcode",
+    "xcode", "androidstudio", "android-studio", "neovim", "nvim", "vim", "emacs", "sublimetext",
+    "sublime", "atom", "brackets", "notepad++", "zed", "lapce", "helix", "kakoune", "fleet"
+  ],
+  
+  "devops_tools": [
+    "docker", "kubernetes", "k8s", "terraform", "ansible", "jenkins", "githubactions", "github-actions",
+    "gitlab", "gitlab-ci", "circleci", "travis", "argo", "argocd", "flux", "helm", "prometheus",
+    "grafana", "datadog", "newrelic", "sentry", "istio", "linkerd", "consul", "vault", "nomad",
+    "packer", "vagrant", "chef", "puppet", "saltstack", "nginx", "apache", "caddy", "traefik",
+    "envoy", "haproxy", "cloudflare", "vercel", "netlify", "render", "railway", "fly.io", "flyio"
+  ],
+  
+  "cloud_platforms": [
+    "aws", "amazon", "ec2", "s3", "lambda", "cloudfront", "rds", "dynamodb", "eks", "ecs",
+    "gcp", "google-cloud", "compute-engine", "cloud-run", "cloud-functions", "gke", "bigquery",
+    "azure", "microsoft-azure", "azurevm", "azurefunctions", "aks", "cosmosdb", "blobstorage",
+    "digitalocean", "linode", "hetzner", "ovh", "vultr", "heroku", "railway", "render"
+  ],
+  
+  "ai_ml_frameworks": [
+    "tensorflow", "pytorch", "jax", "keras", "scikit-learn", "sklearn", "pandas", "numpy",
+    "scipy", "matplotlib", "seaborn", "plotly", "transformers", "diffusers", "langchain",
+    "llamaindex", "llama-index", "autogen", "crew", "crewai", "haystack", "semantic-kernel",
+    "gradio", "streamlit", "mlflow", "wandb", "weights-biases", "tensorboard", "optuna",
+    "ray", "dask", "spark", "pyspark", "airflow", "prefect", "dagster", "kedro", "metaflow"
+  ],
+  
+  "frontend_tools": [
+    "webpack", "vite", "rollup", "parcel", "esbuild", "turbopack", "bun", "tailwindcss",
+    "tailwind", "bootstrap", "materialui", "material-ui", "mui", "chakraui", "chakra-ui",
+    "antd", "ant-design", "shadcn", "radix", "headlessui", "daisyui", "mantine", "nextui",
+    "storybook", "playwright", "cypress", "jest", "vitest", "mocha", "chai", "jasmine",
+    "testing-library", "react-testing-library", "prettier", "eslint", "biome", "oxlint"
+  ],
+  
+  "backend_tools": [
+    "graphql", "grpc", "rest", "restapi", "trpc", "prisma", "drizzle", "typeorm", "sequelize",
+    "mongoose", "sqlalchemy", "alembic", "knex", "kysely", "pg", "node-postgres", "redis-om",
+    "bull", "bullmq", "celery", "rabbitmq", "kafka", "pulsar", "nats", "mqtt", "zeromq",
+    "protobuf", "avro", "thrift", "msgpack", "json", "yaml", "toml", "xml"
+  ],
+  
+  "testing_tools": [
+    "jest", "vitest", "pytest", "unittest", "nose", "selenium", "puppeteer", "playwright",
+    "cypress", "testcafe", "webdriverio", "detox", "appium", "k6", "locust", "jmeter",
+    "gatling", "artillery", "postman", "insomnia", "bruno", "hoppscotch", "httpie", "curl"
+  ],
+  
+  "version_control": [
+    "git", "github", "gitlab", "bitbucket", "gitea", "forgejo", "sourcehut", "codeberg",
+    "mercurial", "svn", "perforce", "fossil", "bazaar", "cvs", "gh", "hub", "glab"
+  ],
+  
+  "package_managers": [
+    "npm", "yarn", "pnpm", "bun", "pip", "pipenv", "poetry", "conda", "maven", "gradle",
+    "cargo", "bundler", "composer", "nuget", "cocoapods", "carthage", "spm", "swift-package-manager",
+    "homebrew", "brew", "apt", "yum", "dnf", "pacman", "chocolatey", "scoop", "winget"
+  ],
+  
+  "monitoring_observability": [
+    "prometheus", "grafana", "datadog", "newrelic", "dynatrace", "splunk", "elk", "elastic",
+    "kibana", "logstash", "fluentd", "fluentbit", "loki", "tempo", "jaeger", "zipkin",
+    "opentelemetry", "otel", "sentry", "rollbar", "bugsnag", "raygun", "honeycomb", "lightstep"
+  ],
+  
+  "security_tools": [
+    "snyk", "dependabot", "renovate", "trivy", "grype", "clair", "anchore", "aqua", "falco",
+    "ossec", "wazuh", "suricata", "zeek", "bro", "nmap", "metasploit", "burpsuite", "wireshark",
+    "owasp", "sonarqube", "checkmarx", "veracode", "fortify", "blackduck", "whitesource"
+  ],
+  
+  "api_tools": [
+    "swagger", "openapi", "postman", "insomnia", "bruno", "hoppscotch", "httpie", "curl",
+    "apidog", "paw", "rested", "thunder-client", "rapidapi", "apiary", "stoplight", "readme"
+  ],
+  
+  "data_tools": [
+    "apache", "spark", "hadoop", "flink", "beam", "storm", "samza", "hive", "impala", "presto",
+    "trino", "dbt", "airbyte", "fivetran", "stitch", "talend", "nifi", "debezium", "kafka-connect",
+    "tableau", "powerbi", "power-bi", "looker", "metabase", "superset", "redash", "domo", "qlik"
+  ],
+  
+  "collaboration_tools": [
+    "slack", "discord", "teams", "microsoft-teams", "zoom", "meet", "google-meet", "jira",
+    "confluence", "notion", "obsidian", "roam", "logseq", "linear", "asana", "trello",
+    "clickup", "monday", "airtable", "coda", "miro", "figma", "sketch", "invision", "zeplin"
+  ],
+  
+  "cms_platforms": [
+    "wordpress", "drupal", "joomla", "contentful", "sanity", "strapi", "directus", "ghost",
+    "payload", "keystone", "prismic", "storyblok", "butter", "forestry", "netlify-cms", "decap"
+  ],
+  
+  "blockchain_web3": [
+    "ethereum", "solana", "polygon", "avalanche", "arbitrum", "optimism", "base", "zksync",
+    "starknet", "aptos", "sui", "near", "cosmos", "polkadot", "cardano", "algorand", "tezos",
+    "web3", "web3.js", "ethers", "ethers.js", "viem", "wagmi", "rainbow", "walletconnect",
+    "metamask", "hardhat", "truffle", "foundry", "brownie", "remix", "ganache", "infura", "alchemy"
+  ],
+  
+  "devrel_terms": [
+    "api", "sdk", "cli", "gui", "tui", "rest", "graphql", "websocket", "ssr", "ssg", "isr",
+    "csr", "spa", "mpa", "pwa", "jamstack", "serverless", "microservices", "monolith",
+    "cicd", "ci-cd", "devops", "gitops", "devsecops", "sre", "mlops", "aiops", "dataops",
+    "iac", "paas", "saas", "iaas", "faas", "baas", "dbaas", "cdn", "edge", "wasm", "webassembly"
+  ],
+  
+  "modern_concepts": [
+    "copilot", "autopilot", "agent", "rag", "finetuning", "fine-tuning", "prompt", "embedding",
+    "vector", "vectordb", "vector-database", "llm", "multimodal", "zero-shot", "few-shot",
+    "inference", "training", "quantization", "lora", "qlora", "peft", "rlhf", "dpo", "sft"
+  ],
+  
+  "os_platforms": [
+    "linux", "ubuntu", "debian", "fedora", "centos", "rhel", "arch", "manjaro", "gentoo",
+    "nixos", "alpine", "kali", "parrot", "macos", "windows", "freebsd", "openbsd", "netbsd",
+    "android", "ios", "ipados", "watchos", "tvos", "chromeos", "raspbian", "raspberrypi"
+  ],
+  
+  "terminal_shells": [
+    "bash", "zsh", "fish", "powershell", "pwsh", "cmd", "terminal", "iterm", "iterm2", "alacritty",
+    "kitty", "wezterm", "hyper", "tabby", "warp", "starship", "oh-my-zsh", "oh-my-posh", "tmux", "screen"
+  ],
+  
+  "emerging_tech": [
+    "htmx", "alpine", "alpinejs", "unpoly", "hotwire", "turbo", "stimulus", "livewire",
+    "inertia", "blitz", "redwood", "wasp", "amplication", "supertokens", "clerk", "auth0",
+    "firebase-auth", "cognito", "supabase-auth", "lucia", "better-auth", "next-auth", "nextauth"
+  ]
+}
