@@ -26,16 +26,24 @@ sleep 0.5
 
 # Сбросить TCC разрешения
 echo "🔄 Сброс разрешений..."
+tccutil reset ListenEvent "$BUNDLE_ID" 2>/dev/null || true     # Input Monitoring (CGEventTap)
 tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null || true
 tccutil reset Microphone "$BUNDLE_ID" 2>/dev/null || true
 tccutil reset ScreenCapture "$BUNDLE_ID" 2>/dev/null || true
 tccutil reset AppleEvents "$BUNDLE_ID" 2>/dev/null || true
 
-# Сбросить флаг прохождения onboarding
+# Сбросить флаги прохождения onboarding
 defaults delete "$BUNDLE_ID" settings.onboardingCompleted 2>/dev/null || true
+defaults delete "$BUNDLE_ID" settings.currentOnboardingStep 2>/dev/null || true
+echo "🧹 Onboarding флаги сброшены"
 
 # Сбросить флаг Screen Recording запроса (чтобы приложение появилось в списке)
 defaults delete "$BUNDLE_ID" hasAskedForScreenRecording 2>/dev/null || true
+echo "🧹 Screen Recording флаг сброшен"
+
+# Сбросить флаг Input Monitoring запроса (чтобы диалог появился снова)
+defaults delete "$BUNDLE_ID" hasAskedForInputMonitoring 2>/dev/null || true
+echo "🧹 Input Monitoring флаг сброшен"
 
 # Собрать Debug
 xcodebuild -project Dictum.xcodeproj \

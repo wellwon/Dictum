@@ -109,6 +109,12 @@ class PermissionManager: @unchecked Sendable {
         set { UserDefaults.standard.set(newValue, forKey: "hasAskedForScreenRecording") }
     }
 
+    /// Отслеживаем, запрашивали ли Input Monitoring (диалог показывается только 1 раз)
+    private var hasAskedForInputMonitoring: Bool {
+        get { UserDefaults.standard.bool(forKey: "hasAskedForInputMonitoring") }
+        set { UserDefaults.standard.set(newValue, forKey: "hasAskedForInputMonitoring") }
+    }
+
     // MARK: - Check Permissions
 
     /// Проверка Accessibility (Универсальный доступ)
@@ -216,15 +222,23 @@ class PermissionManager: @unchecked Sendable {
     func requestInputMonitoring() {
         NSLog("⌨️ Requesting Input Monitoring permission...")
 
+        // Если уже есть разрешение — ничего не делаем
         if hasInputMonitoring() {
             NSLog("⌨️ Input Monitoring already granted")
             return
         }
 
-        // CGRequestListenEventAccess() показывает системный диалог
-        // и добавляет приложение в список Input Monitoring
-        CGRequestListenEventAccess()
-        NSLog("⌨️ Input Monitoring dialog triggered")
+        // Если ещё НЕ запрашивали — показываем системный диалог
+        if !hasAskedForInputMonitoring {
+            hasAskedForInputMonitoring = true
+            NSLog("⌨️ First time asking, showing system dialog")
+            CGRequestListenEventAccess()
+            // Диалог позволяет пользователю выбрать (accept/deny)
+        } else {
+            // Уже запрашивали, но нет разрешения — открываем Settings напрямую
+            NSLog("⌨️ Already asked before, opening Settings directly")
+            openPrivacySettings(section: "ListenEvent")
+        }
     }
 
     /// Планирует перезапуск приложения через 3 секунды
@@ -568,9 +582,7 @@ class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
             self.audioEngine = engine
             NSLog("🎤 Локальный ASR запущен (Parakeet v3)")
 
-            await MainActor.run {
-                interimText = "Слушаю..."
-            }
+            // Текстовый индикатор убран — достаточно VoiceOverlayView
 
         } catch {
             inputNode.removeTap(onBus: 0)
@@ -664,9 +676,7 @@ class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
         outputFormat = nil
         resampledBuffer = nil
 
-        await MainActor.run {
-            interimText = "Обрабатываю..."
-        }
+        // Текстовый индикатор убран — VoiceOverlayView уже скрыт, результат появится автоматически
 
         let samplesToProcess = samplesLock.withLock { audioSamples }
 

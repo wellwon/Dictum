@@ -65,3 +65,28 @@ targets:
         product: MLXLMCommon
     entitlements:
       path: Dictum.entitlements
+
+  TextSwitcherCLI:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Dictum/TextSwitcher
+        excludes:
+          - "KeyboardMonitor.swift"
+          - "TextReplacer.swift"
+          - "TextSwitcherManager.swift"
+      - path: Dictum/NgramData.swift
+      - path: Tools/TextSwitcherCLI.swift
+      - path: Dictum/Resources
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_NAME: TextSwitcherCLI
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"

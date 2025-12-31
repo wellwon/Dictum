@@ -222,8 +222,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Menu bar
         setupMenuBar()
 
-        // Хоткеи
-        setupHotKeys()
+        // Хоткеи — устанавливаем только если онбординг завершён
+        if SettingsManager.shared.hasCompletedOnboarding {
+            setupHotKeys()
+        }
         startAccessibilityMonitoring()
 
         // Окно
@@ -340,6 +342,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func handleOnboardingCompleted() {
         NSLog("✅ Onboarding завершён")
         onboardingWindow?.close()
+        setupHotKeys()  // Устанавливаем хоткеи после завершения онбординга
         showWindow()
     }
 
@@ -874,30 +877,37 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Если статус изменился с false на true — перерегистрируем хоткеи и TextSwitcher
         if currentState && !lastAccessibilityState {
-            NSLog("✅ Accessibility получен! Перерегистрирую хоткеи и TextSwitcher...")
+            NSLog("✅ Accessibility получен!")
 
-            // Первая попытка — немедленно
-            unregisterHotKeys()
-            setupHotKeys()
+            // Перерегистрация хоткеев только если онбординг завершён
+            if SettingsManager.shared.hasCompletedOnboarding {
+                NSLog("🔄 Перерегистрирую хоткеи и TextSwitcher...")
 
-            // Повторные попытки с задержкой (для NSEvent глобальных мониторов которые всё ещё используются)
-            // CGEventTap с Input Monitoring работает сразу, но NSEvent глобальные мониторы требуют задержку
-            for delay in [0.5, 1.0, 2.0, 3.0] {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    guard let self = self else { return }
-                    // Проверяем что Accessibility всё ещё есть
-                    guard AccessibilityHelper.checkAccessibility() else { return }
+                // Первая попытка — немедленно
+                unregisterHotKeys()
+                setupHotKeys()
 
-                    NSLog("🔄 Повторная перерегистрация хоткеев (%.1f сек)", delay)
-                    self.unregisterHotKeys()
-                    self.setupHotKeys()
+                // Повторные попытки с задержкой (для NSEvent глобальных мониторов которые всё ещё используются)
+                // CGEventTap с Input Monitoring работает сразу, но NSEvent глобальные мониторы требуют задержку
+                for delay in [0.5, 1.0, 2.0, 3.0] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                        guard let self = self else { return }
+                        // Проверяем что Accessibility всё ещё есть
+                        guard AccessibilityHelper.checkAccessibility() else { return }
+
+                        NSLog("🔄 Повторная перерегистрация хоткеев (%.1f сек)", delay)
+                        self.unregisterHotKeys()
+                        self.setupHotKeys()
+                    }
                 }
-            }
 
-            // Запускаем TextSwitcher если он включён (без перезагрузки!)
-            if TextSwitcherManager.shared.isEnabled {
-                let started = KeyboardMonitor.shared.startMonitoring()
-                NSLog("✅ KeyboardMonitor: %@", started ? "запущен" : "ОШИБКА")
+                // Запускаем TextSwitcher если он включён (без перезагрузки!)
+                if TextSwitcherManager.shared.isEnabled {
+                    let started = KeyboardMonitor.shared.startMonitoring()
+                    NSLog("✅ KeyboardMonitor: %@", started ? "запущен" : "ОШИБКА")
+                }
+            } else {
+                NSLog("⏸️ Онбординг не завершён — пропускаем setup хоткеев")
             }
         }
 
@@ -938,7 +948,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Проверяем Input Monitoring permission
         guard CGPreflightListenEventAccess() else {
             NSLog("⚠️ Нет Input Monitoring для Right Option — запрашиваю...")
-            CGRequestListenEventAccess()
+            PermissionManager.shared.requestInputMonitoring()
             return
         }
 

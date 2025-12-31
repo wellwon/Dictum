@@ -58,6 +58,8 @@ struct InputModalView: View {
     // Максимум 30 строк (~600px), минимум 40px
     private let lineHeight: CGFloat = 20
     private let maxLines: Int = 30
+    // Высота окна в режиме записи (компактная)
+    private let recordingModeHeight: CGFloat = 70
 
     // Computed property для проверки возможности отправки
     private var canSubmit: Bool {
@@ -95,7 +97,8 @@ struct InputModalView: View {
                         highlightForeignWords: settings.highlightForeignWords
                     )
                     .font(.system(size: 16, weight: .regular))
-                    .frame(height: textEditorHeight)
+                    // Сброс высоты к компактной при записи
+                    .frame(height: (isRecording || pendingAudioStart) ? recordingModeHeight : textEditorHeight)
                     .padding(.leading, 20)
                     .padding(.trailing, 50)  // Увеличено для иконки "Улучшить"
                     .padding(.top, 18)
@@ -863,54 +866,15 @@ struct InputModalView: View {
     }
 }
 
-// MARK: - Model Status View (Typewriter Animation)
+// MARK: - Model Status View (Simplified)
 struct ModelStatusView: View {
     let status: ParakeetModelStatus
-    // Используем флаг из singleton вместо @State (иначе сбрасывается при пересоздании View)
-    @ObservedObject private var asrProvider = ParakeetASRProvider.shared
-    @State private var showReadyAnimation = true  // Локальная анимация fade-out
 
     var body: some View {
         Group {
             switch status {
-            case .notChecked, .checking, .loading:
-                LoopingTypewriterText(
-                    text: "Загружаю локальную модель...",
-                    color: .orange,
-                    pauseDuration: 2.0
-                )
-
-            case .downloading:
-                LoopingTypewriterText(
-                    text: "Скачиваю модель...",
-                    color: .orange,
-                    pauseDuration: 2.0
-                )
-
-            case .ready:
-                if !asrProvider.hasShownReadyMessage {
-                    // Показываем "Модель готова" только один раз за сессию
-                    TypewriterText(
-                        text: "Модель готова",
-                        color: DesignSystem.Colors.accent
-                    )
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            withAnimation(.easeOut(duration: 0.3)) {
-                                showReadyAnimation = false
-                            }
-                            // Устанавливаем флаг в singleton — он сохранится между пересозданиями View
-                            asrProvider.hasShownReadyMessage = true
-                        }
-                    }
-                    .opacity(showReadyAnimation ? 1 : 0)
-                } else {
-                    // После показа "Модель готова" — обычный placeholder
-                    Text("Введите текст...")
-                        .foregroundColor(Color.white.opacity(0.45))
-                }
-
             case .notDownloaded:
+                // Кнопка скачивания модели
                 Button(action: {
                     Task {
                         await ParakeetASRProvider.shared.initializeModelsIfNeeded()
@@ -928,6 +892,12 @@ struct ModelStatusView: View {
                 Text("Ошибка: \(msg)")
                     .foregroundColor(.red)
                     .lineLimit(1)
+
+            default:
+                // Для всех остальных состояний — стандартный placeholder
+                // (notChecked, checking, loading, downloading, ready)
+                Text("Введите текст...")
+                    .foregroundColor(Color.white.opacity(0.45))
             }
         }
         .font(.system(size: 16))

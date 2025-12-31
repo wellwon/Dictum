@@ -10,14 +10,17 @@
 		14F8066447CBE7F73747AA2D /* Notes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F764B7FEDEF714C2350FFC29 /* Notes.swift */; };
 		193A665DD50433D61C772BEA /* Dictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04EAB0B76FD5694386037F0F /* Dictation.swift */; };
 		1EC71A4E45A8C41F96265046 /* KeyboardMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17FD6FCF7EDA712C3D17E917 /* KeyboardMonitor.swift */; };
+		2BE1ED2FD85274E2EA40E72D /* HybridValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 893DB33F484AADE39A1B6764 /* HybridValidator.swift */; };
 		2D032BAC5D34D7DB86AAE417 /* TextSwitcherManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6135EFEC70B1E7D9FE8F327 /* TextSwitcherManager.swift */; };
 		2D874E015739E9EE96E785FB /* LayoutMaps.swift in Sources */ = {isa = PBXBuildFile; fileRef = A217BF479246FEC5C7CBAC11 /* LayoutMaps.swift */; };
+		3430102B546C36C71E87BB54 /* NgramScorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 681889163B25FD9F30A719F4 /* NgramScorer.swift */; };
 		35BB6C13392FE0FB57D46E04 /* NgramScorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 681889163B25FD9F30A719F4 /* NgramScorer.swift */; };
 		3E43F6B45A5297C0CAFE6F4A /* ForcedConversions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239B2B9F3F28AC2108ABD619 /* ForcedConversions.swift */; };
 		434D4D894E603557903D7E7A /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 265C6A0B76E2696619723684 /* AppIcon.icns */; };
 		4BAF8B4D4D4B03A3ABFF6097 /* DictumApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 233D620BE4A1F2BB693CAB21 /* DictumApp.swift */; };
 		4C8C41D8611BBE119F4411FD /* Updates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FBC1D81F0E448A8F026F8B4 /* Updates.swift */; };
 		4E42CCC852A1E5B6F357ECB7 /* NgramData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B12AA3B8C1D04A4ADE3E3E9 /* NgramData.swift */; };
+		4EFC773E62EB6E5C65E82D51 /* TechBuzzwordsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9E23CB81DE4037D418A2889 /* TechBuzzwordsManager.swift */; };
 		4F05D3BC06A0A08DB81CE198 /* Snippets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7EA3A14A4BC00F668D12BBA /* Snippets.swift */; };
 		53378C5D1934736E3738DC69 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 24108E4098C7D8A965EFAEEA /* MLXLMCommon */; };
 		54A1381922F9614827E296E3 /* Resources in Resources */ = {isa = PBXBuildFile; fileRef = 4FD59E2DAB6D1C45C58DD3DC /* Resources */; };
@@ -25,7 +28,9 @@
 		5EDF2198FD3A3E0067B30896 /* TechBuzzwordsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9E23CB81DE4037D418A2889 /* TechBuzzwordsManager.swift */; };
 		61B774BE111F9A36F710D9A7 /* Onboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = D119708F1FA4F5A00C8176CE /* Onboarding.swift */; };
 		75D5EA00914EED37BF31CAC3 /* TextReplacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80D10B620107EDB38D5BBF61 /* TextReplacer.swift */; };
+		788BDA0AAFE4EC9DFD812F90 /* UserExceptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B7FD1FEE102C6F6D254CB6 /* UserExceptions.swift */; };
 		7CB79CCCF1DADF821F5D6945 /* History.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FC9E1DCAA1A6E857127465 /* History.swift */; };
+		839E241CE5A5A7689BA23161 /* LayoutMaps.swift in Sources */ = {isa = PBXBuildFile; fileRef = A217BF479246FEC5C7CBAC11 /* LayoutMaps.swift */; };
 		97F1E87700F8A58E12311006 /* Hotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */; };
 		9E9C00549F13F6B40FF581D7 /* sound in Resources */ = {isa = PBXBuildFile; fileRef = 6CFF6BAB6AF455F8C94BB4B3 /* sound */; };
 		9F79EEE2C0F3CC4164049680 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6E3F811455ACCFD649BCBFF /* Settings.swift */; };
@@ -33,10 +38,14 @@
 		B43EA4A3E9EA21A0B7D2FF1A /* AI.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEB9A8517BE59E9B73CF663C /* AI.swift */; };
 		B5796459F38954025FC586E5 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F74750E0CF8B1EAB09B94D /* Components.swift */; };
 		BB3BB22AB1F1A28EE7C3FCDA /* Core.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD88433191E1DCD7C878A9AE /* Core.swift */; };
+		BFA34688A4333B2E25A3FA9F /* ForcedConversions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239B2B9F3F28AC2108ABD619 /* ForcedConversions.swift */; };
+		C33BA97F9C461776D62F5FED /* NgramData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B12AA3B8C1D04A4ADE3E3E9 /* NgramData.swift */; };
 		C3FC8A79D0B6C366C1C429C0 /* Prompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD156401813A36F4B8FFB7D /* Prompts.swift */; };
 		D0F3552B34D51CBFCB4B8BA4 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 936EA6F30269CB2105AC0A38 /* FluidAudio */; };
 		D176714D14CE257566A1230F /* HybridValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 893DB33F484AADE39A1B6764 /* HybridValidator.swift */; };
+		D5C40966971701B20E9396D4 /* TextSwitcherCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB584BD1FD365BDB7BDCC7C4 /* TextSwitcherCLI.swift */; };
 		E3498BA760FB5B3EF2937A63 /* InputModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12B87D63DB9833713690EFA3 /* InputModal.swift */; };
+		E911D3015A565D9BAFA3AF84 /* Resources in Resources */ = {isa = PBXBuildFile; fileRef = 4FD59E2DAB6D1C45C58DD3DC /* Resources */; };
 		E9397678081748EF0E91879E /* vocab.txt in Resources */ = {isa = PBXBuildFile; fileRef = 89C86E7557ED53597B74919A /* vocab.txt */; };
 /* End PBXBuildFile section */
 
@@ -59,9 +68,11 @@
 		A1B7FD1FEE102C6F6D254CB6 /* UserExceptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserExceptions.swift; sourceTree = "<group>"; };
 		A1F74750E0CF8B1EAB09B94D /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		A217BF479246FEC5C7CBAC11 /* LayoutMaps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutMaps.swift; sourceTree = "<group>"; };
+		A35F355748F8AE67D7DAA218 /* TextSwitcherCLI */ = {isa = PBXFileReference; includeInIndex = 0; path = TextSwitcherCLI; sourceTree = BUILT_PRODUCTS_DIR; };
 		A52C02DC25B522AB15CF93A1 /* Dictum.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Dictum.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C7EA3A14A4BC00F668D12BBA /* Snippets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snippets.swift; sourceTree = "<group>"; };
 		C9E23CB81DE4037D418A2889 /* TechBuzzwordsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TechBuzzwordsManager.swift; sourceTree = "<group>"; };
+		CB584BD1FD365BDB7BDCC7C4 /* TextSwitcherCLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSwitcherCLI.swift; sourceTree = "<group>"; };
 		D119708F1FA4F5A00C8176CE /* Onboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Onboarding.swift; sourceTree = "<group>"; };
 		EEB9A8517BE59E9B73CF663C /* AI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AI.swift; sourceTree = "<group>"; };
 		F12E9E6BC95CA850D3CEFAE1 /* Hotkeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Hotkeys.swift; sourceTree = "<group>"; };
@@ -86,6 +97,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		521CC6FC25215D8D84230937 /* Tools */ = {
+			isa = PBXGroup;
+			children = (
+				CB584BD1FD365BDB7BDCC7C4 /* TextSwitcherCLI.swift */,
+			);
+			path = Tools;
+			sourceTree = "<group>";
+		};
 		9559F4F0E1F239A398D6EB04 = {
 			isa = PBXGroup;
 			children = (
@@ -93,6 +112,7 @@
 				4FD59E2DAB6D1C45C58DD3DC /* Resources */,
 				6CFF6BAB6AF455F8C94BB4B3 /* sound */,
 				DCF5253A450C0F025AD28023 /* Dictum */,
+				521CC6FC25215D8D84230937 /* Tools */,
 				C8222A1FA74A22D09DA6898F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -125,6 +145,7 @@
 			isa = PBXGroup;
 			children = (
 				A52C02DC25B522AB15CF93A1 /* Dictum.app */,
+				A35F355748F8AE67D7DAA218 /* TextSwitcherCLI */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -156,6 +177,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		B3960A51A0A6F47A09D7E5E8 /* TextSwitcherCLI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1F6AC84CC453D4A5038FFAED /* Build configuration list for PBXNativeTarget "TextSwitcherCLI" */;
+			buildPhases = (
+				8FEE147A0FDEBF07DA9F5F43 /* Sources */,
+				B85304C4564F5BD40F45623D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TextSwitcherCLI;
+			packageProductDependencies = (
+			);
+			productName = TextSwitcherCLI;
+			productReference = A35F355748F8AE67D7DAA218 /* TextSwitcherCLI */;
+			productType = "com.apple.product-type.tool";
+		};
 		CBE02459CFDF081B93E9F5F7 /* Dictum */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 7676ADBAE213A40494ED4E49 /* Build configuration list for PBXNativeTarget "Dictum" */;
@@ -212,6 +251,7 @@
 			projectRoot = "";
 			targets = (
 				CBE02459CFDF081B93E9F5F7 /* Dictum */,
+				B3960A51A0A6F47A09D7E5E8 /* TextSwitcherCLI */,
 			);
 		};
 /* End PBXProject section */
@@ -228,9 +268,32 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B85304C4564F5BD40F45623D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E911D3015A565D9BAFA3AF84 /* Resources in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		8FEE147A0FDEBF07DA9F5F43 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BFA34688A4333B2E25A3FA9F /* ForcedConversions.swift in Sources */,
+				2BE1ED2FD85274E2EA40E72D /* HybridValidator.swift in Sources */,
+				839E241CE5A5A7689BA23161 /* LayoutMaps.swift in Sources */,
+				C33BA97F9C461776D62F5FED /* NgramData.swift in Sources */,
+				3430102B546C36C71E87BB54 /* NgramScorer.swift in Sources */,
+				4EFC773E62EB6E5C65E82D51 /* TechBuzzwordsManager.swift in Sources */,
+				D5C40966971701B20E9396D4 /* TextSwitcherCLI.swift in Sources */,
+				788BDA0AAFE4EC9DFD812F90 /* UserExceptions.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C45851DE3A8157DBACB2AC0A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -318,6 +381,40 @@
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		21D21B178969962D6923E182 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dictum.TextSwitcherCLI;
+				PRODUCT_NAME = TextSwitcherCLI;
+				SDKROOT = macosx;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		228A8AFC17D7FA074FF3C9C0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dictum.TextSwitcherCLI;
+				PRODUCT_NAME = TextSwitcherCLI;
+				SDKROOT = macosx;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
@@ -439,6 +536,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		1F6AC84CC453D4A5038FFAED /* Build configuration list for PBXNativeTarget "TextSwitcherCLI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				21D21B178969962D6923E182 /* Debug */,
+				228A8AFC17D7FA074FF3C9C0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		368E86BA8944907E08E756C0 /* Build configuration list for PBXProject "Dictum" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

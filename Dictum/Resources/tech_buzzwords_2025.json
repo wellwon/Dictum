@@ -1,4 +1,21 @@
 {
+  "abbreviations": [
+    "dhl", "nasa", "ibm", "usb", "cpu", "gpu", "ram", "ssd", "hdd", "rom",
+    "pdf", "url", "uri", "api", "sdk", "ide", "gui", "cli", "sql", "html", "css", "xml", "json", "mcp",
+    "aws", "gcp", "vpn", "dns", "http", "https", "ftp", "sftp", "ssh", "ssl", "tls", "tcp", "udp", "ip",
+    "jpeg", "jpg", "png", "gif", "svg", "mp3", "mp4", "mpeg", "avi", "mkv", "mov", "wav", "flac",
+    "usa", "uk", "eu", "un", "nato", "fbi", "cia", "nsa", "esa", "mit", "cern",
+    "bmw", "vw", "gm", "mba", "ceo", "cto", "cfo", "coo", "cmo", "hr", "pr", "it", "qa", "ux", "ui",
+    "ai", "ml", "nlp", "cnn", "rnn", "lstm", "gan", "gpt", "llm", "rag", "ocr",
+    "iso", "led", "lcd", "oled", "amd", "arm", "risc", "asic", "fpga",
+    "ios", "macos", "tvos", "ipados", "watchos", "visionos",
+    "id", "uuid", "guid", "md5", "sha", "rsa", "aes", "jwt", "oauth", "sso",
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "csv", "txt", "rtf",
+    "usd", "eur", "gbp", "rub", "cny", "jpy", "btc", "eth", "nft",
+    "diy", "faq", "asap", "eta", "rsvp", "aka", "tbd", "tba", "wip", "eod", "eow",
+    "nda", "kpi", "roi", "b2b", "b2c", "saas", "paas", "iaas", "erp", "crm"
+  ],
+
   "ai_models": [
     "chatgpt", "gpt", "gpt4", "gpt-4", "claude", "gemini", "copilot", "llama", "llama2", "llama3",
     "mistral", "palm", "bard", "midjourney", "dalle", "dall-e", "stable-diffusion", "stablediffusion",
