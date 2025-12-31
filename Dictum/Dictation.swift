@@ -135,7 +135,9 @@ class PermissionManager: @unchecked Sendable {
     /// Проверка Input Monitoring (для CGEventTap .listenOnly)
     /// Работает СРАЗУ после выдачи разрешения, без рестарта!
     func hasInputMonitoring() -> Bool {
-        CGPreflightListenEventAccess()
+        let result = CGPreflightListenEventAccess()
+        NSLog("⌨️ hasInputMonitoring check: \(result)")
+        return result
     }
 
     // MARK: - Request Permissions
@@ -217,7 +219,7 @@ class PermissionManager: @unchecked Sendable {
         }
     }
 
-    /// Input Monitoring: Запрашиваем разрешение для CGEventTap .listenOnly
+    /// Input Monitoring: Вызываем CGRequestListenEventAccess() и открываем System Settings
     /// Работает СРАЗУ после выдачи разрешения, без рестарта!
     func requestInputMonitoring() {
         NSLog("⌨️ Requesting Input Monitoring permission...")
@@ -228,15 +230,18 @@ class PermissionManager: @unchecked Sendable {
             return
         }
 
-        // Если ещё НЕ запрашивали — показываем системный диалог
-        if !hasAskedForInputMonitoring {
-            hasAskedForInputMonitoring = true
-            NSLog("⌨️ First time asking, showing system dialog")
-            CGRequestListenEventAccess()
-            // Диалог позволяет пользователю выбрать (accept/deny)
-        } else {
-            // Уже запрашивали, но нет разрешения — открываем Settings напрямую
-            NSLog("⌨️ Already asked before, opening Settings directly")
+        // КРИТИЧНО: Вызываем официальный Apple API для регистрации в Input Monitoring списке
+        // Это МГНОВЕННО добавляет приложение в TCC database
+        let wasGranted = CGRequestListenEventAccess()
+        NSLog("⌨️ CGRequestListenEventAccess() returned: \(wasGranted)")
+
+        // Ещё раз проверяем (на случай если система показала диалог и пользователь разрешил)
+        let hasAccess = hasInputMonitoring()
+        NSLog("⌨️ After CGRequestListenEventAccess, hasInputMonitoring = \(hasAccess)")
+
+        // Если НЕ выдано — открываем System Settings для ручной выдачи разрешения
+        if !hasAccess {
+            NSLog("⌨️ Opening System Settings → Input Monitoring")
             openPrivacySettings(section: "ListenEvent")
         }
     }

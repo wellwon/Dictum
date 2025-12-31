@@ -1095,6 +1095,8 @@ extension Notification.Name {
     static let noteSelected = Notification.Name("noteSelected")
     // TextSwitcher
     static let textSwitcherToggled = Notification.Name("textSwitcherToggled")
+    // Адаптивная высота окна
+    static let inputModalHeightChanged = Notification.Name("inputModalHeightChanged")
 }
 
 // MARK: - Hotkey Recorder View

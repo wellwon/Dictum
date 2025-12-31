@@ -8,6 +8,14 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Height Preference Key
+struct ViewHeightPreferenceKey: PreferenceKey {
+    nonisolated(unsafe) static var defaultValue: CGFloat = 150
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 // MARK: - Input Modal View
 struct InputModalView: View {
     @StateObject private var audioManager = AudioRecordingManager()  // Deepgram
@@ -54,10 +62,11 @@ struct InputModalView: View {
     @State private var editingPrompt: CustomPrompt? = nil  // Редактируемый промпт
     @State private var editingSnippet: Snippet? = nil  // Редактируемый сниппет
     @State private var isToggling: Bool = false  // Guard для debouncing toggle записи
+    @State private var lastSentHeight: CGFloat = 150  // Последняя отправленная высота (для debounce)
 
-    // Максимум 30 строк (~600px), минимум 40px
+    // Максимум 25 строк (~500px), минимум 40px — потом скролл
     private let lineHeight: CGFloat = 20
-    private let maxLines: Int = 30
+    private let maxLines: Int = 25
     // Высота окна в режиме записи (компактная)
     private let recordingModeHeight: CGFloat = 70
 
@@ -386,6 +395,25 @@ struct InputModalView: View {
                 .strokeBorder(DesignSystem.Colors.borderColor, lineWidth: 1)
         )
         .frame(width: 680)
+        .fixedSize(horizontal: false, vertical: true)  // Позволяет VStack уменьшаться по высоте
+        // Отслеживание высоты контента для адаптивного окна
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .preference(key: ViewHeightPreferenceKey.self, value: geometry.size.height)
+            }
+        )
+        .onPreferenceChange(ViewHeightPreferenceKey.self) { height in
+            // Отправляем уведомление только если высота значительно изменилась (>5px)
+            if abs(height - lastSentHeight) > 5 {
+                lastSentHeight = height
+                NotificationCenter.default.post(
+                    name: .inputModalHeightChanged,
+                    object: nil,
+                    userInfo: ["height": height]
+                )
+            }
+        }
         .onAppear {
             // FIX: Устанавливаем pendingAudioStart СИНХРОННО до resetView
             // Это скрывает текстовое поле мгновенно, до async запуска записи
@@ -553,6 +581,14 @@ struct InputModalView: View {
             if let item = notification.object as? HistoryItem {
                 textEditorHeight = 40  // Сброс высоты
                 inputText = item.text
+            }
+        }
+        // Обработка выбора промпта из модального окна списка промптов
+        .onReceive(NotificationCenter.default.publisher(for: .promptSelected)) { notification in
+            if let prompt = notification.object as? CustomPrompt {
+                Task {
+                    await processWithGemini(prompt: prompt)
+                }
             }
         }
         // Toggle записи по хоткею § или ` (без модификаторов)
@@ -1004,96 +1040,96 @@ struct LoadingLanguageButton: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack {
-                // Text with background
-                Text(label)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(isLoading ? DesignSystem.Colors.accent : .white.opacity(0.8))
-                    .frame(width: 28, height: 24)
-                    .background(
-                        ZStack {
+            // Text with background
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isLoading ? DesignSystem.Colors.accent : .white.opacity(0.8))
+                .padding(.horizontal, 6)
+                .frame(height: 24)
+                .frame(minWidth: 28)
+                .background(
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.white.opacity(isLoading ? 0.05 : 0.1))
+
+                        // Полупрозрачная рамка-"колея" при загрузке
+                        if isLoading {
                             RoundedRectangle(cornerRadius: 4)
-                                .fill(Color.white.opacity(isLoading ? 0.05 : 0.1))
-
-                            // Полупрозрачная рамка-"колея" при загрузке
-                            if isLoading {
-                                RoundedRectangle(cornerRadius: 4)
-                                    .stroke(DesignSystem.Colors.accent.opacity(0.2), lineWidth: 1)
-                            }
+                                .stroke(DesignSystem.Colors.accent.opacity(0.2), lineWidth: 1)
                         }
-                    )
-                    .shadow(
-                        color: isLoading ? DesignSystem.Colors.accent.opacity(0.3) : .clear,
-                        radius: 8
-                    )
+                    }
+                )
+                .shadow(
+                    color: isLoading ? DesignSystem.Colors.accent.opacity(0.3) : .clear,
+                    radius: 8
+                )
+                // Animated fade trail (14 слоёв с затуханием) — overlay адаптируется к размеру текста
+                .overlay {
+                    if isLoading {
+                        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { timeline in
+                            let elapsed = timeline.date.timeIntervalSinceReferenceDate
+                            let progress = CGFloat(elapsed.truncatingRemainder(dividingBy: cycleDuration) / cycleDuration)
 
-                // Animated fade trail (14 слоёв с затуханием)
-                if isLoading {
-                    TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { timeline in
-                        let elapsed = timeline.date.timeIntervalSinceReferenceDate
-                        let progress = CGFloat(elapsed.truncatingRemainder(dividingBy: cycleDuration) / cycleDuration)
+                            Canvas { context, size in
+                                let rect = CGRect(origin: .zero, size: size)
+                                let path = RoundedRectangle(cornerRadius: 4).path(in: rect.insetBy(dx: 1, dy: 1))
 
-                        Canvas { context, size in
-                            let rect = CGRect(origin: .zero, size: size)
-                            let path = RoundedRectangle(cornerRadius: 4).path(in: rect.insetBy(dx: 1, dy: 1))
+                                // Draw layers back to front (хвост → голова)
+                                for i in (0..<trailLayers).reversed() {
+                                    let delay = CGFloat(i) * delayStep
+                                    var start = progress - delay
+                                    if start < 0 { start += 1.0 }
+                                    let opacity = 1.0 - Double(i) / Double(trailLayers)
 
-                            // Draw layers back to front (хвост → голова)
-                            for i in (0..<trailLayers).reversed() {
-                                let delay = CGFloat(i) * delayStep
-                                var start = progress - delay
-                                if start < 0 { start += 1.0 }
-                                let opacity = 1.0 - Double(i) / Double(trailLayers)
+                                    // Main segment
+                                    let end = min(start + segmentLength, 1.0)
+                                    let trimmedPath = path.trimmedPath(from: start, to: end)
 
-                                // Main segment
-                                let end = min(start + segmentLength, 1.0)
-                                let trimmedPath = path.trimmedPath(from: start, to: end)
-
-                                // First layer gets glow
-                                if i == 0 {
-                                    context.drawLayer { ctx in
-                                        ctx.addFilter(.shadow(color: DesignSystem.Colors.accent.opacity(0.8), radius: 4))
-                                        ctx.addFilter(.shadow(color: DesignSystem.Colors.accent, radius: 2))
-                                        ctx.stroke(
-                                            trimmedPath,
-                                            with: .color(DesignSystem.Colors.accent),
-                                            style: StrokeStyle(lineWidth: 2, lineCap: .round)
-                                        )
-                                    }
-                                } else {
-                                    context.stroke(
-                                        trimmedPath,
-                                        with: .color(DesignSystem.Colors.accent.opacity(opacity)),
-                                        style: StrokeStyle(lineWidth: 2, lineCap: .round)
-                                    )
-                                }
-
-                                // Wrap-around (когда сегмент пересекает границу 0/1)
-                                let fullEnd = start + segmentLength
-                                if fullEnd > 1.0 {
-                                    let wrapPath = path.trimmedPath(from: 0, to: fullEnd - 1.0)
+                                    // First layer gets glow
                                     if i == 0 {
                                         context.drawLayer { ctx in
                                             ctx.addFilter(.shadow(color: DesignSystem.Colors.accent.opacity(0.8), radius: 4))
+                                            ctx.addFilter(.shadow(color: DesignSystem.Colors.accent, radius: 2))
                                             ctx.stroke(
-                                                wrapPath,
+                                                trimmedPath,
                                                 with: .color(DesignSystem.Colors.accent),
                                                 style: StrokeStyle(lineWidth: 2, lineCap: .round)
                                             )
                                         }
                                     } else {
                                         context.stroke(
-                                            wrapPath,
+                                            trimmedPath,
                                             with: .color(DesignSystem.Colors.accent.opacity(opacity)),
                                             style: StrokeStyle(lineWidth: 2, lineCap: .round)
                                         )
                                     }
+
+                                    // Wrap-around (когда сегмент пересекает границу 0/1)
+                                    let fullEnd = start + segmentLength
+                                    if fullEnd > 1.0 {
+                                        let wrapPath = path.trimmedPath(from: 0, to: fullEnd - 1.0)
+                                        if i == 0 {
+                                            context.drawLayer { ctx in
+                                                ctx.addFilter(.shadow(color: DesignSystem.Colors.accent.opacity(0.8), radius: 4))
+                                                ctx.stroke(
+                                                    wrapPath,
+                                                    with: .color(DesignSystem.Colors.accent),
+                                                    style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                                                )
+                                            }
+                                        } else {
+                                            context.stroke(
+                                                wrapPath,
+                                                with: .color(DesignSystem.Colors.accent.opacity(opacity)),
+                                                style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
-                        .frame(width: 28, height: 24)
                     }
                 }
-            }
         }
         .buttonStyle(NoFadeButtonStyle())
         .disabled(isLoading)
@@ -1193,7 +1229,7 @@ struct UnifiedQuickAccessRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // Кнопка меню всех промптов
+            // Кнопка меню всех промптов (фиксирована)
             Button(action: {
                 NotificationCenter.default.post(name: .togglePromptsModal, object: nil)
             }) {
@@ -1207,45 +1243,53 @@ struct UnifiedQuickAccessRow: View {
             .buttonStyle(PlainButtonStyle())
             .help("Все промпты (⌘1)")
 
-            // Избранные промпты
-            ForEach(favoritePrompts) { prompt in
-                LoadingLanguageButton(
-                    label: prompt.label,
-                    tooltip: prompt.description,
-                    isLoading: currentProcessingPrompt?.id == prompt.id,
-                    action: {
-                        onProcessWithGemini(prompt)
-                    },
-                    onEdit: {
-                        editingPrompt = prompt
-                    },
-                    onDelete: prompt.isSystem ? nil : {
-                        promptToDelete = prompt
-                    },
-                    isSystem: prompt.isSystem
-                )
-            }
-
-            Spacer()
-
-            // Избранные сниппеты
-            ForEach(favoriteSnippets) { snippet in
-                SnippetButton(
-                    shortcut: snippet.shortcut,
-                    tooltip: snippet.title,
-                    action: {
-                        inputText += snippet.content
-                    },
-                    onEdit: {
-                        editingSnippet = snippet
-                    },
-                    onDelete: {
-                        snippetToDelete = snippet
+            // Избранные промпты с горизонтальным скроллом
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(favoritePrompts) { prompt in
+                        LoadingLanguageButton(
+                            label: prompt.label,
+                            tooltip: prompt.description,
+                            isLoading: currentProcessingPrompt?.id == prompt.id,
+                            action: {
+                                onProcessWithGemini(prompt)
+                            },
+                            onEdit: {
+                                editingPrompt = prompt
+                            },
+                            onDelete: prompt.isSystem ? nil : {
+                                promptToDelete = prompt
+                            },
+                            isSystem: prompt.isSystem
+                        )
                     }
-                )
+                }
             }
 
-            // Кнопка меню всех сниппетов
+            Spacer(minLength: 12)
+
+            // Избранные сниппеты с горизонтальным скроллом
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(favoriteSnippets) { snippet in
+                        SnippetButton(
+                            shortcut: snippet.shortcut,
+                            tooltip: snippet.title,
+                            action: {
+                                inputText += snippet.content
+                            },
+                            onEdit: {
+                                editingSnippet = snippet
+                            },
+                            onDelete: {
+                                snippetToDelete = snippet
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Кнопка меню всех сниппетов (фиксирована)
             Button(action: {
                 NotificationCenter.default.post(name: .toggleSnippetsModal, object: nil)
             }) {

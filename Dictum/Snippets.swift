@@ -732,6 +732,7 @@ struct SnippetsModalRowView: View {
     var isExpanded: Bool = false
     var isKeyboardNavigating: Bool = false
     let onTap: () -> Void
+    var onToggleFavorite: (() -> Void)? = nil
     var onEdit: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
     @State private var isHovered = false
@@ -742,10 +743,13 @@ struct SnippetsModalRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Звезда избранного
-            Image(systemName: snippet.isFavorite ? "star.fill" : "star")
-                .font(.system(size: 12))
-                .foregroundColor(snippet.isFavorite ? .yellow : .gray)
+            // Звезда избранного (кликабельная)
+            Button(action: { onToggleFavorite?() }) {
+                Image(systemName: snippet.isFavorite ? "star.fill" : "star")
+                    .font(.system(size: 12))
+                    .foregroundColor(snippet.isFavorite ? .yellow : .gray)
+            }
+            .buttonStyle(PlainButtonStyle())
 
             // Shortcut badge
             Text(snippet.shortcut)
@@ -811,7 +815,9 @@ struct SnippetsModalRowView: View {
 struct SnippetsModalView: View {
     @Binding var isPresented: Bool
     let onSelect: (Snippet) -> Void
+    var onCancel: (() -> Void)? = nil
 
+    @ObservedObject private var snippetsManager = SnippetsManager.shared
     @State private var searchQuery = ""
     @State private var selectedIndex = 0
     @State private var expandedIndex: Int? = nil
@@ -825,7 +831,7 @@ struct SnippetsModalView: View {
     @FocusState private var isSearchFocused: Bool
 
     private var filteredItems: [Snippet] {
-        let all = SnippetsManager.shared.allSnippets
+        let all = snippetsManager.allSnippets
         if searchQuery.isEmpty {
             return all
         }
@@ -928,6 +934,9 @@ struct SnippetsModalView: View {
                                 onSelect(snippet)
                                 isPresented = false
                             },
+                            onToggleFavorite: {
+                                SnippetsManager.shared.toggleFavorite(snippet)
+                            },
                             onEdit: {
                                 snippetToEdit = snippet
                                 showEditSheet = true
@@ -978,9 +987,9 @@ struct SnippetsModalView: View {
 
     private var footerView: some View {
         HStack {
-            // Кнопка отмены слева
-            Button(action: { isPresented = false }) {
-                Text("Отмена")
+            // Кнопка назад слева
+            Button(action: { onCancel?() }) {
+                Text("Назад")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.white.opacity(0.6))
                     .padding(.horizontal, 20)
@@ -1097,18 +1106,22 @@ struct SnippetsModalView: View {
             return .handled
         }
         .onKeyPress(.leftArrow) {
-            expandedIndex = nil
+            if expandedIndex != nil {
+                expandedIndex = nil
+            } else {
+                onCancel?()  // Закрыть панель (как Escape)
+            }
             return .handled
         }
         .onKeyPress(.return) {
             if selectedIndex < filteredItems.count {
                 onSelect(filteredItems[selectedIndex])
-                isPresented = false
+                onCancel?()
             }
             return .handled
         }
         .onKeyPress(.escape) {
-            NotificationCenter.default.post(name: .toggleSnippetsModal, object: nil)
+            onCancel?()
             return .handled
         }
         .onAppear {

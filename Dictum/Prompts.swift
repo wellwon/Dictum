@@ -656,6 +656,7 @@ struct PromptsModalRowView: View {
     var isExpanded: Bool = false
     var isKeyboardNavigating: Bool = false
     let onTap: () -> Void
+    var onToggleFavorite: (() -> Void)? = nil
     var onEdit: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
     @State private var isHovered = false
@@ -666,16 +667,21 @@ struct PromptsModalRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Звезда избранного
-            Image(systemName: prompt.isFavorite ? "star.fill" : "star")
-                .font(.system(size: 12))
-                .foregroundColor(prompt.isFavorite ? .yellow : .gray)
+            // Звезда избранного (кликабельная)
+            Button(action: { onToggleFavorite?() }) {
+                Image(systemName: prompt.isFavorite ? "star.fill" : "star")
+                    .font(.system(size: 12))
+                    .foregroundColor(prompt.isFavorite ? .yellow : .gray)
+            }
+            .buttonStyle(PlainButtonStyle())
 
-            // Label badge
+            // Label badge (адаптивная ширина до ~10 символов)
             Text(prompt.label)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.white)
-                .frame(width: 32, height: 24)
+                .padding(.horizontal, 6)
+                .frame(height: 24)
+                .frame(minWidth: 32)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
                         .fill(isHighlighted ? Color.white.opacity(0.15) : Color.white.opacity(0.1))
@@ -745,7 +751,9 @@ struct PromptsModalRowView: View {
 struct PromptsModalView: View {
     @Binding var isPresented: Bool
     let onSelect: (CustomPrompt) -> Void
+    var onCancel: (() -> Void)? = nil
 
+    @ObservedObject private var promptsManager = PromptsManager.shared
     @State private var searchQuery = ""
     @State private var selectedIndex = 0
     @State private var expandedIndex: Int? = nil
@@ -759,7 +767,7 @@ struct PromptsModalView: View {
     @FocusState private var isSearchFocused: Bool
 
     private var filteredItems: [CustomPrompt] {
-        let visible = PromptsManager.shared.visiblePrompts
+        let visible = promptsManager.visiblePrompts
         if searchQuery.isEmpty {
             return visible
         }
@@ -862,6 +870,9 @@ struct PromptsModalView: View {
                                 onSelect(prompt)
                                 isPresented = false
                             },
+                            onToggleFavorite: {
+                                promptsManager.toggleFavorite(prompt)
+                            },
                             onEdit: prompt.isSystem ? nil : {
                                 promptToEdit = prompt
                                 showEditSheet = true
@@ -912,9 +923,9 @@ struct PromptsModalView: View {
 
     private var footerView: some View {
         HStack {
-            // Кнопка отмены слева
-            Button(action: { isPresented = false }) {
-                Text("Отмена")
+            // Кнопка назад слева
+            Button(action: { onCancel?() }) {
+                Text("Назад")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.white.opacity(0.6))
                     .padding(.horizontal, 20)
@@ -1031,18 +1042,22 @@ struct PromptsModalView: View {
             return .handled
         }
         .onKeyPress(.leftArrow) {
-            expandedIndex = nil
+            if expandedIndex != nil {
+                expandedIndex = nil
+            } else {
+                onCancel?()  // Закрыть панель (как Escape)
+            }
             return .handled
         }
         .onKeyPress(.return) {
             if selectedIndex < filteredItems.count {
                 onSelect(filteredItems[selectedIndex])
-                isPresented = false
+                onCancel?()
             }
             return .handled
         }
         .onKeyPress(.escape) {
-            NotificationCenter.default.post(name: .togglePromptsModal, object: nil)
+            onCancel?()
             return .handled
         }
         .onAppear {

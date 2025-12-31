@@ -243,6 +243,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(toggleSnippetsWindow), name: .toggleSnippetsModal, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(toggleNotesWindow), name: .toggleNotesModal, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleOnboardingCompleted), name: .onboardingCompleted, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleInputModalHeightChanged), name: .inputModalHeightChanged, object: nil)
 
         // Авто-проверка Accessibility при возврате в приложение
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -344,6 +345,43 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         onboardingWindow?.close()
         setupHotKeys()  // Устанавливаем хоткеи после завершения онбординга
         showWindow()
+    }
+
+    @objc func handleInputModalHeightChanged(_ notification: Notification) {
+        guard let height = notification.userInfo?["height"] as? CGFloat,
+              let window = window else { return }
+
+        // Минимум 150, максимум 600
+        let newHeight = min(max(150, height), 600)
+        let currentFrame = window.frame
+
+        // Разница высоты для симметричного расширения
+        let heightDiff = newHeight - currentFrame.height
+
+        // Новая позиция Y: сдвигаем вниз на половину разницы (чтобы расширение было симметричным)
+        var newY = currentFrame.origin.y - (heightDiff / 2)
+
+        // Ограничиваем границами экрана
+        if let screen = window.screen {
+            let visible = screen.visibleFrame
+            // Не выходить за верхнюю границу
+            if newY + newHeight > visible.maxY {
+                newY = visible.maxY - newHeight
+            }
+            // Не выходить за нижнюю границу
+            if newY < visible.minY {
+                newY = visible.minY
+            }
+        }
+
+        let newFrame = NSRect(
+            x: currentFrame.origin.x,
+            y: newY,
+            width: currentFrame.width,
+            height: newHeight
+        )
+
+        window.setFrame(newFrame, display: true, animate: true)
     }
 
     @objc func hotkeyDidChange() {
@@ -871,7 +909,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // CGEventTap для Right Option — перезапускаем если есть Input Monitoring
         // Input Monitoring работает СРАЗУ без рестарта!
-        if hasInputMonitoring {
+        if hasInputMonitoring && SettingsManager.shared.hasCompletedOnboarding {
             setupRightOptionEventTap()
         }
 
@@ -1385,6 +1423,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 NotificationCenter.default.post(name: .promptSelected, object: prompt)
                 self?.promptsWindow?.close()
                 self?.promptsWindow = nil
+            },
+            onCancel: { [weak self] in
+                self?.promptsWindow?.close()
+                self?.promptsWindow = nil
             }
         )
 
@@ -1448,6 +1490,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 NotificationCenter.default.post(name: .snippetSelected, object: snippet)
                 self?.snippetsWindow?.close()
                 self?.snippetsWindow = nil
+            },
+            onCancel: { [weak self] in
+                self?.snippetsWindow?.close()
+                self?.snippetsWindow = nil
             }
         )
 
@@ -1509,6 +1555,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             isPresented: .constant(true),
             onSelect: { [weak self] note in
                 NotificationCenter.default.post(name: .noteSelected, object: note)
+                self?.notesWindow?.close()
+                self?.notesWindow = nil
+            },
+            onCancel: { [weak self] in
                 self?.notesWindow?.close()
                 self?.notesWindow = nil
             }
