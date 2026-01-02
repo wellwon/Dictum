@@ -436,7 +436,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.92;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dictum.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dictum.app.debug;
 				PRODUCT_NAME = Dictum;
 				SDKROOT = macosx;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";

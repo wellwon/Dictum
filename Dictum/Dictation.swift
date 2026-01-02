@@ -109,12 +109,6 @@ class PermissionManager: @unchecked Sendable {
         set { UserDefaults.standard.set(newValue, forKey: "hasAskedForScreenRecording") }
     }
 
-    /// Отслеживаем, запрашивали ли Input Monitoring (диалог показывается только 1 раз)
-    private var hasAskedForInputMonitoring: Bool {
-        get { UserDefaults.standard.bool(forKey: "hasAskedForInputMonitoring") }
-        set { UserDefaults.standard.set(newValue, forKey: "hasAskedForInputMonitoring") }
-    }
-
     // MARK: - Check Permissions
 
     /// Проверка Accessibility (Универсальный доступ)
@@ -135,9 +129,7 @@ class PermissionManager: @unchecked Sendable {
     /// Проверка Input Monitoring (для CGEventTap .listenOnly)
     /// Работает СРАЗУ после выдачи разрешения, без рестарта!
     func hasInputMonitoring() -> Bool {
-        let result = CGPreflightListenEventAccess()
-        NSLog("⌨️ hasInputMonitoring check: \(result)")
-        return result
+        CGPreflightListenEventAccess()
     }
 
     // MARK: - Request Permissions
@@ -219,30 +211,38 @@ class PermissionManager: @unchecked Sendable {
         }
     }
 
-    /// Input Monitoring: Вызываем CGRequestListenEventAccess() и открываем System Settings
-    /// Работает СРАЗУ после выдачи разрешения, без рестарта!
+    /// Input Monitoring: Запрашиваем разрешение для CGEventTap .listenOnly
+    /// На macOS Tahoe (26+) ad-hoc signed приложения требуют ручного добавления
     func requestInputMonitoring() {
         NSLog("⌨️ Requesting Input Monitoring permission...")
 
-        // Если уже есть разрешение — ничего не делаем
         if hasInputMonitoring() {
             NSLog("⌨️ Input Monitoring already granted")
             return
         }
 
-        // КРИТИЧНО: Вызываем официальный Apple API для регистрации в Input Monitoring списке
-        // Это МГНОВЕННО добавляет приложение в TCC database
+        // Пробуем официальный API (работает на macOS 14-15 с подписанными приложениями)
         let wasGranted = CGRequestListenEventAccess()
-        NSLog("⌨️ CGRequestListenEventAccess() returned: \(wasGranted)")
+        NSLog("⌨️ CGRequestListenEventAccess() = \(wasGranted)")
 
-        // Ещё раз проверяем (на случай если система показала диалог и пользователь разрешил)
-        let hasAccess = hasInputMonitoring()
-        NSLog("⌨️ After CGRequestListenEventAccess, hasInputMonitoring = \(hasAccess)")
+        // Проверяем ещё раз
+        if hasInputMonitoring() {
+            NSLog("⌨️ Permission granted via CGRequestListenEventAccess!")
+            return
+        }
 
-        // Если НЕ выдано — открываем System Settings для ручной выдачи разрешения
-        if !hasAccess {
-            NSLog("⌨️ Opening System Settings → Input Monitoring")
-            openPrivacySettings(section: "ListenEvent")
+        // На macOS Tahoe (26+) ad-hoc приложения не появляются автоматически в списке
+        // Нужно ручное добавление через "+" в System Settings
+        NSLog("⌨️ Manual addition required on macOS Tahoe")
+
+        // Открываем System Settings → Input Monitoring
+        openPrivacySettings(section: "ListenEvent")
+
+        // Показываем Finder с приложением выделенным — можно перетащить в настройки
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let appPath = Bundle.main.bundleURL
+            NSWorkspace.shared.activateFileViewerSelecting([appPath])
+            NSLog("⌨️ Opened Finder with app selected for drag-and-drop")
         }
     }
 
@@ -587,7 +587,9 @@ class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
             self.audioEngine = engine
             NSLog("🎤 Локальный ASR запущен (Parakeet v3)")
 
-            // Текстовый индикатор убран — достаточно VoiceOverlayView
+            await MainActor.run {
+                interimText = "Слушаю..."
+            }
 
         } catch {
             inputNode.removeTap(onBus: 0)
@@ -681,7 +683,9 @@ class ParakeetASRProvider: ObservableObject, @unchecked Sendable {
         outputFormat = nil
         resampledBuffer = nil
 
-        // Текстовый индикатор убран — VoiceOverlayView уже скрыт, результат появится автоматически
+        await MainActor.run {
+            interimText = "Обрабатываю..."
+        }
 
         let samplesToProcess = samplesLock.withLock { audioSamples }
 

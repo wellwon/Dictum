@@ -189,14 +189,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Убить предыдущие экземпляры приложения (при пересборке)
+        // КРИТИЧНО: Защита от self-kill при system restart
         let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
-        for app in runningApps where app != NSRunningApplication.current {
-            app.forceTerminate()
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        for app in runningApps where app != NSRunningApplication.current && app.processIdentifier != currentPID {
+            // Убивать ТОЛЬКО старые процессы (запущенные >5 секунд назад)
+            // Это защищает от убийства себя при system restart
+            if let launchDate = app.launchDate,
+               launchDate < Date().addingTimeInterval(-5) {
+                NSLog("🔪 Killing old instance PID=\(app.processIdentifier) launched at \(launchDate)")
+                app.forceTerminate()
+            }
         }
         // Небольшая задержка чтобы старый процесс завершился
         Thread.sleep(forTimeInterval: 0.2)
 
-        NSLog("🚀 Dictum запущен")
+        NSLog("🚀 Dictum запущен (PID=\(currentPID))")
 
         // Проверяем Accessibility БЕЗ показа диалога (диалог покажется в onboarding)
         let hasAccess = AccessibilityHelper.checkAccessibility()
@@ -222,10 +230,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Menu bar
         setupMenuBar()
 
-        // Хоткеи — устанавливаем только если онбординг завершён
-        if SettingsManager.shared.hasCompletedOnboarding {
-            setupHotKeys()
-        }
+        // Хоткеи
+        setupHotKeys()
         startAccessibilityMonitoring()
 
         // Окно
@@ -243,7 +249,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(toggleSnippetsWindow), name: .toggleSnippetsModal, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(toggleNotesWindow), name: .toggleNotesModal, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleOnboardingCompleted), name: .onboardingCompleted, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleInputModalHeightChanged), name: .inputModalHeightChanged, object: nil)
 
         // Авто-проверка Accessibility при возврате в приложение
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -343,45 +348,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func handleOnboardingCompleted() {
         NSLog("✅ Onboarding завершён")
         onboardingWindow?.close()
-        setupHotKeys()  // Устанавливаем хоткеи после завершения онбординга
         showWindow()
-    }
-
-    @objc func handleInputModalHeightChanged(_ notification: Notification) {
-        guard let height = notification.userInfo?["height"] as? CGFloat,
-              let window = window else { return }
-
-        // Минимум 150, максимум 600
-        let newHeight = min(max(150, height), 600)
-        let currentFrame = window.frame
-
-        // Разница высоты для симметричного расширения
-        let heightDiff = newHeight - currentFrame.height
-
-        // Новая позиция Y: сдвигаем вниз на половину разницы (чтобы расширение было симметричным)
-        var newY = currentFrame.origin.y - (heightDiff / 2)
-
-        // Ограничиваем границами экрана
-        if let screen = window.screen {
-            let visible = screen.visibleFrame
-            // Не выходить за верхнюю границу
-            if newY + newHeight > visible.maxY {
-                newY = visible.maxY - newHeight
-            }
-            // Не выходить за нижнюю границу
-            if newY < visible.minY {
-                newY = visible.minY
-            }
-        }
-
-        let newFrame = NSRect(
-            x: currentFrame.origin.x,
-            y: newY,
-            width: currentFrame.width,
-            height: newHeight
-        )
-
-        window.setFrame(newFrame, display: true, animate: true)
     }
 
     @objc func hotkeyDidChange() {
@@ -909,43 +876,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // CGEventTap для Right Option — перезапускаем если есть Input Monitoring
         // Input Monitoring работает СРАЗУ без рестарта!
-        if hasInputMonitoring && SettingsManager.shared.hasCompletedOnboarding {
+        if hasInputMonitoring {
             setupRightOptionEventTap()
         }
 
         // Если статус изменился с false на true — перерегистрируем хоткеи и TextSwitcher
         if currentState && !lastAccessibilityState {
-            NSLog("✅ Accessibility получен!")
+            NSLog("✅ Accessibility получен! Перерегистрирую хоткеи и TextSwitcher...")
 
-            // Перерегистрация хоткеев только если онбординг завершён
-            if SettingsManager.shared.hasCompletedOnboarding {
-                NSLog("🔄 Перерегистрирую хоткеи и TextSwitcher...")
+            // Первая попытка — немедленно
+            unregisterHotKeys()
+            setupHotKeys()
 
-                // Первая попытка — немедленно
-                unregisterHotKeys()
-                setupHotKeys()
+            // Повторные попытки с задержкой (для NSEvent глобальных мониторов которые всё ещё используются)
+            // CGEventTap с Input Monitoring работает сразу, но NSEvent глобальные мониторы требуют задержку
+            for delay in [0.5, 1.0, 2.0, 3.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self = self else { return }
+                    // Проверяем что Accessibility всё ещё есть
+                    guard AccessibilityHelper.checkAccessibility() else { return }
 
-                // Повторные попытки с задержкой (для NSEvent глобальных мониторов которые всё ещё используются)
-                // CGEventTap с Input Monitoring работает сразу, но NSEvent глобальные мониторы требуют задержку
-                for delay in [0.5, 1.0, 2.0, 3.0] {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                        guard let self = self else { return }
-                        // Проверяем что Accessibility всё ещё есть
-                        guard AccessibilityHelper.checkAccessibility() else { return }
-
-                        NSLog("🔄 Повторная перерегистрация хоткеев (%.1f сек)", delay)
-                        self.unregisterHotKeys()
-                        self.setupHotKeys()
-                    }
+                    NSLog("🔄 Повторная перерегистрация хоткеев (%.1f сек)", delay)
+                    self.unregisterHotKeys()
+                    self.setupHotKeys()
                 }
+            }
 
-                // Запускаем TextSwitcher если он включён (без перезагрузки!)
-                if TextSwitcherManager.shared.isEnabled {
-                    let started = KeyboardMonitor.shared.startMonitoring()
-                    NSLog("✅ KeyboardMonitor: %@", started ? "запущен" : "ОШИБКА")
-                }
-            } else {
-                NSLog("⏸️ Онбординг не завершён — пропускаем setup хоткеев")
+            // Запускаем TextSwitcher если он включён (без перезагрузки!)
+            if TextSwitcherManager.shared.isEnabled {
+                let started = KeyboardMonitor.shared.startMonitoring()
+                NSLog("✅ KeyboardMonitor: %@", started ? "запущен" : "ОШИБКА")
             }
         }
 
@@ -985,8 +945,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Проверяем Input Monitoring permission
         guard CGPreflightListenEventAccess() else {
-            NSLog("⚠️ Нет Input Monitoring для Right Option — запрашиваю...")
-            PermissionManager.shared.requestInputMonitoring()
+            NSLog("⚠️ Нет Input Monitoring для Right Option")
+
+            // Если onboarding не пройден — НЕ показывать диалог сейчас
+            // Onboarding сам покажет диалог в permissions step
+            if !SettingsManager.shared.hasCompletedOnboarding {
+                NSLog("   Onboarding не пройден — откладываю запрос Input Monitoring для Right Option")
+                NSLog("   Event tap будет создан после прохождения onboarding")
+                return
+            }
+
+            // Запрашиваем только если onboarding уже пройден
+            NSLog("   Запрашиваю Input Monitoring для Right Option (onboarding пройден)")
+            CGRequestListenEventAccess()
             return
         }
 
@@ -1423,10 +1394,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 NotificationCenter.default.post(name: .promptSelected, object: prompt)
                 self?.promptsWindow?.close()
                 self?.promptsWindow = nil
-            },
-            onCancel: { [weak self] in
-                self?.promptsWindow?.close()
-                self?.promptsWindow = nil
             }
         )
 
@@ -1490,10 +1457,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 NotificationCenter.default.post(name: .snippetSelected, object: snippet)
                 self?.snippetsWindow?.close()
                 self?.snippetsWindow = nil
-            },
-            onCancel: { [weak self] in
-                self?.snippetsWindow?.close()
-                self?.snippetsWindow = nil
             }
         )
 
@@ -1555,10 +1518,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             isPresented: .constant(true),
             onSelect: { [weak self] note in
                 NotificationCenter.default.post(name: .noteSelected, object: note)
-                self?.notesWindow?.close()
-                self?.notesWindow = nil
-            },
-            onCancel: { [weak self] in
                 self?.notesWindow?.close()
                 self?.notesWindow = nil
             }

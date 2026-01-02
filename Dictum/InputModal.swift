@@ -64,9 +64,9 @@ struct InputModalView: View {
     @State private var isToggling: Bool = false  // Guard для debouncing toggle записи
     @State private var lastSentHeight: CGFloat = 150  // Последняя отправленная высота (для debounce)
 
-    // Максимум 25 строк (~500px), минимум 40px — потом скролл
+    // Максимум 30 строк (~600px), минимум 40px — потом скролл
     private let lineHeight: CGFloat = 20
-    private let maxLines: Int = 25
+    private let maxLines: Int = 30
     // Высота окна в режиме записи (компактная)
     private let recordingModeHeight: CGFloat = 70
 

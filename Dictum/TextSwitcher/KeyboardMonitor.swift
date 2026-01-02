@@ -169,7 +169,18 @@ class KeyboardMonitor: @unchecked Sendable {
         NSLog("⌨️ KeyboardMonitor: AXIsProcessTrusted = %@", hasAccessibility ? "true" : "false")
 
         guard hasInputMonitoring else {
-            NSLog("⌨️ KeyboardMonitor: НЕТ Input Monitoring — запрашиваю...")
+            NSLog("⌨️ KeyboardMonitor: НЕТ Input Monitoring")
+
+            // Если onboarding не пройден — НЕ показывать диалог сейчас
+            // Onboarding сам покажет диалог в permissions step (Onboarding.swift:599)
+            if !SettingsManager.shared.hasCompletedOnboarding {
+                NSLog("⌨️ Onboarding не пройден — откладываю запрос Input Monitoring")
+                logger.info("⌨️ Input Monitoring будет запрошен в onboarding permissions step")
+                return false
+            }
+
+            // Запрашиваем только если onboarding уже пройден
+            NSLog("⌨️ Запрашиваю Input Monitoring (onboarding пройден)")
             CGRequestListenEventAccess()
             logger.warning("⌨️ KeyboardMonitor: НЕТ Input Monitoring разрешения!")
             return false
