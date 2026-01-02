@@ -1,0 +1,19 @@
+id,category,input,expected,actual,error_type,ngram_ratio,detected_layout,reason
+ru_common_0003,ru_common_words,"cgfcb,j",спасибо,спаси j,wrong_conversion,3.0880152789980246e+24,en,ngram_primary
+ru_common_0004,ru_common_words,gj;fkeqcnf,пожалуйста,по алуйста,wrong_conversion,7.046750144668603e+35,en,ngram_primary
+ru_common_0007,ru_common_words,[jhjij,хорошо,орошо,wrong_conversion,2.512315077515641e+27,en,ngram_primary
+ru_common_0008,ru_common_words,gkj[j,плохо,пло j,wrong_conversion,876621504404.77,en,ngram_primary
+ru_common_0017,ru_common_words,"hf,jnfnm",работать,ра отать,wrong_conversion,2.5913751126525167e+29,en,ngram_primary
+ru_common_0019,ru_common_words,t[fnm,ехать,t ать,wrong_conversion,255145689276.62,en,ngram_primary
+ru_common_0027,ru_common_words,[jntnm,хотеть,отеть,wrong_conversion,1.1879707970535676e+21,en,ngram_primary
+ru_common_0029,ru_common_words,"k.,bnm",любить,k ить,wrong_conversion,61097266194.7,en,ngram_primary
+ru_common_0040,ru_common_words,;lfnm,ждать,дать,wrong_conversion,2.7169421744862213e+18,en,ngram_primary
+ru_common_0051,ru_common_words,;bnm,жить,ить,wrong_conversion,61097266194.7,en,ngram_primary
+ru_common_0052,ru_common_words,"hf,jnfnm",работать,ра отать,wrong_conversion,2.5913751126525167e+29,en,ngram_primary
+ru_common_0054,ru_common_words,"hf,jnf",работа,ра ота,wrong_conversion,406239417113.81,en,ngram_primary
+ru_common_0060,ru_common_words,;bpym,жизнь,изнь,wrong_conversion,145260639457682.0,en,ngram_primary
+ru_common_0070,ru_common_words,"ghj,ktvf",проблема,про лема,wrong_conversion,124332306505.77,en,ngram_primary
+ru_common_0077,ru_common_words,"cjj,otybt",сообщение,соо щение,wrong_conversion,651160789274.09,en,ngram_primary
+ru_common_0092,ru_common_words,[jhjibq,хороший,ороший,wrong_conversion,2.0034420648565526e+35,en,ngram_primary
+ru_common_0093,ru_common_words,gkj[jq,плохой,пло ой,wrong_conversion,876621504404.77,en,ngram_primary
+ru_common_0094,ru_common_words,",jkmijq",большой,ольшой,wrong_conversion,1.4105577721884543e+32,en,ngram_primary

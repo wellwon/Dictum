@@ -1,0 +1,3 @@
+id,category,input,expected,actual,error_type
+ru_sent_0258,ru_sentences,dc` [jhjij, cgfcb,j!,всё хорошо спасибо,всё хорошоб спасибо,wrong_conversion
+en_sent_0427,en_sentences,Дуеэы ьууе ещьщккщц,Let's meet tomorrow,Let's ьууе tomorrow,wrong_conversion

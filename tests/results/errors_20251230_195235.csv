@@ -1,0 +1,38 @@
+id,category,input,expected,actual,error_type
+ru_sent_0257,ru_sentences,Ghbdtn, rfr ltkf?,Привет, как дела?,Привет как дела,wrong_conversion
+ru_sent_0258,ru_sentences,Dc` [jhjij, cgfcb,j!,Всё хорошо, спасибо!,Вс хорошоб спасибо,wrong_conversion
+ru_sent_0259,ru_sentences,Xnj ltkftim ctujlyz?,Что делаешь сегодня?,Что делаешь сегодня,wrong_conversion
+ru_sent_0264,ru_sentences,"nj df;yfz pflfxf,Это важная задача,то важная задача,wrong_conversion
+ru_sent_0268,ru_sentences,Gthtpdjy. gjp;t,Перезвоню позже,Перезвон позже,wrong_conversion
+ru_sent_0270,ru_sentences,Vj;tim gjdnjhbnm?,Можешь повторить?,Можешь повторить,wrong_conversion
+ru_sent_0272,ru_sentences,Jnkbxyfz bltz!,Отличная идея!,Отличная идея,wrong_conversion
+ru_sent_0276,ru_sentences,Lj cdzpb!,До связи!,До связи,wrong_conversion
+ru_sent_0277,ru_sentences,Ctqxfc pfrjvvbxe b pfgeie,Сейчас закоммичу и запушу,Сейчас закоммичу b запушу,wrong_conversion
+ru_sent_0278,ru_sentences,Yflj gjabrcbnm ,fu d ghjlfrityt,Надо пофиксить баг в продакшене,Надо пофиксить баг d продакшене,wrong_conversion
+ru_sent_0285,ru_sentences,<fpf yt jndtxftn,База не отвечает,аза не отвечает,wrong_conversion
+ru_sent_0287,ru_sentences,"ylgjbyn djpdhfoftn jib,re,Эндпоинт возвращает ошибку,ндпоинт возвращает ошибку,wrong_conversion
+ru_sent_0291,ru_sentences,Nfcrf d cghbynt dbcbn,Таска в спринте висит,Таска d спринте висит,wrong_conversion
+ru_sent_0295,ru_sentences,<bkl ckjvfkcz,Билд сломался,илд сломался,wrong_conversion
+en_common_0299,en_common_words,ину,bye,ину,false_negative
+en_sent_0424,en_sentences,Руддщб рщц фку нщг?,Hello, how are you?,Hello, how are you,wrong_conversion
+en_sent_0425,en_sentences,Шэь аштуб ерфтлы!,I'm fine, thanks!,I'm fine, thanks,wrong_conversion
+en_sent_0426,en_sentences,Црфе фку нщг вщштп?,What are you doing?,What are you doing,wrong_conversion
+en_sent_0427,en_sentences,Дуеэы ьууе ещьщккщц,Let's meet tomorrow,Let's ьууе tomorrow,wrong_conversion
+en_sent_0432,en_sentences,Цфше ф ьщьуте,Wait a moment,Wait ф moment,wrong_conversion
+en_sent_0436,en_sentences,Ш вщтэе гтвукыефтв,I don't understand,Ш don't understand,wrong_conversion
+en_sent_0437,en_sentences,Сфт нщг кузуфе?,Can you repeat?,Can you repeat,wrong_conversion
+en_sent_0438,en_sentences,Ш фпкуу,I agree,Ш agree,wrong_conversion
+en_sent_0439,en_sentences,Пкуфе швуф!,Great idea!,Great idea,wrong_conversion
+en_sent_0443,en_sentences,Ыуу нщг!,See you!,See you,wrong_conversion
+en_sent_0451,en_sentences,ФЗШ куегкты уккщк,API returns error,ФЗШ returns error,wrong_conversion
+mixed_1361,mixed_lang,Gjxtve webpack yt ,bklbn?,Почему webpack не билдит?,Почему webpack не билдит,wrong_conversion
+mixed_1371,mixed_lang,Lj,fdm d /gitignore,Добавь в .gitignore,Добавь d /gitignore,wrong_conversion
+mixed_1372,mixed_lang,Ghjdthm package/json,Проверь package.json,Проверь package/json,wrong_conversion
+short_1392,short_words,vs,мы,vs,false_negative
+context_1453,context_test,cghfcb,j tot,спасибо еще,спрасибо еще,wrong_conversion
+context_1454,context_test,tot,tot,еще,false_positive
+context_1455,context_test,ghbdtn tot,привет tot,привет еще,wrong_conversion
+edge_1458,edge_cases,HF,JNF,РАБОТА,РАбОТА,wrong_conversion
+edge_1462,edge_cases,еу|е123,test123,te е123,wrong_conversion
+edge_1464,edge_cases,test@mail.com,test@mail.com,test mail.com,false_positive
+edge_1465,edge_cases,user@domain.ru,user@domain.ru,user domain.ru,false_positive

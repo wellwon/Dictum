@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "generated": "2025-12-31T10:30:00",
+  "description": "Тестовый набор: короткие слова, предлоги, частые фразы с переключением раскладки",
+  "categories": {
+    "prepositions_ru": {
+      "description": "Русские предлоги набранные на EN раскладке",
+      "tests": [
+        {"id": "prep_01", "corrupted": "d", "expected": "в", "should_convert": true, "note": "предлог В"},
+        {"id": "prep_02", "corrupted": "yf", "expected": "на", "should_convert": true, "note": "предлог НА"},
+        {"id": "prep_03", "corrupted": "bp", "expected": "из", "should_convert": true, "note": "предлог ИЗ"},
+        {"id": "prep_04", "corrupted": "pf", "expected": "за", "should_convert": true, "note": "предлог ЗА"},
+        {"id": "prep_05", "corrupted": "gj", "expected": "по", "should_convert": true, "note": "предлог ПО"},
+        {"id": "prep_06", "corrupted": "lj", "expected": "до", "should_convert": true, "note": "предлог ДО"},
+        {"id": "prep_07", "corrupted": "jn", "expected": "от", "should_convert": true, "note": "предлог ОТ"},
+        {"id": "prep_08", "corrupted": "c", "expected": "с", "should_convert": true, "note": "предлог С"},
+        {"id": "prep_09", "corrupted": "r", "expected": "к", "should_convert": true, "note": "предлог К"},
+        {"id": "prep_10", "corrupted": "e", "expected": "у", "should_convert": true, "note": "предлог У"},
+        {"id": "prep_11", "corrupted": "j", "expected": "о", "should_convert": true, "note": "предлог О"},
+        {"id": "prep_12", "corrupted": "ghb", "expected": "при", "should_convert": true, "note": "предлог ПРИ"},
+        {"id": "prep_13", "corrupted": "lkz", "expected": "для", "should_convert": true, "note": "предлог ДЛЯ"},
+        {"id": "prep_14", "corrupted": ",tp", "expected": "без", "should_convert": true, "note": "предлог БЕЗ"},
+        {"id": "prep_15", "corrupted": "gjl", "expected": "под", "should_convert": true, "note": "предлог ПОД"}
+      ]
+    },
+    "particles_ru": {
+      "description": "Русские частицы набранные на EN раскладке",
+      "tests": [
+        {"id": "part_01", "corrupted": "b", "expected": "и", "should_convert": true, "note": "союз И"},
+        {"id": "part_02", "corrupted": "f", "expected": "а", "should_convert": true, "note": "союз А"},
+        {"id": "part_03", "corrupted": "ye", "expected": "ну", "should_convert": true, "note": "частица НУ"},
+        {"id": "part_04", "corrupted": "lf", "expected": "да", "should_convert": true, "note": "частица ДА"},
+        {"id": "part_05", "corrupted": "ytn", "expected": "нет", "should_convert": true, "note": "частица НЕТ"},
+        {"id": "part_06", "corrupted": "yt", "expected": "не", "should_convert": true, "note": "частица НЕ"},
+        {"id": "part_07", "corrupted": "kb", "expected": "ли", "should_convert": true, "note": "частица ЛИ"},
+        {"id": "part_08", "corrupted": ";t", "expected": "же", "should_convert": true, "note": "частица ЖЕ"},
+        {"id": "part_09", "corrupted": ",s", "expected": "бы", "should_convert": true, "note": "частица БЫ"},
+        {"id": "part_10", "corrupted": "djn", "expected": "вот", "should_convert": true, "note": "частица ВОТ"},
+        {"id": "part_11", "corrupted": "tot", "expected": "еще", "should_convert": true, "note": "частица ЕЩЕ"},
+        {"id": "part_12", "corrupted": "e;t", "expected": "уже", "should_convert": true, "note": "частица УЖЕ"}
+      ]
+    },
+    "pronouns_ru": {
+      "description": "Русские местоимения набранные на EN раскладке",
+      "tests": [
+        {"id": "pron_01", "corrupted": "z", "expected": "я", "should_convert": true, "note": "местоимение Я"},
+        {"id": "pron_02", "corrupted": "ns", "expected": "ты", "should_convert": true, "note": "местоимение ТЫ"},
+        {"id": "pron_03", "corrupted": "jy", "expected": "он", "should_convert": true, "note": "местоимение ОН"},
+        {"id": "pron_04", "corrupted": "jyf", "expected": "она", "should_convert": true, "note": "местоимение ОНА"},
+        {"id": "pron_05", "corrupted": "jyj", "expected": "оно", "should_convert": true, "note": "местоимение ОНО"},
+        {"id": "pron_06", "corrupted": "vs", "expected": "мы", "should_convert": true, "note": "местоимение МЫ"},
+        {"id": "pron_07", "corrupted": "ds", "expected": "вы", "should_convert": true, "note": "местоимение ВЫ"},
+        {"id": "pron_08", "corrupted": "jyb", "expected": "они", "should_convert": true, "note": "местоимение ОНИ"},
+        {"id": "pron_09", "corrupted": "rnj", "expected": "кто", "should_convert": true, "note": "местоимение КТО"},
+        {"id": "pron_10", "corrupted": "xnj", "expected": "что", "should_convert": true, "note": "местоимение ЧТО"},
+        {"id": "pron_11", "corrupted": "nt,z", "expected": "тебя", "should_convert": true, "note": "местоимение ТЕБЯ"},
+        {"id": "pron_12", "corrupted": "vtyz", "expected": "меня", "should_convert": true, "note": "местоимение МЕНЯ"}
+      ]
+    },
+    "common_short_words_ru": {
+      "description": "Частые короткие русские слова (1-4 буквы)",
+      "tests": [
+        {"id": "short_01", "corrupted": "nfr", "expected": "так", "should_convert": true, "note": "ТАК"},
+        {"id": "short_02", "corrupted": "rfr", "expected": "как", "should_convert": true, "note": "КАК"},
+        {"id": "short_03", "corrupted": "njn", "expected": "тот", "should_convert": true, "note": "ТОТ"},
+        {"id": "short_04", "corrupted": "'nj", "expected": "это", "should_convert": true, "note": "ЭТО"},
+        {"id": "short_05", "corrupted": "dc`", "expected": "всё", "should_convert": true, "note": "ВСЁ"},
+        {"id": "short_06", "corrupted": "dct", "expected": "все", "should_convert": true, "note": "ВСЕ"},
+        {"id": "short_07", "corrupted": "tuj", "expected": "его", "should_convert": true, "note": "ЕГО"},
+        {"id": "short_08", "corrupted": "t`", "expected": "её", "should_convert": true, "note": "ЕЁ"},
+        {"id": "short_09", "corrupted": "b[", "expected": "их", "should_convert": true, "note": "ИХ"},
+        {"id": "short_10", "corrupted": "yfv", "expected": "нам", "should_convert": true, "note": "НАМ"},
+        {"id": "short_11", "corrupted": "dfv", "expected": "вам", "should_convert": true, "note": "ВАМ"},
+        {"id": "short_12", "corrupted": "ntn", "expected": "тут", "should_convert": true, "note": "ТУТ (через е)"},
+        {"id": "short_13", "corrupted": "nfv", "expected": "там", "should_convert": true, "note": "ТАМ"},
+        {"id": "short_14", "corrupted": "ult", "expected": "где", "should_convert": true, "note": "ГДЕ"},
+        {"id": "short_15", "corrupted": "rjulf", "expected": "когда", "should_convert": true, "note": "КОГДА"}
+      ]
+    },
+    "phrases_with_prepositions": {
+      "description": "Фразы с предлогами — проверка контекстного переключения",
+      "tests": [
+        {"id": "phrase_01", "corrupted": "d ljvt", "expected": "в доме", "should_convert": true, "note": "В доме"},
+        {"id": "phrase_02", "corrupted": "yf hf,jnt", "expected": "на работе", "should_convert": true, "note": "НА работе"},
+        {"id": "phrase_03", "corrupted": "bp ujhjlf", "expected": "из города", "should_convert": true, "note": "ИЗ города"},
+        {"id": "phrase_04", "corrupted": "pf cntkjv", "expected": "за столом", "should_convert": true, "note": "ЗА столом"},
+        {"id": "phrase_05", "corrupted": "gj ekbwt", "expected": "по улице", "should_convert": true, "note": "ПО улице"},
+        {"id": "phrase_06", "corrupted": "lj dtxthf", "expected": "до вечера", "should_convert": true, "note": "ДО вечера"},
+        {"id": "phrase_07", "corrupted": "jn nt,z", "expected": "от тебя", "should_convert": true, "note": "ОТ тебя"},
+        {"id": "phrase_08", "corrupted": "c lheujv", "expected": "с другом", "should_convert": true, "note": "С другом"},
+        {"id": "phrase_09", "corrupted": "r nt,t", "expected": "к тебе", "should_convert": true, "note": "К тебе"},
+        {"id": "phrase_10", "corrupted": "e vtyz", "expected": "у меня", "should_convert": true, "note": "У меня"},
+        {"id": "phrase_11", "corrupted": "j nt,t", "expected": "о тебе", "should_convert": true, "note": "О тебе"},
+        {"id": "phrase_12", "corrupted": "ghb 'njv", "expected": "при этом", "should_convert": true, "note": "ПРИ этом"},
+        {"id": "phrase_13", "corrupted": "lkz nt,z", "expected": "для тебя", "should_convert": true, "note": "ДЛЯ тебя"},
+        {"id": "phrase_14", "corrupted": ",tp ghjbdkty", "expected": "без проблем", "should_convert": true, "note": "БЕЗ проблем"},
+        {"id": "phrase_15", "corrupted": "gjl cnjkjv", "expected": "под столом", "should_convert": true, "note": "ПОД столом"}
+      ]
+    },
+    "phrases_with_particles": {
+      "description": "Фразы с частицами и союзами",
+      "tests": [
+        {"id": "phr_part_01", "corrupted": "z b ns", "expected": "я и ты", "should_convert": true, "note": "Я И ты"},
+        {"id": "phr_part_02", "corrupted": "lf ytn", "expected": "да нет", "should_convert": true, "note": "ДА НЕТ"},
+        {"id": "phr_part_03", "corrupted": "ye b xnj", "expected": "ну и что", "should_convert": true, "note": "НУ И ЧТО"},
+        {"id": "phr_part_04", "corrupted": "yt pyfk", "expected": "не знал", "should_convert": true, "note": "НЕ знал"},
+        {"id": "phr_part_05", "corrupted": "f ns", "expected": "а ты", "should_convert": true, "note": "А ты"},
+        {"id": "phr_part_06", "corrupted": "djn 'nj", "expected": "вот это", "should_convert": true, "note": "ВОТ это"},
+        {"id": "phr_part_07", "corrupted": "tot hfp", "expected": "еще раз", "should_convert": true, "note": "ЕЩЕ раз"},
+        {"id": "phr_part_08", "corrupted": "e;t ujnjdj", "expected": "уже готово", "should_convert": true, "note": "УЖЕ готово"},
+        {"id": "phr_part_09", "corrupted": "tcnm kb", "expected": "есть ли", "should_convert": true, "note": "ЕСТЬ ЛИ"},
+        {"id": "phr_part_10", "corrupted": ";t ,sk", "expected": "же был", "should_convert": true, "note": "ЖЕ был"},
+        {"id": "phr_part_11", "corrupted": ",sk ,s", "expected": "был бы", "should_convert": true, "note": "БЫЛ БЫ"},
+        {"id": "phr_part_12", "corrupted": "xnj ;t ltkfnm", "expected": "что же делать", "should_convert": true, "note": "ЧТО ЖЕ делать"}
+      ]
+    },
+    "mixed_layout_sentences": {
+      "description": "Полные предложения с переключением раскладки",
+      "tests": [
+        {"id": "sent_01", "corrupted": "ghbdtn rfr ltkf", "expected": "привет как дела", "should_convert": true, "note": "Привет как дела"},
+        {"id": "sent_02", "corrupted": "z ljvf", "expected": "я дома", "should_convert": true, "note": "Я дома"},
+        {"id": "sent_03", "corrupted": "jy yf hf,jnt", "expected": "он на работе", "should_convert": true, "note": "Он на работе"},
+        {"id": "sent_04", "corrupted": "vs c yt`", "expected": "мы с ней", "should_convert": true, "note": "Мы с ней"},
+        {"id": "sent_05", "corrupted": "rfr ns", "expected": "как ты", "should_convert": true, "note": "Как ты"},
+        {"id": "sent_06", "corrupted": "e vtyz dct [jhjij", "expected": "у меня все хорошо", "should_convert": true, "note": "У меня все хорошо"},
+        {"id": "sent_07", "corrupted": "jy b jyf", "expected": "он и она", "should_convert": true, "note": "Он и она"},
+        {"id": "sent_08", "corrupted": "xnj 'nj", "expected": "что это", "should_convert": true, "note": "Что это"},
+        {"id": "sent_09", "corrupted": "ult ns", "expected": "где ты", "should_convert": true, "note": "Где ты"},
+        {"id": "sent_10", "corrupted": "rjulf ns ghbltim", "expected": "когда ты придешь", "should_convert": true, "note": "Когда ты придешь"},
+        {"id": "sent_11", "corrupted": "z yt pyfk xnj ltkfnm", "expected": "я не знал что делать", "should_convert": true, "note": "Я не знал что делать"},
+        {"id": "sent_12", "corrupted": "jyb dct e;t nfv", "expected": "они все уже там", "should_convert": true, "note": "Они все уже там"}
+      ]
+    },
+    "single_letters_conflict": {
+      "description": "Одиночные буквы — конфликт EN/RU",
+      "tests": [
+        {"id": "single_01", "corrupted": "f ghbdtn", "expected": "а привет", "should_convert": true, "note": "А (союз) + слово"},
+        {"id": "single_02", "corrupted": "b ns", "expected": "и ты", "should_convert": true, "note": "И (союз) + слово"},
+        {"id": "single_03", "corrupted": "c ytq", "expected": "с ней", "should_convert": true, "note": "С (предлог) + слово"},
+        {"id": "single_04", "corrupted": "d ljvt", "expected": "в доме", "should_convert": true, "note": "В (предлог) + слово"},
+        {"id": "single_05", "corrupted": "r ytve", "expected": "к нему", "should_convert": true, "note": "К (предлог) + слово"},
+        {"id": "single_06", "corrupted": "e ytuj", "expected": "у него", "should_convert": true, "note": "У (предлог) + слово"},
+        {"id": "single_07", "corrupted": "j xtv", "expected": "о чем", "should_convert": true, "note": "О (предлог) + слово"},
+        {"id": "single_08", "corrupted": "z e;t pyfk", "expected": "я уже знал", "should_convert": true, "note": "Я + частица + глагол"}
+      ]
+    },
+    "two_letter_words": {
+      "description": "Двухбуквенные слова — сложные для детекции",
+      "tests": [
+        {"id": "two_01", "corrupted": "lf", "expected": "да", "should_convert": true, "note": "ДА"},
+        {"id": "two_02", "corrupted": "ye", "expected": "ну", "should_convert": true, "note": "НУ"},
+        {"id": "two_03", "corrupted": "yf", "expected": "на", "should_convert": true, "note": "НА"},
+        {"id": "two_04", "corrupted": "yt", "expected": "не", "should_convert": true, "note": "НЕ"},
+        {"id": "two_05", "corrupted": "jy", "expected": "он", "should_convert": true, "note": "ОН"},
+        {"id": "two_06", "corrupted": "ns", "expected": "ты", "should_convert": true, "note": "ТЫ"},
+        {"id": "two_07", "corrupted": "vs", "expected": "мы", "should_convert": true, "note": "МЫ"},
+        {"id": "two_08", "corrupted": "ds", "expected": "вы", "should_convert": true, "note": "ВЫ"},
+        {"id": "two_09", "corrupted": "bp", "expected": "из", "should_convert": true, "note": "ИЗ"},
+        {"id": "two_10", "corrupted": "pf", "expected": "за", "should_convert": true, "note": "ЗА"},
+        {"id": "two_11", "corrupted": "gj", "expected": "по", "should_convert": true, "note": "ПО"},
+        {"id": "two_12", "corrupted": "lj", "expected": "до", "should_convert": true, "note": "ДО"},
+        {"id": "two_13", "corrupted": "jn", "expected": "от", "should_convert": true, "note": "ОТ"},
+        {"id": "two_14", "corrupted": "kb", "expected": "ли", "should_convert": true, "note": "ЛИ"},
+        {"id": "two_15", "corrupted": ";t", "expected": "же", "should_convert": true, "note": "ЖЕ"},
+        {"id": "two_16", "corrupted": ",s", "expected": "бы", "should_convert": true, "note": "БЫ"},
+        {"id": "two_17", "corrupted": "nj", "expected": "то", "should_convert": true, "note": "ТО"},
+        {"id": "two_18", "corrupted": "yb", "expected": "ни", "should_convert": true, "note": "НИ"},
+        {"id": "two_19", "corrupted": "njn lf", "expected": "тот да", "should_convert": true, "note": "ТОТ + ДА"},
+        {"id": "two_20", "corrupted": "ye lf", "expected": "ну да", "should_convert": true, "note": "НУ + ДА"}
+      ]
+    }
+  },
+  "total_tests": 118
+}

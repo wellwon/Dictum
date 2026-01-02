@@ -1,0 +1,131 @@
+id,category,input,expected,actual,error_type,ngram_ratio,detected_layout,reason
+ru_common_0003,ru_common_words,"cgfcb,j",спасибо,спаси j,wrong_conversion,3.0880152789980246e+24,en,ngram_primary
+ru_common_0004,ru_common_words,gj;fkeqcnf,пожалуйста,по алуйста,wrong_conversion,7.046750144668603e+35,en,ngram_primary
+ru_common_0007,ru_common_words,[jhjij,хорошо,орошо,wrong_conversion,2.512315077515641e+27,en,ngram_primary
+ru_common_0008,ru_common_words,gkj[j,плохо,пло j,wrong_conversion,876621504404.77,en,ngram_primary
+ru_common_0017,ru_common_words,"hf,jnfnm",работать,ра отать,wrong_conversion,2.5913751126525167e+29,en,ngram_primary
+ru_common_0019,ru_common_words,t[fnm,ехать,t ать,wrong_conversion,255145689276.62,en,ngram_primary
+ru_common_0027,ru_common_words,[jntnm,хотеть,отеть,wrong_conversion,1.1879707970535676e+21,en,ngram_primary
+ru_common_0029,ru_common_words,"k.,bnm",любить,k ить,wrong_conversion,61097266194.7,en,ngram_primary
+ru_common_0040,ru_common_words,;lfnm,ждать,дать,wrong_conversion,2.7169421744862213e+18,en,ngram_primary
+ru_common_0051,ru_common_words,;bnm,жить,ить,wrong_conversion,61097266194.7,en,ngram_primary
+ru_common_0052,ru_common_words,"hf,jnfnm",работать,ра отать,wrong_conversion,2.5913751126525167e+29,en,ngram_primary
+ru_common_0054,ru_common_words,"hf,jnf",работа,ра ота,wrong_conversion,406239417113.81,en,ngram_primary
+ru_common_0060,ru_common_words,;bpym,жизнь,изнь,wrong_conversion,145260639457682.0,en,ngram_primary
+ru_common_0070,ru_common_words,"ghj,ktvf",проблема,про лема,wrong_conversion,124332306505.77,en,ngram_primary
+ru_common_0077,ru_common_words,"cjj,otybt",сообщение,соо щение,wrong_conversion,651160789274.09,en,ngram_primary
+ru_common_0080,ru_common_words,rjvgm.nth,компьютер,компь nth,wrong_conversion,1.5985970527252686e+28,en,
+ru_common_0092,ru_common_words,[jhjibq,хороший,ороший,wrong_conversion,2.0034420648565526e+35,en,ngram_primary
+ru_common_0093,ru_common_words,gkj[jq,плохой,пло ой,wrong_conversion,876621504404.77,en,ngram_primary
+ru_common_0094,ru_common_words,",jkmijq",большой,ольшой,wrong_conversion,1.4105577721884543e+32,en,ngram_primary
+ru_common_0100,ru_common_words,df;ysq,важный,ва ный,wrong_conversion,1929052.45,en,ngram_primary
+ru_common_0101,ru_common_words,ye;ysq,нужный,ну ный,wrong_conversion,1929052.45,en,ngram_primary
+ru_common_0103,ru_common_words,"cdj,jlysq",свободный,сво одный,wrong_conversion,16021381918.65,en,ngram_primary
+ru_common_0104,ru_common_words,",scnhsq",быстрый,ыстрый,wrong_conversion,4.152023881951685e+23,en,ngram_primary
+ru_common_0107,ru_common_words,ckj;ysq,сложный,сло ный,wrong_conversion,251444.26,en,ngram_primary
+ru_common_0109,ru_common_words,nz;tksq,тяжелый,тя елый,wrong_conversion,125217033050004.27,en,ngram_primary
+ru_common_0119,ru_common_words,'njn,этот,тот,wrong_conversion,1675188908578.25,en,ngram_primary
+ru_common_0123,ru_common_words,rf;lsq,каждый,ка дый,wrong_conversion,155293.69,en,ngram_primary
+ru_common_0138,ru_common_words,vj;tn,может,мо ет,wrong_conversion,0.0,,
+ru_common_0139,ru_common_words,ljk;ty,должен,дол ен,wrong_conversion,10655075079249.95,en,ngram_primary
+ru_common_0140,ru_common_words,ye;yj,нужно,ну но,wrong_conversion,0.0,,
+ru_common_0141,ru_common_words,vj;yj,можно,мо но,wrong_conversion,0.0,,
+ru_common_0143,ru_common_words,",eltn",будет,удет,wrong_conversion,144869797.5,en,ngram_primary
+ru_common_0144,ru_common_words,",skj",было,ыло,wrong_conversion,73099929.23,en,ngram_primary
+ru_common_0148,ru_common_words,e;t,уже,e t,wrong_conversion,0.0,,
+ru_common_0149,ru_common_words,to`,ещё,to,wrong_conversion,0.0,,
+ru_common_0150,ru_common_words,nj;t,тоже,то t,wrong_conversion,0.0,,
+ru_common_0151,ru_common_words,nfr;t,также,так t,wrong_conversion,8352.34,en,common_short_word
+ru_common_0152,ru_common_words,"djj,ot",вообще,воо ot,wrong_conversion,414160565545.34,en,ngram_primary
+ru_common_0156,ru_common_words,rf;tncz,кажется,ка ется,wrong_conversion,9007573740884046.0,en,ngram_primary
+ru_common_0158,ru_common_words,"j,zpfntkmyj",обязательно,j язательно,wrong_conversion,3.734419445736422e+62,en,ngram_primary
+ru_common_0159,ru_common_words,djpvj;yj,возможно,возмо но,wrong_conversion,1.828190733611212e+25,en,ngram_primary
+ru_it_0166,ru_it_slang,vthl;,мердж,мерд,wrong_conversion,899117257.18,en,ngram_primary
+ru_it_0167,ru_it_slang,vthl;bnm,мерджить,мерд ить,wrong_conversion,899117257.18,en,ngram_primary
+ru_it_0168,ru_it_slang,pfvthl;bnm,замерджить,замерд ить,wrong_conversion,4.6126385565822636e+27,en,ngram_primary
+ru_it_0169,ru_it_slang,"ht,tqp",ребейз,ре ейз,wrong_conversion,2537587999768.68,en,ngram_primary
+ru_it_0170,ru_it_slang,"ht,tqpbnm",ребейзить,ре ейзить,wrong_conversion,2.509684184424508e+33,en,ngram_primary
+ru_it_0174,ru_it_slang,",bkl",билд,илд,wrong_conversion,441450431.39,en,ngram_primary
+ru_it_0175,ru_it_slang,",bklbnm",билдить,илдить,wrong_conversion,1.0511522389015478e+31,en,ngram_primary
+ru_it_0176,ru_it_slang,"pf,bklbnm",забилдить,за илдить,wrong_conversion,1.0511522389015478e+31,en,ngram_primary
+ru_it_0177,ru_it_slang,",fu",баг,аг,wrong_conversion,0.0,,
+ru_it_0178,ru_it_slang,",fuabrc",багфикс,fuabrc,wrong_conversion,0.12,en,
+ru_it_0182,ru_it_slang,[jnabrc,хотфикс,отфикс,wrong_conversion,1342993.79,en,ngram_primary
+ru_it_0187,ru_it_slang,"hjkk,'r",роллбэк,ролл r,wrong_conversion,1.9231344663046696e+21,en,ngram_primary
+ru_it_0191,ru_it_slang,"lt,fu",дебаг,де аг,wrong_conversion,0.0,,
+ru_it_0192,ru_it_slang,"lt,f;bnm",дебажить,де f ить,wrong_conversion,61097266194.7,en,ngram_primary
+ru_it_0193,ru_it_slang,"jnlt,f;bnm",отдебажить,отде f ить,wrong_conversion,146820225526289.66,en,ngram_primary
+ru_it_0201,ru_it_slang,"j,yjdbnm",обновить,j новить,wrong_conversion,5.164650920288877e+39,en,ngram_primary
+ru_it_0209,ru_it_slang,",'rtyl",бэкенд,кенд,wrong_conversion,1.49,en,spellchecker_tiebreaker
+ru_it_0216,ru_it_slang,cntql;byu,стейджинг,стейд инг,wrong_conversion,3.3755122680293365e+22,en,ngram_primary
+ru_it_0221,ru_it_slang,",hfyx",бранч,ранч,wrong_conversion,1.1751917225911808e+19,en,ngram_primary
+ru_it_0226,ru_it_slang,htdm.,ревью,ревь,wrong_conversion,16455968142.74,en,ngram_primary
+ru_it_0227,ru_it_slang,rjl htdm.,код ревью,код ревь,wrong_conversion,0.0,,
+ru_it_0238,ru_it_slang,'gbr,эпик,пик,wrong_conversion,150648.07,en,ngram_primary
+ru_it_0240,ru_it_slang,",'rkju",бэклог,клог,wrong_conversion,36753020873589.84,en,ngram_primary
+ru_it_0244,ru_it_slang,",fpf",база,аза,wrong_conversion,159637092624.09,en,ngram_primary
+ru_it_0245,ru_it_slang,r'i,кэш,r i,wrong_conversion,0.0,,
+ru_it_0246,ru_it_slang,r'ibhjdfnm,кэшировать,r шировать,wrong_conversion,5.910907345489668e+55,en,ngram_primary
+ru_it_0248,ru_it_slang,'ylgjbyn,эндпоинт,ндпоинт,wrong_conversion,3.3655239117602764e+30,en,ngram_primary
+ru_it_0252,ru_it_slang,[tylkth,хендлер,ендлер,wrong_conversion,187373973506.12,en,ngram_primary
+ru_sent_0257,ru_sentences,"Ghbdtn, rfr ltkf?","Привет, как дела?",Привет как дела,wrong_conversion,0.0,,
+ru_sent_0258,ru_sentences,"Dc` [jhjij, cgfcb,j!","Всё хорошо, спасибо!",Вс орошо спаси j,wrong_conversion,0.0,,
+ru_sent_0259,ru_sentences,Xnj ltkftim ctujlyz?,Что делаешь сегодня?,Что делаешь сегодня,wrong_conversion,0.0,,
+ru_sent_0261,ru_sentences,Crbym ccskre gj;fkeqcnf,Скинь ссылку пожалуйста,Скинь ссылку по алуйста,wrong_conversion,0.0,,
+ru_sent_0262,ru_sentences,"Gjcvjnhb rjulf ,eltn dhtvz",Посмотри когда будет время,Посмотри когда удет время,wrong_conversion,0.0,,
+ru_sent_0263,ru_sentences,Ye;yj chjxyj cltkfnm,Нужно срочно сделать,Ну но срочно сделать,wrong_conversion,0.0,,
+ru_sent_0264,ru_sentences,"""nj df;yfz pflfxf",Это важная задача,то ва ная задача,wrong_conversion,0.0,,
+ru_sent_0265,ru_sentences,Gjlj;lb vbyenre,Подожди минутку,Подо ди минутку,wrong_conversion,0.0,,
+ru_sent_0266,ru_sentences,Ctqxfc jnghfdk.,Сейчас отправлю,Сейчас отправл,wrong_conversion,0.0,,
+ru_sent_0268,ru_sentences,Gthtpdjy. gjp;t,Перезвоню позже,Перезвон поз t,wrong_conversion,0.0,,
+ru_sent_0270,ru_sentences,Vj;tim gjdnjhbnm?,Можешь повторить?,Мо tim повторить,wrong_conversion,0.0,,
+ru_sent_0271,ru_sentences,Cjukfcty gjkyjcnm.,Согласен полностью,Согласен полность,wrong_conversion,0.0,,
+ru_sent_0272,ru_sentences,Jnkbxyfz bltz!,Отличная идея!,Отличная идея,wrong_conversion,0.0,,
+ru_sent_0275,ru_sentences,"Cgfcb,j pf gjvjom",Спасибо за помощь,Спаси j за помощь,wrong_conversion,0.0,,
+ru_sent_0276,ru_sentences,Lj cdzpb!,До связи!,До связи,wrong_conversion,0.0,,
+ru_sent_0277,ru_sentences,Ctqxfc pfrjvvbxe b pfgeie,Сейчас закоммичу и запушу,Сейчас закоммичу b запушу,wrong_conversion,0.0,,
+ru_sent_0278,ru_sentences,"Yflj gjabrcbnm ,fu d ghjlfrityt",Надо пофиксить баг в продакшене,Надо пофиксить аг d продакшене,wrong_conversion,0.0,,
+ru_sent_0280,ru_sentences,"Ht,tqpyb yf vtqy gj;fkeqcnf",Ребейзни на мейн пожалуйста,Ре ейзни на мейн по алуйста,wrong_conversion,0.0,,
+ru_sent_0281,ru_sentences,Ghjujyb ntcns gthtl vthl;tv,Прогони тесты перед мерджем,Прогони тесты перед мерд ем,wrong_conversion,0.0,,
+ru_sent_0282,ru_sentences,"Cjplfq yjdsq ,hfyx lkz abxb",Создай новый бранч для фичи,Создай новый ранч для фичи,wrong_conversion,0.0,,
+ru_sent_0285,ru_sentences,<fpf yt jndtxftn,База не отвечает,аза не отвечает,wrong_conversion,0.0,,
+ru_sent_0286,ru_sentences,R'i yflj gjxbcnbnm,Кэш надо почистить,R i надо почистить,wrong_conversion,0.0,,
+ru_sent_0287,ru_sentences,"""ylgjbyn djpdhfoftn jib,re",Эндпоинт возвращает ошибку,ндпоинт возвращает оши ку,wrong_conversion,0.0,,
+ru_sent_0290,ru_sentences,Ye;ty rjl htdm. chjxyj,Нужен код ревью срочно,Ну ен код ревь срочно,wrong_conversion,0.0,,
+ru_sent_0291,ru_sentences,Nfcrf d cghbynt dbcbn,Таска в спринте висит,Таска d спринте висит,wrong_conversion,0.0,,
+ru_sent_0294,ru_sentences,Ntcns yt ghj[jlzn,Тесты не проходят,Тесты не про одят,wrong_conversion,0.0,,
+ru_sent_0295,ru_sentences,<bkl ckjvfkcz,Билд сломался,илд сломался,wrong_conversion,0.0,,
+ru_sent_0296,ru_sentences,Gfvznm ntx`n,Память течёт,Память теч n,wrong_conversion,0.0,,
+en_common_0299,en_common_words,ину,bye,ину,false_negative,0.0,ru,
+en_sent_0424,en_sentences,Руддщб рщц фку нщг?,"Hello, how are you?","Hello, how are you",wrong_conversion,0.0,,
+en_sent_0425,en_sentences,Шэь аштуб ерфтлы!,"I'm fine, thanks!","I'm fine, thanks",wrong_conversion,0.0,,
+en_sent_0426,en_sentences,Црфе фку нщг вщштп?,What are you doing?,What are you doing,wrong_conversion,0.0,,
+en_sent_0427,en_sentences,Дуеэы ьууе ещьщккщц,Let's meet tomorrow,Let's ьууе tomorrow,wrong_conversion,0.0,,
+en_sent_0432,en_sentences,Цфше ф ьщьуте,Wait a moment,Wait ф moment,wrong_conversion,0.0,,
+en_sent_0436,en_sentences,Ш вщтэе гтвукыефтв,I don't understand,Ш don't understand,wrong_conversion,0.0,,
+en_sent_0437,en_sentences,Сфт нщг кузуфе?,Can you repeat?,Can you repeat,wrong_conversion,0.0,,
+en_sent_0438,en_sentences,Ш фпкуу,I agree,Ш agree,wrong_conversion,0.0,,
+en_sent_0439,en_sentences,Пкуфе швуф!,Great idea!,Great idea,wrong_conversion,0.0,,
+en_sent_0443,en_sentences,Ыуу нщг!,See you!,See you,wrong_conversion,0.0,,
+en_sent_0451,en_sentences,ФЗШ куегкты уккщк,API returns error,ФЗШ returns error,wrong_conversion,0.0,,
+mixed_1361,mixed_lang,"Gjxtve webpack yt ,bklbn?",Почему webpack не билдит?,Почему webpack не илдит,wrong_conversion,0.0,,
+mixed_1364,mixed_lang,"J,yjdb README afqk",Обнови README файл,J нови README файл,wrong_conversion,0.0,,
+mixed_1366,mixed_lang,"Slack cjj,otybt ghbikj",Slack сообщение пришло,Slack соо щение пришло,wrong_conversion,0.0,,
+mixed_1368,mixed_lang,VS Code uk.xbn,VS Code глючит,VS Code uk чит,wrong_conversion,0.0,,
+mixed_1371,mixed_lang,"Lj,fdm d /gitignore",Добавь в .gitignore,До авь d gitignore,wrong_conversion,0.0,,
+mixed_1372,mixed_lang,Ghjdthm package/json,Проверь package.json,Проверь package json,wrong_conversion,0.0,,
+mixed_1373,mixed_lang,"J,yjdb node modules",Обнови node modules,J нови node modules,wrong_conversion,0.0,,
+short_1382,short_words,"j,",об,j,wrong_conversion,0.0,,
+short_1387,short_words,;t,же,t,wrong_conversion,0.0,,
+short_1389,short_words,",s",бы,s,wrong_conversion,0.0,,
+short_1390,short_words,e;,уж,e,wrong_conversion,0.0,,
+short_1392,short_words,vs,мы,vs,false_negative,0.0,,
+short_1410,short_words,to`,ещё,to,wrong_conversion,0.0,,
+short_1411,short_words,e;t,уже,e t,wrong_conversion,0.0,,
+context_1453,context_test,"cghfcb,j tot",спасибо еще,спраси j еще,wrong_conversion,0.0,,
+context_1454,context_test,tot,tot,еще,false_positive,0.25,en,common_short_word
+context_1455,context_test,ghbdtn tot,привет tot,привет еще,wrong_conversion,0.0,,
+edge_1458,edge_cases,"HF,JNF",РАБОТА,РА ОТА,wrong_conversion,406239417113.81,en,ngram_primary
+edge_1462,edge_cases,еу|е123,test123,te е123,wrong_conversion,1.0,ru,
+edge_1464,edge_cases,test@mail.com,test@mail.com,test mail com,false_positive,0.0,en,
+edge_1465,edge_cases,user@domain.ru,user@domain.ru,user domain ru,false_positive,0.0,en,

@@ -1,0 +1,10 @@
+id,category,input,expected,actual,error_type
+en_common_0299,en_common_words,ину,bye,ину,false_negative
+mixed_1372,mixed_lang,Lj,fdm d /gitignore,Добавь в .gitignore,Добавь в /gitignore,wrong_conversion
+mixed_1373,mixed_lang,Ghjdthm package/json,Проверь package.json,Проверь package/json,wrong_conversion
+short_1383,short_words,j,,об,j,,false_negative
+context_1451,context_test,ghbdtn vbh tot,привет мир еще,привет мир tot,wrong_conversion
+context_1452,context_test,rfr ltkf tot,как дела еще,как дела tot,wrong_conversion
+context_1453,context_test,ghbdtn lheu tot,привет друг еще,привет друг tot,wrong_conversion
+context_1454,context_test,cgfcb,j tot,спасибо еще,спасибо tot,wrong_conversion
+edge_1463,edge_cases,еу|е123,test123,te|е123,wrong_conversion

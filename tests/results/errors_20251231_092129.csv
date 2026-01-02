@@ -1,0 +1,27 @@
+id,category,input,expected,actual,error_type
+en_common_0299,en_common_words,ину,bye,ину,false_negative
+mixed_1369,mixed_lang,VS Code uk.xbn,VS Code глючит,МЫ Code глючит,wrong_conversion
+mixed_1372,mixed_lang,Lj,fdm d /gitignore,Добавь в .gitignore,Добавь в /gitignore,wrong_conversion
+mixed_1373,mixed_lang,Ghjdthm package/json,Проверь package.json,Проверь package/json,wrong_conversion
+short_1383,short_words,j,,об,j,,false_negative
+short_1393,short_words,vs,vs,мы,false_positive
+context_1451,context_test,ghbdtn vbh tot,привет мир tot,привет мир еще,wrong_conversion
+context_1452,context_test,rfr ltkf tot,как дела tot,как дела еще,wrong_conversion
+context_1453,context_test,ghbdtn lheu tot,привет друг tot,привет друг еще,wrong_conversion
+context_1454,context_test,cgfcb,j tot,спасибо tot,спасибо еще,wrong_conversion
+context_1455,context_test,tot,tot,еще,false_positive
+context_1456,context_test,ghbdtn tot,привет tot,привет еще,wrong_conversion
+edge_1463,edge_cases,еу|е123,test123,te|е123,wrong_conversion
+conflict_tot_03,en_ru_conflicts,tot ye;yj ltyu,еще нужно денег,еще нужно денг,wrong_conversion
+conflict_vs_01,en_ru_conflicts,dc c nj,jq,мы с тобой,вс c тобой,wrong_conversion
+conflict_vs_02,en_ru_conflicts,dc ,skb nfv,мы были там,вс были там,wrong_conversion
+conflict_vs_03,en_ru_conflicts,f dc,а мы,f вс,wrong_conversion
+conflict_vs_04,en_ru_conflicts,Python vs Java,Python vs Java,Python мы Java,false_positive
+conflict_vs_05,en_ru_conflicts,React vs Vue,React vs Vue,React мы Vue,false_positive
+conflict_vs_06,en_ru_conflicts,iOS vs Android,iOS vs Android,iOS мы Android,false_positive
+conflict_ye_03,en_ru_conflicts,f ye,а ну,f ну,wrong_conversion
+conflict_kb_03,en_ru_conflicts,256 kb,256 kb,256 ли,false_positive
+conflict_kb_04,en_ru_conflicts,512 kb RAM,512 kb RAM,512 ли RAM,false_positive
+conflict_mix_01,en_ru_conflicts,tot dc ghbdtn,еще мы привет,еще вс привет,wrong_conversion
+conflict_mix_02,en_ru_conflicts,ye b dc,ну и мы,ну и вс,wrong_conversion
+conflict_mix_04,en_ru_conflicts,ye tot dc,ну еще мы,ну еще вс,wrong_conversion

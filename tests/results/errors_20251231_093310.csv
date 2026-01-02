@@ -1,0 +1,12 @@
+id,category,input,expected,actual,error_type
+en_common_0299,en_common_words,ину,bye,ину,false_negative
+mixed_1369,mixed_lang,VS Code uk.xbn,VS Code глючит,МЫ Code глючит,wrong_conversion
+mixed_1372,mixed_lang,Lj,fdm d /gitignore,Добавь в .gitignore,Добавь в /gitignore,wrong_conversion
+mixed_1373,mixed_lang,Ghjdthm package/json,Проверь package.json,Проверь package/json,wrong_conversion
+short_1383,short_words,j,,об,j,,false_negative
+edge_1463,edge_cases,еу|е123,test123,te|е123,wrong_conversion
+conflict_vs_04,en_ru_conflicts,Python vs Java,Python vs Java,Python мы Java,false_positive
+conflict_vs_05,en_ru_conflicts,React vs Vue,React vs Vue,React мы Vue,false_positive
+conflict_vs_06,en_ru_conflicts,iOS vs Android,iOS vs Android,iOS мы Android,false_positive
+conflict_kb_03,en_ru_conflicts,256 kb,256 kb,256 ли,false_positive
+conflict_kb_04,en_ru_conflicts,512 kb RAM,512 kb RAM,512 ли RAM,false_positive

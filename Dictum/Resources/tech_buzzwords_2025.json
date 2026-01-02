@@ -13,6 +13,7 @@
     "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "csv", "txt", "rtf",
     "usd", "eur", "gbp", "rub", "cny", "jpy", "btc", "eth", "nft",
     "diy", "faq", "asap", "eta", "rsvp", "aka", "tbd", "tba", "wip", "eod", "eow",
+    "july", "ltd",
     "nda", "kpi", "roi", "b2b", "b2c", "saas", "paas", "iaas", "erp", "crm"
   ],
 
@@ -98,7 +99,8 @@
   "testing_tools": [
     "jest", "vitest", "pytest", "unittest", "nose", "selenium", "puppeteer", "playwright",
     "cypress", "testcafe", "webdriverio", "detox", "appium", "k6", "locust", "jmeter",
-    "gatling", "artillery", "postman", "insomnia", "bruno", "hoppscotch", "httpie", "curl"
+    "gatling", "artillery", "postman", "insomnia", "bruno", "hoppscotch", "httpie", "curl",
+    "mypy", "ruff", "black", "flake8", "pylint"
   ],
   
   "version_control": [
@@ -181,5 +183,27 @@
     "htmx", "alpine", "alpinejs", "unpoly", "hotwire", "turbo", "stimulus", "livewire",
     "inertia", "blitz", "redwood", "wasp", "amplication", "supertokens", "clerk", "auth0",
     "firebase-auth", "cognito", "supabase-auth", "lucia", "better-auth", "next-auth", "nextauth"
+  ],
+
+  "companies_services": [
+    "airbnb", "uber", "lyft", "netflix", "spotify", "dropbox", "slack", "notion",
+    "figma", "canva", "airtable", "zapier", "stripe", "paypal", "square", "shopify",
+    "twilio", "sendgrid", "mailchimp", "hubspot", "salesforce", "zendesk", "intercom",
+    "atlassian", "jira", "confluence", "trello", "asana", "monday", "clickup", "linear",
+    "vercel", "netlify", "heroku", "digitalocean", "linode", "vultr", "hetzner",
+    "cloudflare", "fastly", "akamai", "datadog", "newrelic", "splunk", "elastic",
+    "twitch", "discord", "zoom", "webex", "teams", "meet", "youtube", "vimeo",
+    "reddit", "twitter", "x", "linkedin", "facebook", "instagram", "tiktok", "pinterest",
+    "medium", "substack", "ghost", "wordpress", "squarespace", "wix", "webflow",
+    "mongodb", "cockroachdb", "planetscale", "supabase", "neon", "turso", "upstash",
+    "hp", "lg", "sap", "dell", "intel", "nvidia", "cisco", "oracle", "adobe", "vmware",
+    "jd", "vk", "vtb", "abbyy", "db2",
+    "apple", "google", "microsoft", "meta", "amazon", "alibaba", "tencent", "baidu",
+    "samsung", "sony", "panasonic", "philips", "siemens", "bosch", "asus", "acer", "lenovo",
+    "brex", "plaid", "ramp", "wise", "revolut", "robinhood", "coinbase", "kraken", "binance",
+    "snap", "pinterest", "yelp", "doordash", "instacart", "grubhub", "postmates",
+    "palantir", "snowflake", "databricks", "confluent", "hashicorp", "elastic", "gitlab",
+    "okta", "crowdstrike", "zscaler", "palo", "fortinet", "splunk", "servicenow",
+    "workday", "servicenow", "docusign", "box", "dropbox", "evernote", "todoist"
   ]
 }

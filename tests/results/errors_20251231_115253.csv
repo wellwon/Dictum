@@ -1,0 +1,6 @@
+id,category,input,expected,actual,error_type,ngram_ratio,detected_layout,reason
+en_common_0299,en_common_words,ину,bye,ину,false_negative,0.0,ru,
+mixed_1372,mixed_lang,"Lj,fdm d /gitignore",Добавь в .gitignore,Добавь в /gitignore,wrong_conversion,0.0,,
+mixed_1373,mixed_lang,Ghjdthm package/json,Проверь package.json,Проверь package/json,wrong_conversion,0.0,,
+short_1383,short_words,"j,",об,"о,",wrong_conversion,nan,en,single_letter_whitelist
+edge_1463,edge_cases,еу|е123,test123,te|е123,wrong_conversion,18.1,ru,
