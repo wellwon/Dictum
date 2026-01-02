@@ -134,14 +134,20 @@ class PermissionManager: @unchecked Sendable {
 
     // MARK: - Request Permissions
 
-    /// Accessibility: Системный диалог сам открывает Settings если нужно
+    /// Accessibility: Открывает System Settings напрямую без модалки
     /// Возвращает true если уже есть разрешение
     @discardableResult
     func requestAccessibility() -> Bool {
         // Используем строковый ключ напрямую для Swift 6 concurrency safety
-        let options: NSDictionary = ["AXTrustedCheckOptionPrompt": true]
+        let options: NSDictionary = ["AXTrustedCheckOptionPrompt": false]
         let result = AXIsProcessTrustedWithOptions(options)
-        NSLog("🔐 Accessibility request: \(result ? "granted" : "will show dialog")")
+        NSLog("🔐 Accessibility request: \(result ? "granted" : "opening settings")")
+
+        // Если нет разрешения — открываем Settings напрямую
+        if !result {
+            openPrivacySettings(section: "Accessibility")
+        }
+
         return result
     }
 
@@ -237,13 +243,6 @@ class PermissionManager: @unchecked Sendable {
 
         // Открываем System Settings → Input Monitoring
         openPrivacySettings(section: "ListenEvent")
-
-        // Показываем Finder с приложением выделенным — можно перетащить в настройки
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            let appPath = Bundle.main.bundleURL
-            NSWorkspace.shared.activateFileViewerSelecting([appPath])
-            NSLog("⌨️ Opened Finder with app selected for drag-and-drop")
-        }
     }
 
     /// Планирует перезапуск приложения через 3 секунды

@@ -41,6 +41,9 @@ class KeyboardMonitor: @unchecked Sendable {
     /// Последнее обработанное слово (для Double CMD после пробела)
     private var lastProcessedWord: String = ""
 
+    /// Накопленная пунктуация после последнего слова (для Double CMD: "ghbdtn!" → "ghbdtn" + "!")
+    private var pendingPunctuation: String = ""
+
     /// Последняя автоматическая замена (для отката)
     private var lastAutoSwitch: (original: String, converted: String, time: Date)?
 
@@ -169,18 +172,7 @@ class KeyboardMonitor: @unchecked Sendable {
         NSLog("⌨️ KeyboardMonitor: AXIsProcessTrusted = %@", hasAccessibility ? "true" : "false")
 
         guard hasInputMonitoring else {
-            NSLog("⌨️ KeyboardMonitor: НЕТ Input Monitoring")
-
-            // Если onboarding не пройден — НЕ показывать диалог сейчас
-            // Onboarding сам покажет диалог в permissions step (Onboarding.swift:599)
-            if !SettingsManager.shared.hasCompletedOnboarding {
-                NSLog("⌨️ Onboarding не пройден — откладываю запрос Input Monitoring")
-                logger.info("⌨️ Input Monitoring будет запрошен в onboarding permissions step")
-                return false
-            }
-
-            // Запрашиваем только если onboarding уже пройден
-            NSLog("⌨️ Запрашиваю Input Monitoring (onboarding пройден)")
+            NSLog("⌨️ KeyboardMonitor: НЕТ Input Monitoring — запрашиваю...")
             CGRequestListenEventAccess()
             logger.warning("⌨️ KeyboardMonitor: НЕТ Input Monitoring разрешения!")
             return false
@@ -352,6 +344,8 @@ class KeyboardMonitor: @unchecked Sendable {
                 let isMappable = isMappableQWERTY || isMappableRussian
 
                 if char.isLetter || char.isNumber || isMappable {
+                    // Новая буква — сбрасываем накопленную пунктуацию (начало нового слова)
+                    pendingPunctuation = ""
                     wordBuffer.append(char)
                     // Ограничиваем размер буфера (защита от переполнения при смене приложений)
                     if wordBuffer.count > 50 {
@@ -368,6 +362,12 @@ class KeyboardMonitor: @unchecked Sendable {
                         // ИСПРАВЛЕНИЕ: очищаем буфер ТОЛЬКО если слово обработано
                         if processWordIfNeeded(triggerChar: char) {
                             clearWordBuffer()
+                        }
+                        // ИСПРАВЛЕНИЕ ПУНКТУАЦИИ: накапливаем для Double CMD
+                        if char.isPunctuation {
+                            pendingPunctuation.append(char)
+                        } else {
+                            pendingPunctuation = ""
                         }
                     }
                 }
@@ -510,6 +510,8 @@ class KeyboardMonitor: @unchecked Sendable {
                 let isMappable = isMappableQWERTY || isMappableRussian
 
                 if char.isLetter || char.isNumber || isMappable {
+                    // Новая буква — сбрасываем накопленную пунктуацию (начало нового слова)
+                    pendingPunctuation = ""
                     wordBuffer.append(char)
                     if wordBuffer.count > 50 {
                         wordBuffer = String(wordBuffer.suffix(30))
@@ -524,6 +526,12 @@ class KeyboardMonitor: @unchecked Sendable {
                         // ИСПРАВЛЕНИЕ: очищаем буфер ТОЛЬКО если слово обработано
                         if processWordIfNeeded(triggerChar: char) {
                             clearWordBuffer()
+                        }
+                        // ИСПРАВЛЕНИЕ ПУНКТУАЦИИ: накапливаем для Double CMD
+                        if char.isPunctuation {
+                            pendingPunctuation.append(char)
+                        } else {
+                            pendingPunctuation = ""
                         }
                     }
                 }
@@ -639,7 +647,13 @@ class KeyboardMonitor: @unchecked Sendable {
         }
 
         // СЛУЧАЙ 4: Нет выделения — конвертируем последнее слово
-        let word = wordBuffer.isEmpty ? lastProcessedWord : wordBuffer
+        // ИСПРАВЛЕНИЕ ПУНКТУАЦИИ: включаем накопленную пунктуацию
+        let word: String
+        if !wordBuffer.isEmpty {
+            word = wordBuffer
+        } else {
+            word = lastProcessedWord + pendingPunctuation
+        }
         guard word.count >= HybridValidator.shared.minWordLength else {
             NSLog("⌨️ Double CMD: нет выделения, wordBuffer='%@', lastProcessedWord='%@'",
                   wordBuffer, lastProcessedWord)
@@ -781,16 +795,21 @@ class KeyboardMonitor: @unchecked Sendable {
         // ВАЖНО: includeAllSymbols = true для конвертации ВСЕХ символов
         let converted = LayoutMaps.convert(word, from: textLayout, to: textLayout.opposite, includeAllSymbols: true)
 
-        // Заменяем последнее слово через выделение (Shift+Option+Left)
-        // НЕ используем replaceLastWord(oldLength:) — word.count не соответствует позиции курсора!
-        TextReplacer.shared.replaceLastWordViaSelection(newText: converted)
+        // ИСПРАВЛЕНИЕ ПУНКТУАЦИИ: используем replaceCharactersViaSelection для ТОЧНОГО количества символов
+        // replaceLastWordViaSelection использует Shift+Option+Left, который останавливается на границе слова
+        // и НЕ включает пунктуацию! Поэтому "ghbdtn!" → "привет" без "!"
+        // replaceCharactersViaSelection использует Shift+Left × count, что выделяет ВСЕ символы включая пунктуацию
+        TextReplacer.shared.replaceCharactersViaSelection(count: word.count, newText: converted)
 
         lastManualSwitch = (original: word, converted: converted, time: Date())
 
         // ИСПРАВЛЕНИЕ БАГ #2: Сохраняем КОНВЕРТИРОВАННОЕ слово для toggle
         // Следующий Cmd+Cmd будет использовать converted → original (и так бесконечно)
-        lastProcessedWord = converted
+        // ВАЖНО: сохраняем только буквы, пунктуация идёт отдельно в pendingPunctuation
+        let convertedLetters = String(converted.filter { $0.isLetter })
+        lastProcessedWord = convertedLetters
         wordBuffer = ""
+        pendingPunctuation = ""
 
         // ИСПРАВЛЕНИЕ БАГ #5: Переключаем системную раскладку на целевой язык
         switchKeyboardLayout(to: textLayout.opposite)
@@ -1144,6 +1163,7 @@ class KeyboardMonitor: @unchecked Sendable {
     private func clearState() {
         clearWordBuffer()
         lastProcessedWord = ""
+        pendingPunctuation = ""
         lastAutoSwitch = nil
         lastManualSwitch = nil
         pendingLearning?.timer.cancel()

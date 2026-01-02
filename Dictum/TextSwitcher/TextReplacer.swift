@@ -121,7 +121,8 @@ class TextReplacer: @unchecked Sendable {
     }
 
     /// Заменяет последнее слово через выделение (Shift+Option+Left)
-    /// Этот метод корректно работает независимо от позиции курсора (после пробела и т.д.)
+    /// ВНИМАНИЕ: этот метод НЕ включает пунктуацию после слова!
+    /// Для замены с пунктуацией используйте `replaceCharactersViaSelection(count:newText:)`
     /// - Parameter newText: Новый текст для вставки
     @MainActor
     func replaceLastWordViaSelection(newText: String) {
@@ -144,6 +145,35 @@ class TextReplacer: @unchecked Sendable {
         }
 
         logger.debug("📝 TextReplacer: заменено слово (selection) на '\(newText)'")
+    }
+
+    /// Заменяет точное количество символов через выделение (Shift+Left × count)
+    /// Используется для Double Cmd когда нужно заменить слово С пунктуацией
+    /// Например: "ghbdtn!" (7 символов) → "привет!" (7 символов)
+    /// - Parameters:
+    ///   - count: Количество символов для выделения и замены
+    ///   - newText: Новый текст для вставки
+    @MainActor
+    func replaceCharactersViaSelection(count: Int, newText: String) {
+        // 1. Сохраняем текущий буфер обмена
+        let savedClipboard = saveClipboard()
+
+        // 2. Выделяем ТОЧНОЕ количество символов назад (Shift+Left × count)
+        selectCharactersBackward(count: count)
+
+        // 3. Задержка для обработки выделения приложением
+        // Увеличена до 150ms т.к. много нажатий клавиш
+        usleep(150_000)  // 150ms
+
+        // 4. Вставляем новый текст (автоматически заменяет выделение)
+        pasteText(newText)
+
+        // 5. Восстанавливаем буфер обмена
+        DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) { [weak self] in
+            self?.restoreClipboard(savedClipboard)
+        }
+
+        logger.debug("📝 TextReplacer: заменено \(count) символов на '\(newText)'")
     }
 
     /// Вставляет текст напрямую (без удаления)
@@ -169,6 +199,7 @@ class TextReplacer: @unchecked Sendable {
 
     /// Выделяет слово назад (Shift+Option+Left)
     /// macOS стандарт — работает во всех приложениях
+    /// ВНИМАНИЕ: выделяет только ДО границы слова, НЕ включая пунктуацию!
     private func selectWordBackward() {
         let source = CGEventSource(stateID: .combinedSessionState)
         source?.setLocalEventsFilterDuringSuppressionState(
@@ -185,6 +216,32 @@ class TextReplacer: @unchecked Sendable {
         // Некоторые приложения неправильно интерпретируют keyUp с флагами
         let keyUp = CGEvent(keyboardEventSource: source, virtualKey: KeyCode.leftArrow, keyDown: false)
         keyUp?.post(tap: .cgSessionEventTap)
+    }
+
+    /// Выделяет точное количество символов назад (Shift+Left × count)
+    /// Используется когда нужно выделить слово С пунктуацией (например "ghbdtn!")
+    /// - Parameter count: Количество символов для выделения
+    private func selectCharactersBackward(count: Int) {
+        guard count > 0 else { return }
+
+        let source = CGEventSource(stateID: .combinedSessionState)
+        source?.setLocalEventsFilterDuringSuppressionState(
+            [.permitLocalMouseEvents, .permitSystemDefinedEvents],
+            state: .eventSuppressionStateSuppressionInterval
+        )
+
+        for _ in 0..<count {
+            // Shift+Left выделяет ОДИН символ назад
+            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: KeyCode.leftArrow, keyDown: true)
+            keyDown?.flags = [.maskShift]
+            keyDown?.post(tap: .cgSessionEventTap)
+
+            let keyUp = CGEvent(keyboardEventSource: source, virtualKey: KeyCode.leftArrow, keyDown: false)
+            keyUp?.post(tap: .cgSessionEventTap)
+
+            // Небольшая задержка между нажатиями (как в deleteCharacters)
+            usleep(1_000)  // 1ms
+        }
     }
 
     /// Сохраняет содержимое буфера обмена

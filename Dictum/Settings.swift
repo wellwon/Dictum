@@ -1355,6 +1355,7 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+                .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.85))
         )
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.window))
         .ignoresSafeArea(.all, edges: .top)
@@ -3627,7 +3628,10 @@ struct AddPromptSheet: View {
             .background(DesignSystem.Colors.buttonAreaBackground)
         }
         .frame(width: 520, height: 500)
-        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
+        .background(
+                VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
+                    .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.85))
+            )
         .clipShape(RoundedRectangle(cornerRadius: 26))
         .overlay(
             RoundedRectangle(cornerRadius: 26)
@@ -3840,7 +3844,10 @@ struct EditPromptSheet: View {
             .background(DesignSystem.Colors.buttonAreaBackground)
         }
         .frame(width: 520, height: 540)
-        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
+        .background(
+                VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
+                    .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.85))
+            )
         .clipShape(RoundedRectangle(cornerRadius: 26))
         .overlay(
             RoundedRectangle(cornerRadius: 26)
@@ -4175,7 +4182,10 @@ struct AddSnippetSheet: View {
             .background(DesignSystem.Colors.buttonAreaBackground)
         }
         .frame(width: 520, height: 500)
-        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
+        .background(
+                VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
+                    .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.85))
+            )
         .clipShape(RoundedRectangle(cornerRadius: 26))
         .overlay(
             RoundedRectangle(cornerRadius: 26)
@@ -4369,7 +4379,10 @@ struct EditSnippetSheet: View {
             .background(DesignSystem.Colors.buttonAreaBackground)
         }
         .frame(width: 520, height: 540)
-        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
+        .background(
+                VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
+                    .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.85))
+            )
         .clipShape(RoundedRectangle(cornerRadius: 26))
         .overlay(
             RoundedRectangle(cornerRadius: 26)

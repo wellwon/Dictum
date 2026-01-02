@@ -446,6 +446,7 @@ struct PromptEditView: View {
         )
         .background(
             VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+                .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.85))
                 .clipShape(RoundedRectangle(cornerRadius: 26))
         )
         .clipShape(RoundedRectangle(cornerRadius: 26))
@@ -620,6 +621,7 @@ struct PromptAddView: View {
         )
         .background(
             VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+                .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.85))
                 .clipShape(RoundedRectangle(cornerRadius: 26))
         )
         .clipShape(RoundedRectangle(cornerRadius: 26))

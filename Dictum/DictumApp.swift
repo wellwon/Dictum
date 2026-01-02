@@ -945,18 +945,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Проверяем Input Monitoring permission
         guard CGPreflightListenEventAccess() else {
-            NSLog("⚠️ Нет Input Monitoring для Right Option")
-
-            // Если onboarding не пройден — НЕ показывать диалог сейчас
-            // Onboarding сам покажет диалог в permissions step
-            if !SettingsManager.shared.hasCompletedOnboarding {
-                NSLog("   Onboarding не пройден — откладываю запрос Input Monitoring для Right Option")
-                NSLog("   Event tap будет создан после прохождения onboarding")
-                return
-            }
-
-            // Запрашиваем только если onboarding уже пройден
-            NSLog("   Запрашиваю Input Monitoring для Right Option (onboarding пройден)")
+            NSLog("⚠️ Нет Input Monitoring для Right Option — запрашиваю...")
             CGRequestListenEventAccess()
             return
         }

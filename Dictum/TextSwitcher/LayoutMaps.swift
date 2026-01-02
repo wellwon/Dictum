@@ -33,6 +33,23 @@ enum KeyboardLayout: String, Sendable {
 /// Статические таблицы конвертации между раскладками
 enum LayoutMaps {
 
+    // MARK: - Common Punctuation (не конвертируется)
+
+    /// Пунктуация, которая выглядит одинаково в обеих раскладках.
+    /// Эти символы НЕ должны конвертироваться при Double Cmd.
+    /// Например: "ghbdtn!" → "привет!" (! остаётся !)
+    static let commonPunctuation: Set<Character> = [
+        "!", "?", ".", ",", ":", ";",  // Основная пунктуация
+        "-", "_", "+", "=",             // Математические
+        "(", ")", "[", "]", "{", "}",   // Скобки
+        "/", "\\", "|",                 // Слэши
+        "@", "#", "$", "%", "^", "&", "*",  // Специальные
+        "\"", "'", "`",                 // Кавычки
+        "~", "<", ">",                  // Прочие
+        " ", "\t", "\n",                // Пробельные
+        "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"  // Цифры
+    ]
+
     // MARK: - QWERTY → Russian (ЙЦУКЕН)
 
     /// Lowercase QWERTY → Russian
@@ -157,6 +174,12 @@ enum LayoutMaps {
         let isAllUppercase = !letters.isEmpty && letters.allSatisfy { $0.isUppercase }
 
         let converted = String(text.map { char in
+            // КРИТИЧНО: Общая пунктуация НЕ конвертируется никогда!
+            // Эти символы выглядят одинаково в обеих раскладках: !, ?, ., ,, :, ; и т.д.
+            if commonPunctuation.contains(char) {
+                return char
+            }
+
             // includeAllSymbols = false: конвертируем только буквы (для авто-исправления)
             if !includeAllSymbols && !char.isLetter {
                 return char
