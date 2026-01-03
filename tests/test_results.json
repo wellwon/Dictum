@@ -5814,9 +5814,9 @@
     "category": "ru_common_words",
     "input": "cgjcj,",
     "expected": "способ",
-    "actual": "спосо,",
+    "actual": "способ",
     "should_convert": true,
-    "passed": false,
+    "passed": true,
     "error": ""
   },
   {
@@ -30304,9 +30304,9 @@
     "category": "short_words_ru",
     "input": "j,",
     "expected": "об",
-    "actual": "о,",
+    "actual": "об",
     "should_convert": true,
-    "passed": false,
+    "passed": true,
     "error": ""
   },
   {

@@ -172,7 +172,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var globalEventMonitor: Any?
     var localFlagsChangedMonitor: Any?
 
-    // MARK: - CGEventTap для Right Option (Input Monitoring, работает без рестарта)
+    // MARK: - CGEventTap для Right Option (Accessibility, работает без рестарта)
     private var rightOptionEventTap: CFMachPort?
     private var rightOptionRunLoopSource: CFRunLoopSource?
     private var _previousApp: NSRunningApplication?  // Предыдущее активное приложение для авто-вставки
@@ -206,9 +206,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         NSLog("🚀 Dictum запущен (PID=\(currentPID))")
 
-        // Проверяем Accessibility БЕЗ показа диалога (диалог покажется в onboarding)
-        let hasAccess = AccessibilityHelper.checkAccessibility()
-        NSLog("🔐 Accessibility: \(hasAccess)")
+        // Инициализируем PermissionsManager
+        _ = PermissionsManager.shared
+        NSLog("🔐 Permissions: A=\(PermissionsManager.shared.hasAccessibility) M=\(PermissionsManager.shared.hasMicrophone) S=\(PermissionsManager.shared.hasScreenRecording)")
 
         // Инициализация менеджеров
         _ = HistoryManager.shared
@@ -371,7 +371,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         // Проверяем Screen Recording permission
-        if !AccessibilityHelper.hasScreenRecordingPermission() {
+        if !PermissionsManager.shared.hasScreenRecording {
             NSLog("❌ Screen Recording permission not granted")
 
             DispatchQueue.main.async {
@@ -383,9 +383,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 alert.addButton(withTitle: "Отмена")
 
                 if alert.runModal() == .alertFirstButtonReturn {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-                        NSWorkspace.shared.open(url)
-                    }
+                    PermissionsManager.shared.openSettings(for: .screenRecording)
                 }
             }
             return
@@ -671,7 +669,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func setupHotKeys() {
         // Проверяем Accessibility
-        let hasAccess = AccessibilityHelper.checkAccessibility()
+        let hasAccess = PermissionsManager.shared.hasAccessibility
         NSLog("🔐 Accessibility: \(hasAccess)")
 
         let hotkey = SettingsManager.shared.toggleHotkey
@@ -812,8 +810,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return event
         }
 
-        // CGEventTap для правого Option (Input Monitoring — работает сразу без рестарта!)
-        // Заменяет NSEvent.addGlobalMonitorForEvents который требует Accessibility и рестарт
+        // CGEventTap для правого Option (Accessibility — работает сразу без рестарта!)
+        // Заменяет NSEvent.addGlobalMonitorForEvents который требует рестарт
         setupRightOptionEventTap()
 
         // Глобальный монитор (требует Accessibility)
@@ -853,10 +851,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // MARK: - Accessibility Monitoring
     func startAccessibilityMonitoring() {
-        lastAccessibilityState = AccessibilityHelper.checkAccessibility()
+        lastAccessibilityState = PermissionsManager.shared.hasAccessibility
 
         // Подписываемся на notification об изменении статуса Accessibility
-        // (отправляется когда приложение становится активным после System Settings)
+        // (отправляется через PermissionsManager.pollPermissions())
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAccessibilityStatusChanged),
@@ -867,16 +865,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc func handleAccessibilityStatusChanged() {
-        let currentState = AccessibilityHelper.checkAccessibility()
-        let hasInputMonitoring = CGPreflightListenEventAccess()
-        NSLog("🔔 handleAccessibilityStatusChanged: accessibility=%@, inputMonitoring=%@, lastState=%@",
+        let permissions = PermissionsManager.shared
+        permissions.refreshAllStatuses()
+
+        let currentState = permissions.hasAccessibility
+        NSLog("🔔 handleAccessibilityStatusChanged: accessibility=%@, lastState=%@",
               currentState ? "true" : "false",
-              hasInputMonitoring ? "true" : "false",
               lastAccessibilityState ? "true" : "false")
 
-        // CGEventTap для Right Option — перезапускаем если есть Input Monitoring
-        // Input Monitoring работает СРАЗУ без рестарта!
-        if hasInputMonitoring {
+        // CGEventTap для Right Option — перезапускаем если есть Accessibility
+        // Accessibility работает СРАЗУ без рестарта!
+        if currentState {
             setupRightOptionEventTap()
         }
 
@@ -889,12 +888,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             setupHotKeys()
 
             // Повторные попытки с задержкой (для NSEvent глобальных мониторов которые всё ещё используются)
-            // CGEventTap с Input Monitoring работает сразу, но NSEvent глобальные мониторы требуют задержку
+            // CGEventTap с Accessibility работает сразу, но NSEvent глобальные мониторы требуют задержку
             for delay in [0.5, 1.0, 2.0, 3.0] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                     guard let self = self else { return }
                     // Проверяем что Accessibility всё ещё есть
-                    guard AccessibilityHelper.checkAccessibility() else { return }
+                    guard PermissionsManager.shared.hasAccessibility else { return }
 
                     NSLog("🔄 Повторная перерегистрация хоткеев (%.1f сек)", delay)
                     self.unregisterHotKeys()
@@ -935,18 +934,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    // MARK: - CGEventTap для Right Option (Input Monitoring)
+    // MARK: - CGEventTap для Right Option (Accessibility)
 
     /// Настраивает CGEventTap для отслеживания Right Option
-    /// Использует Input Monitoring permission (работает сразу без рестарта!)
+    /// Использует Accessibility permission (работает сразу без рестарта!)
     func setupRightOptionEventTap() {
         // Убираем старый tap если есть
         removeRightOptionEventTap()
 
-        // Проверяем Input Monitoring permission
-        guard CGPreflightListenEventAccess() else {
-            NSLog("⚠️ Нет Input Monitoring для Right Option — запрашиваю...")
-            CGRequestListenEventAccess()
+        // Проверяем Accessibility permission
+        guard AXIsProcessTrusted() else {
+            NSLog("⚠️ Нет Accessibility для Right Option CGEventTap")
             return
         }
 
@@ -954,8 +952,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let eventMask = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
 
         // Создаём event tap
-        // .listenOnly = Input Monitoring permission (работает сразу!)
-        // .defaultTap = Accessibility permission (требует рестарт)
+        // .listenOnly с Accessibility работает сразу без рестарта!
         guard let eventTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -1007,7 +1004,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Активируем tap
         CGEvent.tapEnable(tap: eventTap, enable: true)
 
-        NSLog("✅ CGEventTap для Right Option установлен (Input Monitoring)")
+        NSLog("✅ CGEventTap для Right Option установлен (Accessibility)")
     }
 
     /// Удаляет CGEventTap для Right Option

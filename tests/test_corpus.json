@@ -13081,7 +13081,102 @@
           "note": "\" = Shift+' → Э"
         }
       ]
+    },
+    "punctuation_inside": {
+      "description": "Пунктуация внутри слов которая должна конвертироваться: ; → ж, , → б, ' → э",
+      "tests": [
+        {
+          "id": "punct_01",
+          "original": "нужно",
+          "corrupted": "ye;yj",
+          "expected": "нужно",
+          "should_convert": true,
+          "source_lang": "ru",
+          "note": "; → ж (внутри слова)"
+        },
+        {
+          "id": "punct_02",
+          "original": "способ",
+          "corrupted": "cgjcj,",
+          "expected": "способ",
+          "should_convert": true,
+          "source_lang": "ru",
+          "note": ", → б (на конце lowercase слова)"
+        },
+        {
+          "id": "punct_03",
+          "original": "об",
+          "corrupted": "j,",
+          "expected": "об",
+          "should_convert": true,
+          "source_lang": "ru",
+          "note": ", → б (короткое слово)"
+        },
+        {
+          "id": "punct_04",
+          "original": "можно",
+          "corrupted": "vj;yj",
+          "expected": "можно",
+          "should_convert": true,
+          "source_lang": "ru",
+          "note": "; → ж (внутри слова)"
+        },
+        {
+          "id": "punct_05",
+          "original": "между",
+          "corrupted": "vt;le",
+          "expected": "между",
+          "should_convert": true,
+          "source_lang": "ru",
+          "note": "; → ж (внутри слова)"
+        },
+        {
+          "id": "punct_06",
+          "original": "жизнь",
+          "corrupted": ";bpym",
+          "expected": "жизнь",
+          "should_convert": true,
+          "source_lang": "ru",
+          "note": "; → ж (в начале слова)"
+        },
+        {
+          "id": "punct_07",
+          "original": "мердж",
+          "corrupted": "vthl;",
+          "expected": "мердж",
+          "should_convert": true,
+          "source_lang": "ru",
+          "note": "; → ж (на конце слова)"
+        },
+        {
+          "id": "punct_08",
+          "original": "хобро",
+          "corrupted": "[j,hj",
+          "expected": "хобро",
+          "should_convert": true,
+          "source_lang": "ru",
+          "note": "[ → х, , → б (два символа)"
+        },
+        {
+          "id": "punct_09",
+          "original": "эхо",
+          "corrupted": "'[j",
+          "expected": "эхо",
+          "should_convert": true,
+          "source_lang": "ru",
+          "note": "' → э, [ → х"
+        },
+        {
+          "id": "punct_10",
+          "original": "объём",
+          "corrupted": "j,]`v",
+          "expected": "объём",
+          "should_convert": true,
+          "source_lang": "ru",
+          "note": ", → б, ] → ъ, ` → ё"
+        }
+      ]
     }
   },
-  "total_tests": 1495
+  "total_tests": 1505
 }
