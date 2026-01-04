@@ -29,7 +29,7 @@ class KeyboardMonitor: @unchecked Sendable {
 
     // Локальный монитор убран — вызывал двойную обработку событий
 
-    // MARK: - CGEventTap (Accessibility - работает сразу без рестарта!)
+    // MARK: - CGEventTap (Input Monitoring - работает сразу без рестарта!)
     private var keyboardEventTap: CFMachPort?
     private var keyboardRunLoopSource: CFRunLoopSource?
 
@@ -163,20 +163,23 @@ class KeyboardMonitor: @unchecked Sendable {
             return true
         }
 
-        // Проверяем Accessibility разрешение напрямую через системный API (синхронно)
-        // НЕ используем PermissionsManager.shared здесь — он @MainActor
-        // ВАЖНО: Accessibility покрывает CGEventTap, Input Monitoring НЕ нужен!
+        // Проверяем Input Monitoring (для CGEventTap .listenOnly)
+        let hasInputMonitoring = CGPreflightListenEventAccess()
+        NSLog("⌨️ KeyboardMonitor: CGPreflightListenEventAccess = %@", hasInputMonitoring ? "true" : "false")
+
+        // Также проверяем Accessibility (нужен для TextReplacer — вставка текста)
         let hasAccessibility = AXIsProcessTrusted()
+        NSLog("⌨️ KeyboardMonitor: AXIsProcessTrusted = %@", hasAccessibility ? "true" : "false")
 
-        NSLog("⌨️ KeyboardMonitor: Accessibility = %@", hasAccessibility ? "true" : "false")
-
-        guard hasAccessibility else {
-            logger.warning("⌨️ KeyboardMonitor: НЕТ Accessibility разрешения!")
+        guard hasInputMonitoring else {
+            NSLog("⌨️ KeyboardMonitor: НЕТ Input Monitoring — запрашиваю...")
+            CGRequestListenEventAccess()
+            logger.warning("⌨️ KeyboardMonitor: НЕТ Input Monitoring разрешения!")
             return false
         }
 
         // CGEventTap для keyDown + flagsChanged
-        // .listenOnly с Accessibility permission (работает СРАЗУ без рестарта!)
+        // .listenOnly = Input Monitoring permission (работает СРАЗУ без рестарта!)
         NSLog("⌨️ KeyboardMonitor: создаю CGEventTap...")
 
         let eventMask = CGEventMask(
@@ -228,8 +231,8 @@ class KeyboardMonitor: @unchecked Sendable {
         CGEvent.tapEnable(tap: eventTap, enable: true)
 
         isMonitoring = true
-        NSLog("⌨️ KeyboardMonitor: CGEventTap мониторинг УСПЕШНО запущен ✅ (Accessibility)")
-        logger.info("⌨️ KeyboardMonitor: мониторинг УСПЕШНО запущен (CGEventTap + Accessibility)")
+        NSLog("⌨️ KeyboardMonitor: CGEventTap мониторинг УСПЕШНО запущен ✅ (Input Monitoring)")
+        logger.info("⌨️ KeyboardMonitor: мониторинг УСПЕШНО запущен (CGEventTap)")
         return true
     }
 
@@ -425,9 +428,9 @@ class KeyboardMonitor: @unchecked Sendable {
         }
     }
 
-    // MARK: - CGEvent Handlers (Accessibility)
+    // MARK: - CGEvent Handlers (Input Monitoring)
 
-    /// Обработка нажатия клавиши через CGEvent (работает сразу после выдачи Accessibility!)
+    /// Обработка нажатия клавиши через CGEvent (работает сразу после выдачи Input Monitoring!)
     private func handleKeyDownCGEvent(_ event: CGEvent) {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
 
@@ -600,19 +603,10 @@ class KeyboardMonitor: @unchecked Sendable {
         cmdPressTime = nil
         otherKeyDuringCmd = false
 
-        // ИСПРАВЛЕНИЕ RACE CONDITION: Очищаем wordBuffer ДО замены
-        // Буквы набранные во время замены не должны накапливаться
-        let savedWordBuffer = wordBuffer  // Сохраняем для использования ниже
-        wordBuffer = ""
-
         defer {
-            // Разблокируем через 160ms (чуть больше чем TextReplacer ~150ms)
-            // БЫЛО 250ms — создавало окно 100ms где буквы накапливались
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in
+            // Разблокируем через 250ms (после завершения всех CGEvent операций)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 self?.isReplacing = false
-                // ИСПРАВЛЕНИЕ: Гарантированная очистка буфера после замены
-                // Любые буквы набранные во время замены — артефакты
-                self?.wordBuffer = ""
             }
         }
 
@@ -654,16 +648,15 @@ class KeyboardMonitor: @unchecked Sendable {
 
         // СЛУЧАЙ 4: Нет выделения — конвертируем последнее слово
         // ИСПРАВЛЕНИЕ ПУНКТУАЦИИ: включаем накопленную пунктуацию
-        // ИСПРАВЛЕНИЕ RACE CONDITION: используем savedWordBuffer (сохранённый до очистки)
         let word: String
-        if !savedWordBuffer.isEmpty {
-            word = savedWordBuffer
+        if !wordBuffer.isEmpty {
+            word = wordBuffer
         } else {
             word = lastProcessedWord + pendingPunctuation
         }
         guard word.count >= HybridValidator.shared.minWordLength else {
-            NSLog("⌨️ Double CMD: нет выделения, savedWordBuffer='%@', lastProcessedWord='%@'",
-                  savedWordBuffer, lastProcessedWord)
+            NSLog("⌨️ Double CMD: нет выделения, wordBuffer='%@', lastProcessedWord='%@'",
+                  wordBuffer, lastProcessedWord)
             return
         }
 

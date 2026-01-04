@@ -67,8 +67,8 @@ struct InputModalView: View {
     // Максимум 30 строк (~600px), минимум 40px — потом скролл
     private let lineHeight: CGFloat = 20
     private let maxLines: Int = 30
-    // Высота окна в режиме записи (компактная) — должна совпадать с textEditorHeight по умолчанию
-    private let recordingModeHeight: CGFloat = 40
+    // Высота окна в режиме записи (компактная)
+    private let recordingModeHeight: CGFloat = 70
 
     // Computed property для проверки возможности отправки
     private var canSubmit: Bool {
@@ -81,7 +81,7 @@ struct InputModalView: View {
     private var recordingOverlay: some View {
         if isRecording {
             VoiceOverlayView(audioLevel: audioLevel)
-                .frame(maxHeight: 40)  // Ограничиваем высоту оверлея (совпадает с recordingModeHeight)
+                .frame(maxHeight: 70)  // Ограничиваем высоту оверлея
                 .clipped()  // Обрезаем если выходит за пределы
                 .background(Color(red: 24/255, green: 24/255, blue: 26/255))  // #18181a
                 .clipShape(UnevenRoundedRectangle(topLeadingRadius: 24, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 24))

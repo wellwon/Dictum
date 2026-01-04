@@ -421,10 +421,10 @@ struct TextSwitcherCLI {
 
             // Trailing layout chars которые могут быть буквами на конце слова:
             // `;` → ж (мердж), `'` → э, `[` → х (смех), `]` → ъ, `.` → ю (ревью, отправлю)
-            // `,` → б (способ: cgjcj, → способ) — включаем только для lowercase слов (isAllLowercaseLatin)
+            // НЕ включаем: `,` (б) — это чаще пунктуация (разделитель предложений)
             // ДОБАВЛЕНО: { → Х, } → Ъ, : → Ж (shifted версии на конце слова типа ЧУЖИХ)
             // ДОБАВЛЕНО: ? → , (Shift+/ на QWERTY = , на русской, ghbdtn? → привет,)
-            let validTrailingLayoutChars: Set<Character> = [";", "'", "[", "]", "`", ".", "{", "}", ":", "?", ","]
+            let validTrailingLayoutChars: Set<Character> = [";", "'", "[", "]", "`", ".", "{", "}", ":", "?"]
             let isValidTrailingChar = validTrailingLayoutChars.contains(char)
             // Backtick (`) → ё — особый случай, почти никогда не пунктуация на конце
             let isBacktickAtEnd = char == "`" && !hasNextLetterOrDigit && !currentWord.isEmpty
@@ -483,10 +483,10 @@ struct TextSwitcherCLI {
         // Shifted: { → Х, } → Ъ, : → Ж, " → Э, ~ → Ё, < → Б, > → Ю, ? → ,
         let shiftedLayoutChars: Set<Character> = ["<", ">", "\"", "~", "{", "}", ":", "?"]
         // Trailing chars которые могут быть буквами на конце слова:
-        // ; → ж, ' → э, [ → х, ] → ъ, ` → ё, . → ю, , → б
+        // ; → ж, ' → э, [ → х, ] → ъ, ` → ё, . → ю
         // ДОБАВЛЕНО: { → Х, } → Ъ, : → Ж (shifted версии на конце слова типа ЧУЖИХ)
         // ДОБАВЛЕНО: ? → , (Shift+/ на QWERTY = , на русской)
-        let validTrailingLayoutChars: Set<Character> = [";", "'", "[", "]", "`", ".", "{", "}", ":", "?", ","]
+        let validTrailingLayoutChars: Set<Character> = [";", "'", "[", "]", "`", ".", "{", "}", ":", "?"]
 
         func isLayoutChar(_ char: Character) -> Bool {
             return !char.isLetter && (

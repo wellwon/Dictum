@@ -1080,7 +1080,7 @@ extension Notification.Name {
     static let checkAndSubmit = Notification.Name("checkAndSubmit")
     static let disableGlobalHotkeys = Notification.Name("disableGlobalHotkeys")
     static let enableGlobalHotkeys = Notification.Name("enableGlobalHotkeys")
-    // accessibilityStatusChanged теперь в Permissions.swift
+    static let accessibilityStatusChanged = Notification.Name("accessibilityStatusChanged")
     static let openSettingsToAI = Notification.Name("openSettingsToAI")
     static let toggleHistoryModal = Notification.Name("toggleHistoryModal")
     static let historyItemSelected = Notification.Name("historyItemSelected")
@@ -1259,12 +1259,15 @@ struct SettingsView: View {
         return SettingsTab.allCases.first { $0.rawValue == savedTab } ?? .general
     }()
     @State private var launchAtLogin: Bool = LaunchAtLoginManager.shared.isEnabled
+    @State private var hasInputMonitoring: Bool = PermissionManager.shared.hasInputMonitoring()
+    @State private var hasAccessibility: Bool = PermissionManager.shared.hasAccessibility()
+    @State private var hasMicrophonePermission: Bool = PermissionManager.shared.hasMicrophone()
+    @State private var hasScreenRecordingPermission: Bool = PermissionManager.shared.hasScreenRecording()
     @State private var currentHotkey: HotkeyConfig = SettingsManager.shared.toggleHotkey
     @State private var isRecordingHotkey: Bool = false
     @State private var isRecordingScreenshotHotkey: Bool = false
     @State private var screenshotHotkey: HotkeyConfig = SettingsManager.shared.screenshotHotkey
     @ObservedObject private var settings = SettingsManager.shared
-    @ObservedObject private var permissions = PermissionsManager.shared
     @StateObject private var textSwitcherManager = TextSwitcherManager.shared
     @StateObject private var userExceptionsManager = UserExceptionsManager.shared
     @StateObject private var forcedConversionsManager = ForcedConversionsManager.shared
@@ -1273,6 +1276,8 @@ struct SettingsView: View {
     @State private var exportAIFunctions: Bool = true     // AI промпты
     @State private var exportSnippets: Bool = true        // Сниппеты (WB/RU/EN/CH + кастомные)
     @State private var exportMessage: String = ""
+
+    // Функции проверки теперь в PermissionManager
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1293,7 +1298,10 @@ struct SettingsView: View {
                 // Версия и проверка разрешений
                 VStack(alignment: .leading, spacing: 8) {
                     Button("Проверить разрешения") {
-                        permissions.refreshAllStatuses()
+                        hasInputMonitoring = PermissionManager.shared.hasInputMonitoring()
+                        hasAccessibility = PermissionManager.shared.hasAccessibility()
+                        hasMicrophonePermission = PermissionManager.shared.hasMicrophone()
+                        hasScreenRecordingPermission = PermissionManager.shared.hasScreenRecording()
                     }
                     .font(.system(size: 10))
                     .foregroundColor(.gray)
@@ -1352,8 +1360,33 @@ struct SettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.window))
         .ignoresSafeArea(.all, edges: .top)
         .onAppear {
-            // Обновить статусы разрешений при появлении
-            permissions.refreshAllStatuses()
+            hasInputMonitoring = PermissionManager.shared.hasInputMonitoring()
+            hasAccessibility = PermissionManager.shared.hasAccessibility()
+            hasMicrophonePermission = PermissionManager.shared.hasMicrophone()
+            hasScreenRecordingPermission = PermissionManager.shared.hasScreenRecording()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            let newInputMonitoring = PermissionManager.shared.hasInputMonitoring()
+            let newAccessibility = PermissionManager.shared.hasAccessibility()
+            NSLog("🪟 SettingsView.onReceive(didBecomeActive): inputMonitoring=%@, accessibility=%@",
+                  newInputMonitoring ? "true" : "false",
+                  newAccessibility ? "true" : "false")
+
+            // Если Input Monitoring изменился с false на true — уведомить для перезапуска CGEventTap
+            if newInputMonitoring && !hasInputMonitoring {
+                NSLog("📢 SettingsView: Input Monitoring granted! Отправляю accessibilityStatusChanged")
+                NotificationCenter.default.post(name: .accessibilityStatusChanged, object: nil)
+            }
+            // Если Accessibility изменился с false на true — уведомить DictumApp для перерегистрации хоткеев
+            if newAccessibility && !hasAccessibility {
+                NSLog("📢 SettingsView: отправляю accessibilityStatusChanged")
+                NotificationCenter.default.post(name: .accessibilityStatusChanged, object: nil)
+            }
+
+            hasInputMonitoring = newInputMonitoring
+            hasAccessibility = newAccessibility
+            hasMicrophonePermission = PermissionManager.shared.hasMicrophone()
+            hasScreenRecordingPermission = PermissionManager.shared.hasScreenRecording()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openSettingsToAI)) { _ in
             selectedTab = .ai
@@ -1386,9 +1419,24 @@ struct SettingsView: View {
                         icon: "hand.raised.fill",
                         title: "Универсальный доступ",
                         subtitle: "Для вставки текста в другие приложения",
-                        isGranted: permissions.hasAccessibility,
+                        isGranted: hasAccessibility,
                         action: {
-                            permissions.request(.accessibility)
+                            // Системный диалог сам откроет Settings если нужно
+                            // Не дублируем открытие Settings вручную!
+                            PermissionManager.shared.requestAccessibility()
+
+                            // Polling каждую секунду в течение 30 секунд
+                            for delay in stride(from: 1.0, through: 30.0, by: 1.0) {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                                    let newState = PermissionManager.shared.hasAccessibility()
+                                    // Если статус изменился с false на true — уведомить DictumApp для перерегистрации хоткеев
+                                    if newState && !hasAccessibility {
+                                        NSLog("📢 Settings polling (%.0f сек): отправляю accessibilityStatusChanged", delay)
+                                        NotificationCenter.default.post(name: .accessibilityStatusChanged, object: nil)
+                                    }
+                                    hasAccessibility = newState
+                                }
+                            }
                         }
                     )
 
@@ -1399,39 +1447,78 @@ struct SettingsView: View {
                         icon: "mic.fill",
                         title: "Микрофон",
                         subtitle: "Для записи голосовых заметок",
-                        isGranted: permissions.hasMicrophone,
+                        isGranted: hasMicrophonePermission,
                         action: {
-                            permissions.request(.microphone)
+                            // Умный запрос: диалог если не определено, Settings если отказано
+                            PermissionManager.shared.requestMicrophone { granted in
+                                Task { @MainActor in
+                                    hasMicrophonePermission = granted
+                                }
+                            }
+
+                            // Polling если юзер даст разрешение через System Settings
+                            for delay in stride(from: 1.0, through: 30.0, by: 1.0) {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                                    Task { @MainActor in
+                                        hasMicrophonePermission = PermissionManager.shared.hasMicrophone()
+                                    }
+                                }
+                            }
                         }
                     )
 
                     Divider().background(Color.white.opacity(0.1))
 
-                    // 3. Screen Recording — обязательный
+                    // 3. Input Monitoring — после основных (системный диалог о рестарте можно игнорировать)
                     PermissionRow(
-                        icon: "camera.metering.matrix",
-                        title: "Запись экрана",
-                        subtitle: "Для создания скриншотов",
-                        isGranted: permissions.hasScreenRecording,
+                        icon: "keyboard",
+                        title: "Мониторинг ввода",
+                        subtitle: "Для глобальных хоткеев (работает сразу!)",
+                        isGranted: hasInputMonitoring,
                         action: {
-                            permissions.request(.screenRecording)
+                            PermissionManager.shared.requestInputMonitoring()
+
+                            // Polling каждую секунду в течение 30 секунд
+                            for delay in stride(from: 1.0, through: 30.0, by: 1.0) {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                                    let newState = PermissionManager.shared.hasInputMonitoring()
+                                    // Если Input Monitoring изменился с false на true — уведомить для перезапуска CGEventTap
+                                    if newState && !hasInputMonitoring {
+                                        NSLog("📢 Settings polling (%.0f сек): Input Monitoring granted!", delay)
+                                        NotificationCenter.default.post(name: .accessibilityStatusChanged, object: nil)
+                                    }
+                                    hasInputMonitoring = newState
+                                }
+                            }
                         }
                     )
 
-                    // Предупреждение о перезапуске для Screen Recording
-                    if !permissions.hasScreenRecording {
-                        HStack(spacing: 6) {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 11))
-                            Text("После включения «Запись экрана» приложение перезапустится автоматически")
-                                .font(.system(size: 11))
-                        }
-                        .foregroundColor(.gray)
-                        .padding(.top, 4)
+                    // 4. Screen Recording — опциональный (только если Screenshots feature включена)
+                    if SettingsManager.shared.screenshotFeatureEnabled {
+                        Divider().background(Color.white.opacity(0.1))
+
+                        PermissionRow(
+                            icon: "camera.metering.matrix",
+                            title: "Запись экрана",
+                            subtitle: "Для создания скриншотов",
+                            isGranted: hasScreenRecordingPermission,
+                            action: {
+                                // Триггерим capture чтобы приложение появилось в списке
+                                // + открываем Settings
+                                PermissionManager.shared.requestScreenRecording()
+
+                                // Polling для проверки реального статуса разрешения
+                                for delay in stride(from: 1.0, through: 30.0, by: 1.0) {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                                        hasScreenRecordingPermission = PermissionManager.shared.hasScreenRecording()
+                                    }
+                                }
+                            }
+                        )
                     }
 
-                    // Предупреждение о недостающих разрешениях
-                    if !permissions.hasAllRequired {
+                    if !hasInputMonitoring || !hasAccessibility || !hasMicrophonePermission ||
+                       (SettingsManager.shared.screenshotFeatureEnabled && !hasScreenRecordingPermission) {
                         Divider().background(Color.white.opacity(0.1))
 
                         HStack(spacing: 6) {

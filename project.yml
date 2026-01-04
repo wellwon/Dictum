@@ -90,20 +90,3 @@ targets:
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
         Release:
           SWIFT_OPTIMIZATION_LEVEL: "-O"
-
-  DoubleCmdUnitTests:
-    type: tool
-    platform: macOS
-    sources:
-      - path: Dictum/TextSwitcher/LayoutMaps.swift
-      - path: Tools/DoubleCmdUnitTests.swift
-    settings:
-      base:
-        PRODUCT_NAME: DoubleCmdUnitTests
-        SWIFT_VERSION: "6.0"
-        MACOSX_DEPLOYMENT_TARGET: "14.0"
-      configs:
-        Debug:
-          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
-        Release:
-          SWIFT_OPTIMIZATION_LEVEL: "-O"
