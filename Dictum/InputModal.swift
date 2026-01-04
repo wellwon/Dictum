@@ -947,8 +947,12 @@ struct VoiceOverlayView: View {
     private let barCount = 100
     private let recordingColor = Color(red: 254/255, green: 67/255, blue: 70/255) // #fe4346
 
-    // Предварительно сгенерированные случайные факторы для органичности
-    private let randomFactors: [CGFloat] = (0..<100).map { _ in CGFloat.random(in: 0.85...1.15) }
+    // Детерминированный "шум" для органичности (не меняется при ререндере)
+    private func randomFactor(for index: Int) -> CGFloat {
+        let seed = sin(Double(index) * 12.9898 + 78.233)
+        let noise = seed - floor(seed)  // 0.0-1.0
+        return 0.9 + CGFloat(noise) * 0.2  // 0.9-1.1 (меньший разброс)
+    }
 
     var body: some View {
         HStack(spacing: 2) {
@@ -985,8 +989,8 @@ struct VoiceOverlayView: View {
             heightMultiplier = 1.0
         }
 
-        let maxHeight: CGFloat = 50  // Ограничено чтобы не выходить за пределы поля ввода
-        let animatedHeight = maxHeight * CGFloat(audioLevel) * heightMultiplier * randomFactors[index]
+        let maxHeight: CGFloat = 36  // Ограничено чтобы не выходить за пределы контейнера 40px
+        let animatedHeight = maxHeight * CGFloat(audioLevel) * heightMultiplier * randomFactor(for: index)
         return max(baseHeight, animatedHeight)
     }
 
@@ -1001,17 +1005,15 @@ struct VoiceOverlayView: View {
         return 1.0
     }
 
-    // Разная скорость анимации — центр быстрее
+    // Разная скорость анимации — плавный переход без резких скачков
     private func animationDuration(for index: Int) -> Double {
         let center = CGFloat(barCount) / 2.0
         let distanceFromCenter = abs(CGFloat(index) - center) / center
 
-        if distanceFromCenter > 0.9 { return 0.7 }
-        if distanceFromCenter > 0.7 { return 0.6 }
-        if distanceFromCenter > 0.5 { return 0.5 }
-        if distanceFromCenter > 0.3 { return 0.4 }
-        if distanceFromCenter > 0.1 { return 0.3 }
-        return 0.25 // центр — быстрее всего
+        if distanceFromCenter > 0.9 { return 0.5 }
+        if distanceFromCenter > 0.7 { return 0.45 }
+        if distanceFromCenter > 0.5 { return 0.4 }
+        return 0.35 // центр и около — одинаковая скорость (без дыр)
     }
 }
 

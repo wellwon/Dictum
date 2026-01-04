@@ -227,6 +227,42 @@ VoiceOverlayView(audioLevel: audioManager.audioLevel)
     .zIndex(2)
 ```
 
+### 3.1. VoiceOverlayView — анимация без "дыр"
+
+**Проблема:** При изменении громкости в центре визуализации появлялись "дыры" — центральные столбики были короче соседних.
+
+**Причины и решения:**
+
+1. **Детерминированный randomFactor** — случайные значения должны быть стабильны:
+```swift
+// ❌ НЕПРАВИЛЬНО — пересоздаётся при каждом ререндере View
+private let randomFactors: [CGFloat] = (0..<100).map { _ in CGFloat.random(in: 0.85...1.15) }
+
+// ✅ ПРАВИЛЬНО — детерминированная функция на основе индекса
+private func randomFactor(for index: Int) -> CGFloat {
+    let seed = sin(Double(index) * 12.9898 + 78.233)
+    let noise = seed - floor(seed)
+    return 0.9 + CGFloat(noise) * 0.2  // 0.9-1.1
+}
+```
+
+2. **Унифицированная скорость анимации** для центральных баров:
+```swift
+// ❌ НЕПРАВИЛЬНО — разная скорость создаёт "дыры" при смене уровня
+if distanceFromCenter > 0.1 { return 0.3 }
+return 0.25  // центр быстрее → дыры!
+
+// ✅ ПРАВИЛЬНО — центр и около анимируются одинаково
+if distanceFromCenter > 0.5 { return 0.4 }
+return 0.35  // без резких переходов
+```
+
+3. **maxHeight ≤ контейнера** — иначе clipping:
+```swift
+// Контейнер: .frame(maxHeight: 40)
+// Внутри: let maxHeight: CGFloat = 36  // с запасом!
+```
+
 ### 4. Enter работает во время записи
 `submitImmediate()` — останавливает запись, собирает текст, вставляет в одно действие.
 
@@ -405,6 +441,131 @@ for buttonType: NSWindow.ButtonType in [.closeButton, .zoomButton] {
 
 ## Требования и permissions
 
+### 🔒 СИСТЕМА РАЗРЕШЕНИЙ — ЗАПРЕЩЕНО ИЗМЕНЯТЬ!
+
+> **⛔ КРИТИЧЕСКИЙ ЗАПРЕТ:** Система разрешений ФИНАЛИЗИРОВАНА после детального исследования (январь 2026).
+> НЕ добавлять, НЕ удалять, НЕ переделывать разрешения без согласования!
+>
+> Любые изменения в `Permissions.swift`, `Onboarding.swift` (секция разрешений), `Settings.swift` (секция разрешений),
+> `KeyboardMonitor.swift` (проверка разрешений), `DictumApp.swift` (проверка разрешений) — ЗАПРЕЩЕНЫ.
+
+### Используемые разрешения (ТОЛЬКО 3 штуки!)
+
+| Разрешение | TCC Service | Назначение | API проверки | API запроса |
+|------------|-------------|------------|--------------|-------------|
+| **Accessibility** | `Accessibility` | CGEventTap для хоткеев, TextSwitcher, paste | `AXIsProcessTrusted()` | `AXIsProcessTrustedWithOptions()` + открыть Settings |
+| **Microphone** | `Microphone` | Запись голоса для диктовки | `AVCaptureDevice.authorizationStatus(for: .audio)` | `AVCaptureDevice.requestAccess(for: .audio)` |
+| **Screen Recording** | `ScreenCapture` | Скриншоты по хоткею | `CGPreflightScreenCaptureAccess()` | `CGRequestScreenCaptureAccess()` — показывает modal! |
+
+### ❌ Input Monitoring — НАМЕРЕННО НЕ ИСПОЛЬЗУЕТСЯ!
+
+**ЗАПРЕЩЕНО добавлять Input Monitoring обратно!**
+
+**Причина удаления (исследование январь 2026):**
+```
+Apple документация (формально):
+├── CGEventTap .listenOnly  → требует Input Monitoring
+└── CGEventTap .defaultTap  → требует Accessibility
+
+Реальность (проверено на production apps):
+├── Accessibility = НАДМНОЖЕСТВО Input Monitoring
+├── Если есть Accessibility → .listenOnly CGEventTap РАБОТАЕТ
+├── Maccy, Clipy, Karabiner — используют ТОЛЬКО Accessibility
+└── Input Monitoring — избыточен при наличии Accessibility
+```
+
+**Доказательства:**
+- Текущая реализация KeyboardMonitor.swift работает с `AXIsProcessTrusted()` проверкой
+- CGEventTap с `.listenOnly` успешно создаётся при наличии Accessibility
+- Удаление Input Monitoring упростило UX (3 разрешения вместо 4)
+
+### ❌ Screen Recording Modal — НЕЛЬЗЯ УБРАТЬ!
+
+**ЗАПРЕЩЕНО пытаться обойти системный диалог Screen Recording!**
+
+**Исследование (январь 2026) показало:**
+
+| Метод | Результат |
+|-------|-----------|
+| `CGRequestScreenCaptureAccess()` | Показывает modal + регистрирует в TCC ✅ |
+| `CGPreflightScreenCaptureAccess()` | Только проверяет, НЕ регистрирует ❌ |
+| Сразу открыть System Settings | Приложение НЕ появится в списке ❌ |
+| ScreenCaptureKit `SCContentSharingPicker` | Нет диалога, но требует интерактивного выбора контента ❌ |
+| Прямая запись в TCC database | Защищена SIP — невозможно ❌ |
+
+**Вывод:** Modal — это Apple security by design. ВСЕ production apps (OBS, Loom, CleanShot X, Raycast) показывают этот диалог.
+
+### Архитектура разрешений
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     PermissionsManager                          │
+│                     (Permissions.swift)                         │
+├─────────────────────────────────────────────────────────────────┤
+│  @Published accessibilityStatus: PermissionStatus               │
+│  @Published microphoneStatus: PermissionStatus                  │
+│  @Published screenRecordingStatus: PermissionStatus             │
+│                                                                 │
+│  hasAccessibility: Bool  →  AXIsProcessTrusted()                │
+│  hasMicrophone: Bool     →  AVCaptureDevice.authorizationStatus │
+│  hasScreenRecording: Bool → CGPreflightScreenCaptureAccess()    │
+│                                                                 │
+│  hasAllRequired: Bool = hasAccessibility &&                     │
+│                         hasMicrophone &&                        │
+│                         hasScreenRecording                      │
+├─────────────────────────────────────────────────────────────────┤
+│  Polling каждые 0.5 сек на странице Permissions в онбординге    │
+│  → UI обновляется через @Published                              │
+│  → Зелёные галочки появляются мгновенно при выдаче              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Файлы системы разрешений (НЕ ТРОГАТЬ!)
+
+| Файл | Что содержит |
+|------|--------------|
+| `Permissions.swift` | PermissionsManager, PermissionType enum (3 кейса), проверки и запросы |
+| `Onboarding.swift` | PermissionsStepView — UI с 3 строками разрешений |
+| `Settings.swift` | Секция разрешений в настройках — 3 строки |
+| `KeyboardMonitor.swift` | `startMonitoring()` — проверяет ТОЛЬКО `AXIsProcessTrusted()` |
+| `DictumApp.swift` | `setupRightOptionEventTap()` — проверяет ТОЛЬКО `AXIsProcessTrusted()` |
+| `reset-permissions.sh` | Сбрасывает Accessibility, Microphone, ScreenCapture (БЕЗ ListenEvent!) |
+
+### Поведение при запросе разрешений
+
+```swift
+// Accessibility — открывает System Settings (без системного диалога)
+case .accessibility:
+    let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): false]
+    _ = AXIsProcessTrustedWithOptions(options)
+    openSettings(for: .accessibility)  // Privacy_Accessibility
+
+// Microphone — системный диалог (только первый раз)
+case .microphone:
+    AVCaptureDevice.requestAccess(for: .audio) { granted in ... }
+
+// Screen Recording — НЕИЗБЕЖНЫЙ системный modal + авто-рестарт
+case .screenRecording:
+    scheduleAppRestart()  // macOS делает SIGKILL при выдаче!
+    CGRequestScreenCaptureAccess()  // Modal unavoidable
+```
+
+### Авто-рестарт для Screen Recording
+
+**ТОЛЬКО Screen Recording требует перезапуска!**
+
+macOS делает SIGKILL приложению при выдаче Screen Recording разрешения.
+Решение — запланировать рестарт ПЕРЕД запросом:
+
+```swift
+private func scheduleAppRestart() {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/bin/sh")
+    task.arguments = ["-c", "nohup sh -c 'sleep 3; open \"\(Bundle.main.bundlePath)\"' >/dev/null 2>&1 &"]
+    try? task.run()
+}
+```
+
 ### Info.plist
 ```xml
 <key>NSAppleEventsUsageDescription</key>
@@ -425,10 +586,14 @@ for buttonType: NSWindow.ButtonType in [.closeButton, .zoomButton] {
 <true/>
 ```
 
-### System Permissions (нужны вручную)
-- **Accessibility** — System Settings → Privacy & Security → Accessibility
-- **Microphone** — запрашивается автоматически
-- **Screen Recording** — для скриншотов
+### reset-permissions.sh (текущая версия)
+```bash
+# ВАЖНО: Input Monitoring (ListenEvent) УБРАН — используем только Accessibility для CGEventTap
+tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null || true
+tccutil reset Microphone "$BUNDLE_ID" 2>/dev/null || true
+tccutil reset ScreenCapture "$BUNDLE_ID" 2>/dev/null || true
+# НЕТ tccutil reset ListenEvent — это ПРАВИЛЬНО!
+```
 
 ---
 
@@ -442,6 +607,7 @@ for buttonType: NSWindow.ButtonType in [.closeButton, .zoomButton] {
 4. **`isReleasedWhenClosed = false`** — мы сами управляем lifecycle окон
 5. **`showWindow()` создаёт окно если его нет** — защита от nil reference
 6. **После сборки ВСЕГДА запускать через скрипт** — `/bin/bash scripts/reset-permissions.sh`
+7. **⛔ СИСТЕМА РАЗРЕШЕНИЙ ЗАМОРОЖЕНА** — только 3 разрешения (Accessibility, Microphone, Screen Recording), Input Monitoring УДАЛЁН, Screen Recording modal НЕИЗБЕЖЕН — см. секцию "Требования и permissions"
 
 ### 🚫 При ошибках компиляции — ИСПРАВЛЯТЬ КОД, не настройки!
 

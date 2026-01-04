@@ -195,6 +195,79 @@ class TextReplacer: @unchecked Sendable {
         logger.debug("📝 TextReplacer: вставлено '\(text)'")
     }
 
+    // MARK: - Synchronous Methods (для DoubleCmdHandler fallback)
+
+    /// СИНХРОННАЯ замена символов через выделение
+    /// Улучшенная версия с гарантированными задержками для надёжной работы
+    /// - Parameters:
+    ///   - count: Количество символов для выделения и замены
+    ///   - newText: Новый текст для вставки
+    @MainActor
+    func replaceCharactersSync(count: Int, newText: String) {
+        guard count > 0 else {
+            pasteTextSync(newText)
+            return
+        }
+
+        // 1. Сохраняем буфер обмена
+        let savedClipboard = saveClipboard()
+
+        // 2. Выделяем символы назад (синхронно)
+        selectCharactersBackward(count: count)
+
+        // 3. СИНХРОННАЯ задержка — дать системе обработать выделение
+        // 50ms достаточно для большинства приложений
+        usleep(50_000)  // 50ms
+
+        // 4. Поставить текст в clipboard
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(newText, forType: .string)
+
+        // 5. СИНХРОННАЯ задержка перед paste
+        usleep(10_000)  // 10ms
+
+        // 6. Paste (синхронно)
+        simulatePaste()
+
+        // 7. СИНХРОННАЯ задержка после paste
+        usleep(50_000)  // 50ms
+
+        // 8. Восстановить clipboard (асинхронно, не критично)
+        DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) { [weak self] in
+            self?.restoreClipboard(savedClipboard)
+        }
+
+        logger.debug("📝 TextReplacer (sync): заменено \(count) символов на '\(newText)'")
+    }
+
+    /// СИНХРОННАЯ вставка текста
+    /// - Parameter text: Текст для вставки
+    @MainActor
+    func pasteTextSync(_ text: String) {
+        // 1. Сохраняем буфер обмена
+        let savedClipboard = saveClipboard()
+
+        // 2. Поставить текст в clipboard
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+
+        // 3. Задержка перед paste
+        usleep(10_000)  // 10ms
+
+        // 4. Paste
+        simulatePaste()
+
+        // 5. Задержка после paste
+        usleep(50_000)  // 50ms
+
+        // 6. Восстановить clipboard
+        DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) { [weak self] in
+            self?.restoreClipboard(savedClipboard)
+        }
+
+        logger.debug("📝 TextReplacer (sync): вставлено '\(text)'")
+    }
+
     // MARK: - Private Methods
 
     /// Выделяет слово назад (Shift+Option+Left)
