@@ -11,11 +11,16 @@ env:
 
 jobs:
   build:
-    runs-on: macos-14  # Apple Silicon runner
+    runs-on: macos-15  # Apple Silicon with Xcode 16+
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: |
+          brew install xcodegen
+          xcodegen --version
 
       - name: Setup environment
         run: |
@@ -25,13 +30,9 @@ jobs:
           xcode-select -p
           xcodebuild -version
 
-          # Generate Xcode project from project.yml if xcodegen is available
-          if command -v xcodegen &> /dev/null; then
-            xcodegen generate --use-cache
-            echo "✅ Xcode project generated via xcodegen"
-          else
-            echo "⚠️  xcodegen not available, using existing Dictum.xcodeproj"
-          fi
+          # Generate Xcode project from project.yml
+          xcodegen generate --use-cache
+          echo "✅ Xcode project generated via xcodegen"
 
       - name: Build application (Release)
         run: |
