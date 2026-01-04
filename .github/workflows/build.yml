@@ -2,14 +2,12 @@ name: Build
 
 on:
   push:
-    branches: [main, rename-to-dictum]
+    branches: [main]
   pull_request:
     branches: [main]
 
 env:
   APP_NAME: Dictum
-  # sherpa-onnx версия для скачивания
-  SHERPA_VERSION: "1.10.32"
 
 jobs:
   build:
@@ -24,77 +22,57 @@ jobs:
           echo "Building $APP_NAME..."
           sw_vers
           uname -m
+          xcode-select -p
+          xcodebuild -version
 
-      - name: Cache sherpa-onnx
-        id: cache-sherpa
-        uses: actions/cache@v4
-        with:
-          path: sherpa-onnx-build
-          key: sherpa-onnx-${{ env.SHERPA_VERSION }}-macos-arm64
+          # Generate Xcode project from project.yml if xcodegen is available
+          if command -v xcodegen &> /dev/null; then
+            xcodegen generate --use-cache
+            echo "✅ Xcode project generated via xcodegen"
+          else
+            echo "⚠️  xcodegen not available, using existing Dictum.xcodeproj"
+          fi
 
-      - name: Download sherpa-onnx
-        if: steps.cache-sherpa.outputs.cache-hit != 'true'
+      - name: Build application (Release)
         run: |
-          mkdir -p sherpa-onnx-build
-          cd sherpa-onnx-build
+          xcodebuild \
+            -project Dictum.xcodeproj \
+            -scheme Dictum \
+            -configuration Release \
+            -derivedDataPath ./build \
+            -destination 'platform=macOS,arch=arm64' \
+            -quiet \
+            build
 
-          # Скачиваем pre-built static library
-          curl -L -o sherpa-onnx.tar.bz2 \
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${SHERPA_VERSION}/sherpa-onnx-v${SHERPA_VERSION}-osx-arm64-static.tar.bz2"
+          # Verify build succeeded
+          APP_PATH="./build/Build/Products/Release/Dictum.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "❌ Build failed: Dictum.app not found at $APP_PATH"
+            exit 1
+          fi
+          echo "✅ Build successful: $APP_PATH"
 
-          tar xf sherpa-onnx.tar.bz2
-          rm sherpa-onnx.tar.bz2
-
-          # Переименовываем директорию
-          mv sherpa-onnx-v* install
-
-      - name: Cache T-ONE model
-        id: cache-model
-        uses: actions/cache@v4
-        with:
-          path: models
-          key: t-one-russian-2025-09-08
-
-      - name: Download T-ONE model
-        if: steps.cache-model.outputs.cache-hit != 'true'
+      - name: Verify app bundle
         run: |
-          mkdir -p models
-          curl -L -o model.tar.bz2 \
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-t-one-russian-2025-09-08.tar.bz2"
-          tar xf model.tar.bz2 -C models/
-          rm model.tar.bz2
+          APP_PATH="./build/Build/Products/Release/Dictum.app"
 
-      - name: Build application
-        run: |
-          # Настраиваем пути для CI
-          export SHERPA_BUILD_DIR="${PWD}/sherpa-onnx-build/install"
-          export SHERPA_LIB="${SHERPA_BUILD_DIR}/lib/libsherpa-onnx-c-api.a"
-          export SHERPA_INCLUDE="${SHERPA_BUILD_DIR}/include"
+          # Check essential bundle structure
+          test -d "$APP_PATH/Contents" || exit 1
+          test -f "$APP_PATH/Contents/MacOS/Dictum" || exit 1
+          test -f "$APP_PATH/Contents/Info.plist" || exit 1
 
-          # Проверяем файлы
-          ls -la sherpa-onnx-build/install/lib/ || true
-          ls -la sherpa-onnx-build/install/include/ || true
+          # Get bundle info
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist")
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PATH/Contents/Info.plist")
 
-          # Создаём структуру .app
-          mkdir -p "$APP_NAME.app/Contents/MacOS"
-          mkdir -p "$APP_NAME.app/Contents/Resources/models"
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "Version: $VERSION"
+          echo "✅ App bundle structure verified"
 
-          # Копируем ресурсы
-          cp Info.plist "$APP_NAME.app/Contents/"
-          cp AppIcon.icns "$APP_NAME.app/Contents/Resources/" 2>/dev/null || true
-          cp -r models/* "$APP_NAME.app/Contents/Resources/models/" 2>/dev/null || true
-          cp sound/*.wav "$APP_NAME.app/Contents/Resources/" 2>/dev/null || true
-          echo "APPL????" > "$APP_NAME.app/Contents/PkgInfo"
-
-          # Компилируем (упрощённая версия для CI)
-          # Примечание: полная сборка требует все static libs из sherpa-onnx
-          echo "Build configuration complete. Full compilation requires local sherpa-onnx build."
-
-      - name: Upload artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APP_NAME }}-build
-          path: |
-            ${{ env.APP_NAME }}.app/
-          if-no-files-found: warn
+          name: Dictum-Release-arm64
+          path: ./build/Build/Products/Release/Dictum.app
+          if-no-files-found: error
           retention-days: 7
