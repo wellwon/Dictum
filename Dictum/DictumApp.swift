@@ -131,28 +131,50 @@ func createMenuBarIcon() -> NSImage {
 // MARK: - Screenshot Notification View
 struct ScreenshotNotificationView: View {
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
+            // Иконка успеха
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 20))
+                .font(.system(size: 24, weight: .medium))
                 .foregroundColor(DesignSystem.Colors.accent)
+                .frame(width: 44, height: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.white.opacity(0.1))
+                )
 
+            // Текстовый блок
             VStack(alignment: .leading, spacing: 2) {
-                Text("Путь скопирован")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white)
-                Text("Готово к вставке")
-                    .font(.system(size: 11))
+                // Заголовок + время
+                HStack {
+                    Text("Dictum")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+
+                    Spacer()
+
+                    Text("Сейчас")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+
+                // Описание
+                Text("Путь скопирован в буфер")
+                    .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.7))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(12)
+        .frame(width: 320, height: 64)
         .background(
             VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
-                .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.95))
+                .overlay(Color(red: 30/255, green: 30/255, blue: 32/255).opacity(0.85))
         )
-        .cornerRadius(26)  // macOS Tahoe Toolbar Window standard
-        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(DesignSystem.Colors.borderColor, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 10, y: 5)
     }
 }
 
@@ -458,9 +480,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             screenshotNotificationWindow = nil
         }
 
-        // Создаём временное floating уведомление
+        // Создаём временное floating уведомление (320x64 как AI notification)
         let notification = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 220, height: 50),
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 64),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -476,11 +498,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let hostingView = NSHostingView(rootView: ScreenshotNotificationView())
         notification.contentView = hostingView
 
-        // Позиционируем в правом верхнем углу активного экрана
+        // Позиционируем в правом верхнем углу как нативные macOS уведомления
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
-            let x = screenFrame.maxX - 240
-            let y = screenFrame.maxY - 70
+            let x = screenFrame.maxX - 320 - 16  // ширина + отступ справа
+            let y = screenFrame.maxY - 64 - 8    // высота + отступ сверху
             notification.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
@@ -1206,7 +1228,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             contentView.superview?.layer?.masksToBounds = true
         }
 
-        sw.minSize = NSSize(width: 800, height: 600)
+        sw.minSize = NSSize(width: 900, height: 700)
 
         // Центрируем на экране с курсором (как модалка)
         let mouseLocation = NSEvent.mouseLocation
