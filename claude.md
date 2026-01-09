@@ -461,13 +461,16 @@ Apple документация (формально):
 
 | Метод | Результат |
 |-------|-----------|
-| `CGRequestScreenCaptureAccess()` | Показывает modal + регистрирует в TCC ✅ |
+| `SCShareableContent.current` | Показывает modal + регистрирует в TCC ✅ **ИСПОЛЬЗУЕМ** |
+| `CGRequestScreenCaptureAccess()` | Показывает modal, но только один раз за установку |
 | `CGPreflightScreenCaptureAccess()` | Только проверяет, НЕ регистрирует ❌ |
 | Сразу открыть System Settings | Приложение НЕ появится в списке ❌ |
 | ScreenCaptureKit `SCContentSharingPicker` | Нет диалога, но требует интерактивного выбора контента ❌ |
 | Прямая запись в TCC database | Защищена SIP — невозможно ❌ |
 
 **Вывод:** Modal — это Apple security by design. ВСЕ production apps (OBS, Loom, CleanShot X, Raycast) показывают этот диалог.
+
+**ВАЖНО:** НЕ открываем System Settings автоматически — модалка macOS уже содержит кнопку "Open System Settings".
 
 ### Архитектура разрешений
 
