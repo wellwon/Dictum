@@ -266,33 +266,7 @@ return 0.35  // без резких переходов
 ### 4. Enter работает во время записи
 `submitImmediate()` — останавливает запись, собирает текст, вставляет в одно действие.
 
-### 5. Разделение уведомлений: запись vs TextSwitcher
-
-**КРИТИЧНО:** Используются ДВА разных уведомления для записи:
-
-| Уведомление | Назначение | Кто слушает |
-|-------------|------------|-------------|
-| `.toggleRecording` | Toggle записи (хоткей §) | InputModal |
-| `.recordingStateChanged` | Информация о состоянии | TextSwitcher |
-
-```swift
-// DictumApp.swift — хоткей § отправляет toggle
-NotificationCenter.default.post(name: .toggleRecording, object: nil)
-
-// InputModal.swift — после старта/стопа информирует TextSwitcher
-NotificationCenter.default.post(
-    name: .recordingStateChanged,  // НЕ .toggleRecording!
-    object: nil,
-    userInfo: ["isRecording": true/false]
-)
-
-// TextSwitcherManager.swift — слушает ТОЛЬКО .recordingStateChanged
-NotificationCenter.default.addObserver(forName: .recordingStateChanged, ...)
-```
-
-**Почему важно:** Если использовать одно уведомление — возникает цикл: InputModal слушает `.toggleRecording`, отправляет его же для TextSwitcher, снова получает и останавливает запись через 50ms.
-
-### 6. КРИТИЧНО: Приложение живёт в menubar — НЕ закрывать при закрытии окон!
+### 5. КРИТИЧНО: Приложение живёт в menubar — НЕ закрывать при закрытии окон!
 
 **Dictum — menubar приложение.** Закрытие любого окна (настройки, главное окно) НЕ должно завершать приложение!
 
@@ -453,9 +427,9 @@ for buttonType: NSWindow.ButtonType in [.closeButton, .zoomButton] {
 
 | Разрешение | TCC Service | Назначение | API проверки | API запроса |
 |------------|-------------|------------|--------------|-------------|
-| **Accessibility** | `Accessibility` | CGEventTap для хоткеев, TextSwitcher, paste | `AXIsProcessTrusted()` | `AXIsProcessTrustedWithOptions()` + открыть Settings |
+| **Accessibility** | `Accessibility` | CGEventTap для хоткеев и paste | `AXIsProcessTrusted()` | `AXIsProcessTrustedWithOptions()` + открыть Settings |
 | **Microphone** | `Microphone` | Запись голоса для диктовки | `AVCaptureDevice.authorizationStatus(for: .audio)` | `AVCaptureDevice.requestAccess(for: .audio)` |
-| **Screen Recording** | `ScreenCapture` | Скриншоты по хоткею | `CGPreflightScreenCaptureAccess()` | `CGRequestScreenCaptureAccess()` — показывает modal! |
+| **Screen Recording** | `ScreenCapture` | Скриншоты по хоткею | `CGPreflightScreenCaptureAccess()` | `SCShareableContent.current` — modal без авто-редиректа в Settings |
 
 ### ❌ Input Monitoring — НАМЕРЕННО НЕ ИСПОЛЬЗУЕТСЯ!
 
@@ -544,10 +518,12 @@ case .accessibility:
 case .microphone:
     AVCaptureDevice.requestAccess(for: .audio) { granted in ... }
 
-// Screen Recording — НЕИЗБЕЖНЫЙ системный modal + авто-рестарт
+// Screen Recording — системный modal через ScreenCaptureKit + авто-рестарт
 case .screenRecording:
     scheduleAppRestart()  // macOS делает SIGKILL при выдаче!
-    CGRequestScreenCaptureAccess()  // Modal unavoidable
+    // SCShareableContent.current регистрирует в TCC и показывает modal
+    // НЕ открываем Settings автоматически — modal сам содержит кнопку
+    let _ = try await SCShareableContent.current
 ```
 
 ### Авто-рестарт для Screen Recording
@@ -1121,9 +1097,6 @@ logger.error("...")   // Ошибки
 # Live streaming всех логов
 ./scripts/logs.sh
 
-# Только TextSwitcher
-./scripts/logs.sh -t
-
 # Логи за последние N минут
 ./scripts/logs.sh -l 10
 
@@ -1137,13 +1110,9 @@ Subsystem: `com.dictum.app`
 
 | Category | Описание |
 |----------|----------|
-| `TextSwitcherManager` | Главный координатор TextSwitcher |
-| `KeyboardMonitor` | Мониторинг клавиатуры |
-| `UserExceptions` | Исключения пользователя |
 | `TextReplacer` | Замена текста через CGEvent |
-| `HybridValidator` | 4-слойная валидация слов |
-| `NgramScorer` | N-gram скоринг |
-| `TechBuzzwords` | Технические термины |
+| `AXTextAccessor` | Доступ к тексту через Accessibility API |
+| `AILayoutCorrector` | ИИ-коррекция раскладки |
 
 ---
 
