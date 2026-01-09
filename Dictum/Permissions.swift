@@ -19,6 +19,7 @@ import AVFoundation
 import ApplicationServices
 import AppKit
 import os
+@preconcurrency import ScreenCaptureKit
 
 private let logger = Logger(subsystem: "com.dictum.app", category: "Permissions")
 
@@ -192,11 +193,18 @@ final class PermissionsManager: ObservableObject {
                 // Потому что macOS делает SIGKILL при выдаче этого разрешения
                 scheduleAppRestart()
 
-                // CGRequestScreenCaptureAccess() ОБЯЗАТЕЛЕН для регистрации в TCC!
-                // Модалка НЕИЗБЕЖНА по дизайну Apple Security — это intentional
-                // Модалка сама содержит кнопку "Открыть Системные настройки"
-                // НЕ вызываем openSettings — иначе будет дублирование
-                CGRequestScreenCaptureAccess()
+                // ScreenCaptureKit — надёжно регистрирует приложение в TCC
+                // CGRequestScreenCaptureAccess() показывает диалог только один раз за установку,
+                // а SCShareableContent.current работает всегда
+                // Модалка macOS уже содержит кнопку "Open System Settings" — не дублируем
+                Task {
+                    do {
+                        let _ = try await SCShareableContent.current
+                        logger.info("ScreenCaptureKit: triggered TCC registration")
+                    } catch {
+                        logger.info("ScreenCaptureKit: \(error.localizedDescription)")
+                    }
+                }
             }
             completion?(false)
         }
